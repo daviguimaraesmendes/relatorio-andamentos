@@ -5,7 +5,6 @@ extração do texto, resumo pela IA local. É o que o botão Atualizar do painel
 """
 import datetime
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -32,6 +31,7 @@ def ollama_no_ar():
 def main():
     import coletor
     import extrair
+    import ia
     import resumir
 
     desde = _arg("--desde")
@@ -46,8 +46,9 @@ def main():
     extrair.rodar()
     # o modelo local só roda durante o resumo: liga aqui e desliga no fim
     servidor = None
-    if not ollama_no_ar() and shutil.which("ollama"):
-        servidor = subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    exe = ia.ollama_exe()
+    if not ollama_no_ar() and exe:
+        servidor = subprocess.Popen([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)
     try:
         resumir.rodar()

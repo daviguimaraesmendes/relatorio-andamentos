@@ -72,7 +72,9 @@ def cabecalho(ativa, titulo="Relatório de Andamentos"):
     rodando = (f" · <a href='/atualizar'>tarefa em andamento: {html.escape(TAREFA['descricao'])}</a>"
                if _tarefa_rodando() else "")
     import acesso
+    import ia
     pronto = all(acesso.situacao().values())
+    ia_pronta = ia.pronto(_modelo_ia())
     aviso = ("" if pronto or ativa == "acesso" else
              "<div class='alerta' style='margin:12px 16px'>Falta configurar o acesso (senha do certificado e "
              "código do autenticador). <a href='/acesso'>Configurar agora</a></div>")
@@ -80,9 +82,16 @@ def cabecalho(ativa, titulo="Relatório de Andamentos"):
             f"<meta name='viewport' content='width=device-width, initial-scale=1'><title>{html.escape(titulo)}</title>{ESTILO}<body>"
             f"<div class='barra'><div class='marca'>Relatório de Andamentos<span class='meta'>{rodando}</span>"
             f"<a href='/acesso' style='float:right;font-weight:normal;font-size:14px' "
-            f"class='{'ativa' if ativa == 'acesso' else ''}'>Acesso e escritório {'✓' if pronto else '(configurar)'}</a></div>"
+            f"class='{'ativa' if ativa == 'acesso' else ''}'>Acesso e escritório {'✓' if pronto else '(configurar)'}</a>"
+            f"<a href='/ia' style='float:right;font-weight:normal;font-size:14px;margin-right:18px' "
+            f"class='{'ativa' if ativa == 'ia' else ''}'>IA local {'✓' if ia_pronta else '(instalar)'}</a></div>"
             f"<div class='abas'>{abas}<a href='/novo' class='novo'>+ Novo relatório</a></div></div>"
             f"<div class='sub'>{sub}</div>{aviso}<main>")
+
+
+def _modelo_ia():
+    import resumir
+    return resumir.modelo_escolhido()
 
 
 def _msg():
@@ -114,7 +123,7 @@ def escolher_projeto():
     disponiveis = [s for s, _ in comum.projetos()]
     if slug in disponiveis and slug != comum.PROJETO:
         comum.usar_projeto(slug)
-    if not disponiveis and request.path not in ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper"):
+    if not disponiveis and request.path not in ("/novo", "/acesso", "/ia", "/tarefa", "/atualizar", "/interromper"):
         return redirect("/novo")
 
 
@@ -240,6 +249,10 @@ def atualizar():
                      "<a href='/'>Ir para a revisão</a>")
         h.append("</div>")
     bloqueado = "disabled" if _tarefa_rodando() else ""
+    import ia
+    if not ia.pronto(_modelo_ia()):
+        h.append("<div class='alerta'>A IA local ainda não está instalada: a atualização coleta tudo normalmente, mas os "
+                 "documentos entram na revisão sem resumo. <a href='/ia'>Instalar a IA local</a></div>")
     h.append(f"<form class='caixa' method='post' action='/tarefa'>{OCULTO}<input type='hidden' name='tipo' value='rodada'>"
              "<b>Buscar andamentos no jus.br</b><p class='dica'>Entra com o certificado (janela minimizada no canto), "
              "lê andamentos e documentos novos de cada processo, tira print e resume com a IA local. "
@@ -272,6 +285,8 @@ def tarefa():
         descricao = "Atualização no jus.br"
     elif tipo == "teste_acesso":
         args, descricao = py + [str(raiz / "src" / "coletor.py"), "--testar-login"], "Teste de acesso ao jus.br"
+    elif tipo == "ia":
+        args, descricao = py + [str(raiz / "src" / "ia.py"), "--instalar"], "Instalação da IA local"
     elif tipo == "conferencia":
         dias = re.sub(r"\D", "", request.form.get("dias", "7")) or "7"
         args = py + [str(raiz / "src" / "conferencia.py"), "--projeto", comum.PROJETO, "--dias", dias, "--sem-abrir"]
@@ -291,7 +306,7 @@ def tarefa():
     TAREFA.clear()
     TAREFA.update(proc=proc, log=str(log), descricao=descricao, nome=comum.projeto().get("nome", comum.PROJETO or "-"),
                   inicio=f"{datetime.datetime.now():%H:%M}")
-    return redirect("/acesso" if tipo == "teste_acesso" else "/atualizar")
+    return redirect({"teste_acesso": "/acesso", "ia": "/ia"}.get(tipo, "/atualizar"))
 
 
 @app.post("/interromper")
@@ -425,6 +440,36 @@ def ver_print():
     if not ev or not ev.get("print") or not _dentro(comum.PRINTS_DIR, ev["print"]):
         abort(404)
     return send_file(ev["print"])
+
+
+# --- IA local (vale para todos os relatórios) ---
+
+@app.get("/ia")
+def pagina_ia():
+    import ia
+    modelo = _modelo_ia()
+    st = ia.situacao(modelo)
+    rodando = _tarefa_rodando()
+    ok = lambda b: "<b style='color:var(--ok)'>pronto ✓</b>" if b else "<b style='color:var(--alerta)'>falta</b>"
+    log = ""
+    if TAREFA and TAREFA.get("descricao", "").startswith("Instalação da IA"):
+        texto = Path(TAREFA["log"]).read_text(encoding="utf-8", errors="replace")[-6000:] if Path(TAREFA["log"]).exists() else ""
+        log = (f"<pre class='log' id='log'>{html.escape(texto)}</pre>"
+               "<script>const l=document.getElementById('log');l.scrollTop=l.scrollHeight;</script>"
+               + ("<script>setTimeout(()=>location.reload(),3000)</script>" if rodando else ""))
+    completo = st["instalado"] and st["modelo_baixado"]
+    botao = ("" if completo else
+             f"<form method='post' action='/tarefa'>{OCULTO}<input type='hidden' name='tipo' value='ia'>"
+             f"<button class='principal' {'disabled' if rodando else ''}>Instalar IA local</button></form>")
+    return (cabecalho("ia", "IA local") + "<h1>IA local</h1>" + _msg() +
+            "<div class='caixa'><p class='dica'>A IA que resume os documentos roda <b>neste computador</b>: nenhum documento "
+            "de cliente é enviado para a internet. Ela é opcional, e não vem junto com o programa porque ocupa de 2 a 3,5 GB. "
+            "Sem ela, os andamentos são coletados normalmente e os documentos entram na revisão sem resumo.</p>"
+            f"<p>Motor (Ollama): {ok(st['instalado'])}<br>Modelo <b>{html.escape(modelo)}</b>: {ok(st['modelo_baixado'])}</p>"
+            + ("<p><b>Tudo pronto.</b> Os próximos resumos já usam esta IA.</p>" if completo else
+               "<p class='dica'>O botão baixa o motor (se faltar) e o modelo, com a internet do computador. "
+               "Pode levar vários minutos; se a conexão cair, clique de novo que continua de onde parou.</p>")
+            + botao + log + "</div>")
 
 
 # --- Acesso e escritório (vale para todos os relatórios) ---
