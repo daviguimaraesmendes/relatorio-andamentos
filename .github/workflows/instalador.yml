@@ -1,12 +1,18 @@
 name: Instalador do Windows
 
 # Gera dist/Instalar-Relatorio-de-Andamentos-<versao>.exe (Python embutido; a IA local
-# é baixada depois, por um botão do painel). Em tags v*, publica o .exe numa release.
+# é baixada depois, por um botão do painel). Publica o .exe numa release em tags v* ou ao disparar
+# manualmente com a versão digitada (cria a tag).
 on:
   push:
     branches: [main, "claude/**"]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publicar_versao:
+        description: "Para publicar uma release, digite a versão (ex.: 1.0.0). Em branco, só gera o instalador."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -32,6 +38,7 @@ jobs:
         shell: pwsh
         run: |
           if ("${{ github.ref_type }}" -eq "tag") { $v = "${{ github.ref_name }}".TrimStart("v") }
+          elseif ("${{ inputs.publicar_versao }}") { $v = "${{ inputs.publicar_versao }}".TrimStart("v") }
           else { $v = "0.1.${{ github.run_number }}" }
           "v=$v" >> $env:GITHUB_OUTPUT
 
@@ -77,10 +84,11 @@ jobs:
           name: instalador-windows
           path: dist/Instalar-Relatorio-de-Andamentos-*.exe
 
-      - name: Publicar na release (só em tags)
-        if: github.ref_type == 'tag'
+      - name: Publicar na release (em tags ou com a versão digitada no disparo manual)
+        if: github.ref_type == 'tag' || inputs.publicar_versao != ''
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" dist/Instalar-Relatorio-de-Andamentos-*.exe --title "${{ github.ref_name }}" --generate-notes
+          $tag = "v${{ steps.versao.outputs.v }}"
+          gh release create $tag dist/Instalar-Relatorio-de-Andamentos-*.exe --target "${{ github.sha }}" --title $tag --generate-notes
