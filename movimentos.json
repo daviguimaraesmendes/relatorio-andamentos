@@ -1,0 +1,280 @@
+{
+  "_leia": "Tradução fixa de movimentações SEM documento para linguagem de cliente. Sem IA. Padrões são expressões regulares (sem diferenciar maiúscula/minúscula), testadas na ordem; a primeira que casar vence. 'relevante: false' = não entra no relatório ao cliente. Grupos nomeados (?P<nome>...) podem ser usados na frase como {nome}.",
+  "movimentos": [
+    {
+      "padrao": "^Decorrido o prazo de (?P<parte>.+?) em (?P<data>\\d{2}/\\d{2}/\\d{4})",
+      "frase": "Terminou o prazo de {parte}.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Decorrido o prazo de (?P<parte>.+)",
+      "frase": "Terminou o prazo de {parte}.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Publicado\\(a\\) o\\(a\\) (?P<tipo>.+?) em (?P<data>\\d{2}/\\d{2}/\\d{4})",
+      "frase": "Foi publicada {tipo} no Diário de Justiça.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Disponibilizado ?\\(a\\) o\\(a\\) .*Di[aá]rio",
+      "frase": "A comunicação foi disponibilizada no Diário de Justiça.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Expedido\\(a\\) (?P<tipo>intima[cç][aã]o|notifica[cç][aã]o|cita[cç][aã]o|mandado|of[ií]cio) a\\(o\\) (?P<parte>.+)",
+      "frase": "Foi expedida {tipo} para {parte}.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Conclusos os autos para (?P<fim>despacho|decis[aã]o|julgamento|senten[cç]a)",
+      "frase": "O processo foi encaminhado ao juiz para {fim}.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Juntada a peti[cç][aã]o de (?P<tipo>.+)",
+      "frase": "Foi apresentada petição ({tipo}).",
+      "relevante": true
+    },
+    {
+      "padrao": "^Audi[eê]ncia (?P<tipo>.+?) designada \\((?P<quando>\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2})",
+      "frase": "Foi marcada audiência {tipo} para {quando}.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Audi[eê]ncia (?P<tipo>.+?) realizada \\((?P<quando>\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2})",
+      "frase": "Foi realizada a audiência {tipo} de {quando}.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Audi[eê]ncia (?P<tipo>.+?) cancelada \\((?P<quando>\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2})",
+      "frase": "Foi cancelada a audiência {tipo} de {quando}.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Audi[eê]ncia (?P<tipo>.+?) cancelada",
+      "frase": "Foi cancelada audiência ({tipo}).",
+      "relevante": true
+    },
+    {
+      "padrao": "^(Encerrada|Levantada) a suspens[aã]o",
+      "frase": "O processo voltou a tramitar (fim da suspensão).",
+      "relevante": true
+    },
+    {
+      "padrao": "^Suspenso o processo por (?P<motivo>.+)",
+      "frase": "O processo foi suspenso ({motivo}).",
+      "relevante": true
+    },
+    {
+      "padrao": "^(Devolvido|Recebido) o mandado",
+      "frase": "Movimentação do oficial de justiça com o mandado.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Publicad[oa] (?P<tipo>Senten[cç]a|Decis[aã]o|Despacho|Ac[oó]rd[aã]o) em (?P<data>\\d{2}/\\d{2}/\\d{4})",
+      "frase": "Foi publicada a {tipo} no Diário de Justiça.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Embargos de Declara[cç][aã]o (?P<resultado>Acolhidos em Parte|Acolhidos|N[aã]o Acolhidos|Rejeitados)",
+      "frase": "Os embargos de declaração foram julgados ({resultado}).",
+      "relevante": true
+    },
+    {
+      "padrao": "^(Concedida|Deferida) (a )?(?P<pedido>.+)",
+      "frase": "Foi deferido o pedido ({pedido}).",
+      "relevante": true
+    },
+    {
+      "padrao": "^(Indeferida|Indeferido|Denegada) (a |o )?(?P<pedido>.+)",
+      "frase": "Foi indeferido o pedido ({pedido}).",
+      "relevante": true
+    },
+    {
+      "padrao": "^Julgad[oa]s? (?P<resultado>procedente|improcedente|procedentes em parte|parcialmente procedente)",
+      "frase": "O pedido foi julgado {resultado}.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Disponibilizado no DJ Eletr[oô]nico",
+      "frase": "A intimação foi disponibilizada no Diário de Justiça.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Ato ordinat[oó]rio praticado",
+      "frase": "O cartório praticou ato de rotina (ato ordinatório).",
+      "relevante": false
+    },
+    {
+      "padrao": "^Recebidos os autos do CEJUSC",
+      "frase": "O processo voltou do centro de conciliação.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Conclusos para despacho",
+      "frase": "O processo foi encaminhado ao juiz para despacho.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Conclusos para decis[aã]o",
+      "frase": "O processo foi encaminhado ao juiz para decisão.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Conclusos para julgamento",
+      "frase": "O processo foi encaminhado para julgamento.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Proferido despacho de mero expediente",
+      "frase": "O juiz deu andamento ao processo com um despacho de rotina.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Homologad[oa]s? os c[aá]lculos",
+      "frase": "O juiz homologou (aprovou) os cálculos.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Negado seguimento a Recurso",
+      "frase": "O tribunal negou seguimento ao recurso.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Deliberado em Sess[aã]o - Retirado",
+      "frase": "O julgamento foi retirado de pauta na sessão.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Remetidos os Autos \\(em grau de recurso\\)",
+      "frase": "O processo foi enviado ao tribunal para julgamento do recurso.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Remetidos os Autos \\(outros motivos\\) para Contadoria",
+      "frase": "O processo foi enviado à contadoria do juízo para cálculos.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Remetidos os Autos \\(outros motivos\\) para Gabinete",
+      "frase": "O processo foi enviado ao gabinete do juiz.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Remetidos os Autos",
+      "frase": "O processo foi enviado a outro setor do Judiciário.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Recebidos os autos",
+      "frase": "O processo foi recebido no setor responsável.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Processo suspenso em raz[aã]o de expedi[cç][aã]o de precat[oó]rio",
+      "frase": "O processo foi suspenso aguardando o pagamento do precatório.",
+      "relevante": true
+    },
+    {
+      "padrao": "^(Processo )?[Ss]uspenso",
+      "frase": "O processo foi suspenso.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Arquivado Definitivamente",
+      "frase": "O processo foi arquivado definitivamente.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Arquivado",
+      "frase": "O processo foi arquivado.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Desarquivad",
+      "frase": "O processo foi desarquivado.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Tr[aâ]nsito em julgado|^Transitado em julgado",
+      "frase": "A decisão se tornou definitiva (trânsito em julgado).",
+      "relevante": true
+    },
+    {
+      "padrao": "^Audi[eê]ncia (?P<tipo>.*?) (designada|marcada)",
+      "frase": "Foi marcada audiência ({tipo}).",
+      "relevante": true
+    },
+    {
+      "padrao": "^Audi[eê]ncia (?P<tipo>.*?) realizada",
+      "frase": "Foi realizada audiência ({tipo}).",
+      "relevante": true
+    },
+    {
+      "padrao": "^Expedi[cç][aã]o de Intima[cç][aã]o de Pauta",
+      "frase": "As partes foram intimadas da data de julgamento.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Publicado Intima[cç][aã]o em (?P<data>\\d{2}/\\d{2}/\\d{4})",
+      "frase": "Foi publicada intimação no Diário de Justiça.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Decorrido prazo de (?P<parte>.+?) em (?P<data>\\d{2}/\\d{2}/\\d{4})",
+      "frase": "Terminou o prazo de {parte}.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Expedi[cç][aã]o de (Mandado|Of[ií]cio|Alvar[aá])",
+      "frase": "O juízo expediu documento para cumprimento de ordem.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Expedi[cç][aã]o de",
+      "frase": "O cartório emitiu documento de rotina.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Expedida/certificada a comunica[cç][aã]o eletr[oô]nica",
+      "frase": "O cartório enviou intimação eletrônica.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Confirmada a comunica[cç][aã]o eletr[oô]nica",
+      "frase": "A intimação eletrônica foi recebida.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Juntada de (entregue|n[aã]o entregue)",
+      "frase": "Foi juntado o comprovante da carta enviada pelos Correios.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Juntada de certid[aã]o",
+      "frase": "O cartório juntou certidão de rotina.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Juntada de Peti[cç][aã]o de peti[cç][aã]o\\s*$",
+      "frase": "Foi apresentada petição.",
+      "relevante": true
+    },
+    {
+      "padrao": "^Juntada de Peti[cç][aã]o de (?P<tipo>.+)",
+      "frase": "Foi apresentada petição ({tipo}).",
+      "relevante": true
+    },
+    {
+      "padrao": "^Juntada de",
+      "frase": "Foi juntado documento ao processo.",
+      "relevante": false
+    },
+    {
+      "padrao": "^Distribu[ií]d",
+      "frase": "O processo foi distribuído.",
+      "relevante": true
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+# Dados de clientes e de cada máquina: NUNCA vão para o repositório
+projetos/
+config.json
+*.log
+
+# Gerados
+.venv/
+dist/
+__pycache__/
+*.pyc
+.DS_Store

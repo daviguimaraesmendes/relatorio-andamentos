@@ -1,0 +1,34 @@
+<!doctype html><html><meta charset="utf-8"><body>
+<!-- Estrutura da tela de autos digitais do PDPJ: abas e blocos por data como na página real
+     (andamentos copiados de 12/08/2026; documentos com nomes genéricos, estrutura de 03/10/2026). -->
+<app-root aria-hidden="true">
+<button type="button" class="mat-icon-button" aria-label="Abrir/fechar menu de navegação" onclick="menu(true)"><span>menu</span></button>
+<p>Processo nº 0000000-00.0000.0.00.0000 - PROCEDIMENTO COMUM CÍVEL</p>
+<div class="mat-tab-labels">
+  <div role="tab" class="mat-tab-label" id="mat-tab-label-0-0" onclick="ativar(0)"><div class="mat-tab-label-content"><span>Documentos</span></div></div>
+  <div role="tab" class="mat-tab-label" id="mat-tab-label-0-1" onclick="ativar(1)"><div class="mat-tab-label-content"><span>Movimentos</span></div></div>
+</div>
+<mat-tab-body role="tabpanel" class="mat-tab-body" id="b0"><div class="movimentos ng-star-inserted"><div class="movimento ng-star-inserted"><div class="data"><em class="fas fa-calendar-alt calendario"></em>&nbsp;&nbsp; 1 de outubro de 2026 </div><div class="timeline"><div class="texto p-2 mr-3"><div class="d-flex mb-1"><div class="ml-1"><a href="javascript:" rel="opener" class="documento-nome" title="Abrir 201 - Decisão - Decisão.html"> 201 - Decisão - Decisão.html </a></div></div></div></div></div><div class="movimento ng-star-inserted"><div class="data"><em class="fas fa-calendar-alt calendario"></em>&nbsp;&nbsp; 3 de setembro de 2026 </div><div class="timeline"><div class="texto p-2 mr-3"><div class="d-flex mb-1"><div class="ml-1"><a href="javascript:" rel="opener" class="documento-nome" title="Abrir 200 - Ata de Audiência de Conciliação - C06.pdf"> 200 - Ata de Audiência de Conciliação - C06.pdf </a></div></div></div><div class="texto p-2 mr-3"><div class="d-flex mb-1"><div class="ml-1"><a href="javascript:" rel="opener" class="documento-nome" title="Abrir 199 - Petição (outras) - Manifestação.pdf"> 199 - Petição (outras) - Manifestação.pdf </a></div></div></div></div></div></div></mat-tab-body>
+<mat-tab-body role="tabpanel" class="mat-tab-body mat-tab-body-active" id="b1"><div _ngcontent-all-c252="" class="movimentos ng-star-inserted"><div _ngcontent-all-c252="" class="movimento ng-star-inserted"><div _ngcontent-all-c252="" class="data"><em _ngcontent-all-c252="" class="fas fa-calendar-alt calendario"></em>&nbsp;&nbsp; 6 de agosto de 2026 </div><div _ngcontent-all-c252="" class="timeline ng-star-inserted"><div _ngcontent-all-c252="" class="texto p-2 mr-3">Juntada de documento comprobatório</div></div><!----></div><div _ngcontent-all-c252="" class="movimento ng-star-inserted"><div _ngcontent-all-c252="" class="data"><em _ngcontent-all-c252="" class="fas fa-calendar-alt calendario"></em>&nbsp;&nbsp; 30 de julho de 2026 </div><div _ngcontent-all-c252="" class="timeline ng-star-inserted"><div _ngcontent-all-c252="" class="texto p-2 mr-3">Juntada de Certidão</div></div><div _ngcontent-all-c252="" class="timeline ng-star-inserted"><div _ngcontent-all-c252="" class="texto p-2 mr-3">Expedida/certificada a comunicação eletrônica</div></div><div _ngcontent-all-c252="" class="timeline ng-star-inserted"><div _ngcontent-all-c252="" class="texto p-2 mr-3">Proferido despacho de mero expediente</div></div><div _ngcontent-all-c252="" class="timeline ng-star-inserted"><div _ngcontent-all-c252="" class="texto p-2 mr-3">Conclusos para despacho</div></div><div _ngcontent-all-c252="" class="timeline ng-star-inserted"><div _ngcontent-all-c252="" class="texto p-2 mr-3">Distribuído por sorteio</div></div><!----></div><!----></div></mat-tab-body>
+<div class="dados-documento"> Nenhum documento selecionado </div>
+<div class="conteudo"><p>Ante o exposto, INDEFIRO o pedido de tutela de urgência formulado pela parte autora.</p></div>
+</app-root>
+<!-- menu lateral do portal: aberto, cobre a página inteira (como na falha de 03/10/2026) -->
+<div class="mat-drawer-backdrop" id="fundo" onclick="menu(false)" style="position:fixed;inset:0;display:none;z-index:10"></div>
+<mat-sidenav class="mat-drawer mat-sidenav" id="menu" style="position:fixed;left:0;top:0;bottom:0;width:300px;display:none;z-index:11;background:#fff">Página inicial</mat-sidenav>
+<div class="cdk-overlay-container" id="guia"><mat-dialog-container class="mat-dialog-container">
+  <h2>Você está na navegação guiada</h2>
+  <button type="button" class="mat-button" onclick="document.getElementById('guia').remove();document.querySelector('app-root').removeAttribute('aria-hidden')"><span class="mat-button-wrapper">Pular</span></button>
+</mat-dialog-container></div>
+<script>
+function menu(abrir) {
+  document.getElementById('menu').classList.toggle('mat-drawer-opened', abrir);
+  document.getElementById('menu').style.display = abrir ? 'block' : 'none';
+  document.getElementById('fundo').classList.toggle('mat-drawer-shown', abrir);
+  document.getElementById('fundo').style.display = abrir ? 'block' : 'none';
+}
+function ativar(n) {
+  document.querySelectorAll('mat-tab-body').forEach((b, i) => b.classList.toggle('mat-tab-body-active', i === n));
+}
+</script>
+</body></html>
