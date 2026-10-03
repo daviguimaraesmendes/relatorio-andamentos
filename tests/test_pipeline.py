@@ -185,7 +185,7 @@ class Pipeline(unittest.TestCase):
         comum.salvar_eventos(lista)
         gerados = relatorio.gerar()
         self.assertEqual(len(gerados), 1)
-        html = gerados[0].read_text()
+        html = gerados[0].read_text(encoding="utf-8")
         self.assertIn("Foi proferida decisão dizendo que o pedido de urgência da parte contrária foi negado", html)
         self.assertIn("Audiência: 12/11/2026", html)
         self.assertNotIn("custas", html, "rascunho não aprovado não pode sair no relatório")
