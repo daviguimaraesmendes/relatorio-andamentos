@@ -94,6 +94,33 @@ def partes_do_processo(numero):
     return sorted(vistos)
 
 
+def publicacoes_do_processo(numero, buscar_=None):
+    """Itens brutos das publicações do processo (todas as páginas). `buscar_` permite injetar
+    uma função no lugar de `buscar` (testes sem rede); usado por capa.py (fonte "djen")."""
+    return (buscar_ or buscar)(numeroProcesso=numero)
+
+
+def partes_por_polo(itens):
+    """{"A": [nomes], "P": [nomes], "outros": [nomes]} dos destinatários de publicações já baixadas
+    (lista de itens como a que `buscar` devolve; aceita também o dict {"items": [...]} da API).
+    Sem rede. Nomes repetidos entram uma vez, na ordem em que aparecem; polo desconhecido vai para "outros".
+    Atenção: destinatário é quem foi intimado, não necessariamente todas as partes do processo, e o DJEN
+    corta nomes longos."""
+    if isinstance(itens, dict):
+        itens = itens.get("items") or []
+    saida = {"A": [], "P": [], "outros": []}
+    for item in itens or []:
+        for d in (item or {}).get("destinatarios") or []:
+            nome = " ".join(str(d.get("nome", "")).split())
+            if not nome:
+                continue
+            chave = str(d.get("polo") or "").strip().upper()
+            lista = saida[chave if chave in ("A", "P") else "outros"]
+            if nome not in lista:
+                lista.append(nome)
+    return saida
+
+
 # --- 1. descoberta ---
 
 def descobrir(dias=180):
