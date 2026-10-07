@@ -1294,6 +1294,104 @@ class TestDetectar(unittest.TestCase):
                 rel = leitores.ler(lixo, formato=formato)
                 self.assertEqual(rel["processos"], [])
 
+# ================================================================ ida e volta com o escritor de produção (WS-6)
+
+try:
+    from escritores import docx_a as escritor_docx
+except ImportError:      # pragma: no cover  (WS-6 ainda não integrado)
+    escritor_docx = None
+
+
+@unittest.skipUnless(escritor_docx is not None, "sem src/escritores/docx_a.py")
+class TestIdaEVoltaComEscritorDeProducao(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pasta = pasta("producao")
+
+    def _fichas_da_leitura(self, rel):
+        fichas = []
+        for p in rel["processos"]:
+            g = ficha.nova_ficha(p["numero"])
+            for campo, c in p["campos"].items():
+                ficha.definir(g, campo, c["valor"], c["origem"])
+            for v in p["vinculados"]:
+                ficha.vincular(g, v["numero"], v["tipo"])
+            if p.get("momento_qualificador"):
+                g["campos"]["momento_qualificador"] = {"valor": p["momento_qualificador"], "origem": "migrado"}
+            g["linha_de_base"] = {"data_base": rel["data_base"], "andamentos_texto": p["andamentos_texto"],
+                                  "arquivo": rel["arquivo"], "ultimo_andamento": p["ultimo_andamento"]}
+            ficha.definir(g, "ultimo_andamento", p["ultimo_andamento"], "migrado")
+            fichas.append(g)
+        return fichas
+
+    def test_200_processos_nos_dois_estilos_e_com_qualificador(self):
+        fichas = copy.deepcopy(fichas_200())
+        for f in fichas:
+            f.pop("ultimo_texto_gravado", None)
+        com_qual = next(f for f in fichas if ficha.obter(f, "momento_atual") == "CUMPRIMENTO DE SENTENÇA")
+        com_qual["campos"]["momento_qualificador"] = {"valor": "HONORÁRIOS SUSPENSOS", "origem": "migrado"}
+        for estilo in ("a", "b"):
+            estado = {"cliente": "Cliente Exemplo 01 Ltda", "data_base": "2026-10-07", "fichas": fichas, "eventos": [],
+                      "perfil": {"estilo_texto": estilo}}
+            destino = self.pasta / f"gerado_{estilo}.docx"
+            res = escritor_docx.gravar(None, estado, destino)
+            self.assertTrue(res.get("gravado", True))
+            rel = leitores.ler(destino)
+            self.assertEqual(leitores.detectar(destino), "docx_a")
+            self.assertEqual(len(rel["processos"]), 200, estilo)
+            self.assertEqual(codigos(rel, "erro"), [], estilo)
+            self.assertEqual(rel["data_base"], "2026-10-07")
+            lidos = por_numero(rel)
+            campos = ("assunto", "autores", "reus", "data_ajuizamento", "valor_causa", "data_citacao", "vara", "area",
+                      "materia_principal", "momento_atual")
+            for f in fichas:
+                p = lidos[f["numero"]]
+                self.assertEqual(lido_do_processo(p, campos), esperado_do_ficha(f, campos), (estilo, f["numero"]))
+                self.assertEqual(p["vinculados"], f["vinculados"], (estilo, f["numero"]))
+                self.assertEqual(norm_andamento(p["andamentos_texto"]), norm_andamento(f["linha_de_base"]["andamentos_texto"]))
+                self.assertEqual(p["ultimo_andamento"], f["linha_de_base"]["ultimo_andamento"])
+            self.assertEqual(lidos[com_qual["numero"]].get("momento_qualificador"), "HONORÁRIOS SUSPENSOS", estilo)
+            # ida e volta: o que foi lido volta a ser gravado e lido igual
+            fichas2 = self._fichas_da_leitura(rel)
+            destino2 = self.pasta / f"regravado_{estilo}.docx"
+            escritor_docx.gravar(None, {"cliente": rel["cliente"], "data_base": rel["data_base"], "fichas": fichas2, "eventos": [],
+                                        "perfil": {"estilo_texto": estilo}}, destino2)
+            rel2 = leitores.ler(destino2)
+            a, b = por_numero(rel), por_numero(rel2)
+            self.assertEqual(set(a), set(b))
+            for numero, p in a.items():
+                q = b[numero]
+                self.assertEqual({c: v["valor"] for c, v in q["campos"].items()}, {c: v["valor"] for c, v in p["campos"].items()}, numero)
+                self.assertEqual(q["vinculados"], p["vinculados"])
+                self.assertEqual(norm_andamento(q["andamentos_texto"]), norm_andamento(p["andamentos_texto"]), numero)
+                self.assertEqual(q["ultimo_andamento"], p["ultimo_andamento"])
+                self.assertEqual(q.get("momento_qualificador"), p.get("momento_qualificador"))
+
+    def test_atualizar_arquivo_do_cliente_e_ler_de_novo(self):
+        molde = self.pasta / "molde.docx"
+        if COM_SPIKES:
+            s2_gm.gerar(molde, n=12)
+        else:
+            self.skipTest("sem spikes/")
+        rel = leitores.ler(molde)
+        fichas = self._fichas_da_leitura(rel)
+        alvo = fichas[0]
+        evento = {"numero": alvo["numero"], "status": "aprovado", "data": "2026-10-02",
+                  "frase": "foi proferida sentença de procedência", "tipo": "sentenca"}
+        destino = self.pasta / "atualizado.docx"
+        escritor_docx.gravar(molde, {"cliente": rel["cliente"], "data_base": "2026-10-07", "fichas": fichas, "eventos": [evento],
+                                     "perfil": {}}, destino)
+        rel2 = leitores.ler(destino)
+        self.assertEqual(len(rel2["processos"]), 12)
+        self.assertEqual(rel2["data_base"], "2026-10-07")
+        novo, antigo = por_numero(rel2)[alvo["numero"]], por_numero(rel)[alvo["numero"]]
+        self.assertEqual(novo["ultimo_andamento"], "2026-10-02")
+        self.assertIn("sentença de procedência", novo["andamentos_texto"])
+        self.assertTrue(norm_andamento(novo["andamentos_texto"]).startswith(norm_andamento(antigo["andamentos_texto"])))
+        self.assertNotIn("fecho", novo)           # processo com novidade termina na novidade
+        self.assertEqual(rel2["processos"][1]["fecho"], "2026-10-07")        # sem novidade: fecho renovado
+        self.assertEqual(codigos(rel2, "erro"), [])
+
 
 class TestContrato(unittest.TestCase):
     """O que CONTRATOS §4 promete de todo RelatorioLido."""
