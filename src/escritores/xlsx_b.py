@@ -2073,6 +2073,10 @@ class _Gravacao:
                 acc["avisos"].append(_aviso("info", "coluna_ausente", onde,
                                             f"A planilha não tem as colunas {', '.join(CAMPOS_B[c] for c in faltam)} "
                                             f"({motivo}); esses campos não foram gravados.", [CAMPOS_B[c] for c in faltam]))
+        if "andamentos" not in mapa and "andamentos" not in a["ambiguos"]:
+            acc["avisos"].append(_aviso("atencao", "coluna_ausente", onde,
+                                        f"A aba {onde!r} não tem a coluna 'Andamentos': o texto dos andamentos não foi "
+                                        "gravado nela."))
         divergencias = {}      # (campo) -> [numeros]
         celulas, novas, novos_numeros = {}, [], []
         for plano in planos:

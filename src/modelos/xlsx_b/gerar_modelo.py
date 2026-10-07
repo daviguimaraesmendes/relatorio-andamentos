@@ -379,6 +379,44 @@ def construir():
     return wb
 
 
+NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+
+
+def _compartilhar_textos(partes):
+    """Troca as strings inline que o openpyxl desta versão grava por sharedStrings, como o Excel grava
+    (cabeçalhos de tabela, em especial, ficam no formato que o Excel espera)."""
+    tabela, ordem, total = {}, [], 0
+    padrao = re.compile(r'<c r="([A-Z]+\d+)"((?: s="\d+")?) t="inlineStr"><is><t(?: [^>]*)?>(.*?)</t></is></c>', re.S)
+    for nome in sorted(partes):
+        if not (nome.startswith("xl/worksheets/sheet") and nome.endswith(".xml")):
+            continue
+
+        def sub(m):
+            nonlocal total
+            txt = m.group(3)
+            if txt not in tabela:
+                tabela[txt] = len(ordem)
+                ordem.append(txt)
+            total += 1
+            return f'<c r="{m.group(1)}"{m.group(2)} t="s"><v>{tabela[txt]}</v></c>'
+        partes[nome] = padrao.sub(sub, partes[nome].decode("utf-8")).encode("utf-8")
+    if "xl/sharedStrings.xml" in partes or not ordem:
+        return
+    itens = "".join(f'<si><t xml:space="preserve">{t}</t></si>' if t != t.strip() else f"<si><t>{t}</t></si>"
+                    for t in ordem)
+    partes["xl/sharedStrings.xml"] = (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<sst xmlns="{NS_MAIN}" count="{total}" '
+        f'uniqueCount="{len(ordem)}">{itens}</sst>').encode("utf-8")
+    partes["xl/_rels/workbook.xml.rels"] = partes["xl/_rels/workbook.xml.rels"].replace(
+        b"</Relationships>",
+        b'<Relationship Id="rIdSst1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/'
+        b'sharedStrings" Target="sharedStrings.xml"/></Relationships>')
+    partes["[Content_Types].xml"] = partes["[Content_Types].xml"].replace(
+        b"</Types>",
+        b'<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+        b'spreadsheetml.sharedStrings+xml"/></Types>')
+
+
 def gerar(destino=None):
     """Grava o modelo padrão (determinístico) em `destino` e devolve o caminho."""
     destino = Path(destino or AQUI / "modelo_padrao.xlsx")
@@ -386,6 +424,7 @@ def gerar(destino=None):
     construir().save(buf)
     with zipfile.ZipFile(buf) as z:
         partes = {i.filename: z.read(i.filename) for i in z.infolist()}
+    _compartilhar_textos(partes)
     carimbo = DATA_FIXA.strftime("%Y-%m-%dT%H:%M:%SZ")
     core = partes["docProps/core.xml"].decode("utf-8")
     partes["docProps/core.xml"] = re.sub(r"(<dcterms:(?:created|modified)\b[^>]*>)[^<]*",

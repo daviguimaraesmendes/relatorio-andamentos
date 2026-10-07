@@ -1581,6 +1581,29 @@ class TestRecusasDoGravar(BaseLO):
         self.assertIn("tabela dinâmica", av[0]["mensagem"])
         self.assertEqual(openpyxl.load_workbook(dest)["Processos"].max_column, 29)
 
+    def test_filtro_ativo_com_linhas_ocultas_avisa(self):
+        m = regravar_zip(self.A, self.saida("filtro.xlsx"), {
+            "xl/tables/table1.xml": lambda d: re.sub(
+                rb'<autoFilter ref="([^"]+)"/>',
+                rb'<autoFilter ref="\1"><filterColumn colId="0"><filters><filter val="x"/></filters></filterColumn></autoFilter>', d),
+            "xl/worksheets/sheet1.xml": lambda d: d.replace(b'<row r="3"', b'<row r="3" hidden="1"', 1)})
+        novas = ficticio.gerar_carteira(8, clientes=1, semente=5)
+        dest = self.saida("filtro-out.xlsx")
+        r = x.gravar(m, estado_de(novas), dest)
+        self.assertIsNotNone(r["destino"])
+        self.assertIn("filtro_ativo", [a["codigo"] for a in r["avisos"]])
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        self.assertFalse(ws.row_dimensions[8].hidden)           # linha nova entra visível
+        self.assertTrue(ws.row_dimensions[3].hidden)            # a oculta continua oculta
+
+    def test_aba_sem_coluna_andamentos_avisa(self):
+        cli = construir_cliente(self.saida("sem-and.xlsx"), {"Processos": self.fichas[:3]},
+                                campos=["numero", "autores", "reus", "vara", "valor_causa"])
+        r = x.gravar(cli, estado_de(self.fichas[:3]), self.saida("sem-and-out.xlsx"))
+        self.assertIsNotNone(r["destino"])
+        av = [a for a in r["avisos"] if a["codigo"] == "coluna_ausente" and "Andamentos" in a["mensagem"]]
+        self.assertEqual(len(av), 1)
+
     def test_validacao_pos_escrita_barra_arquivo_ruim(self):
         """Se o verificador achar problema NOVO no arquivo gerado, nada é entregue e o destino anterior fica intacto."""
         dest = self.saida("ja-existe.xlsx")
