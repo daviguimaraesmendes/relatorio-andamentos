@@ -1091,14 +1091,14 @@ class TestLista(unittest.TestCase):
         n = [ficticio.numero_ficticio(i) for i in range(3)]
         casos = {"virgula.csv": ("Processo,Cliente\n{0},Cliente Exemplo 01 Ltda\n{1},Cliente Exemplo 02 Ltda\n".format(*n), "utf-8"),
                  "tab.csv": ("Processo\tCliente\n{0}\tCliente Exemplo 01 Ltda\n{1}\tCliente Exemplo 02 Ltda\n".format(*n), "utf-8"),
-                 "cp1252.csv": ("Nº;Cliente\n{0};Comércio Exemplo Ação Ltda\n{1};Serviços Exemplo Ltda\n".format(*n), "cp1252")}
+                 "cp1252.csv": ("Nº;Cliente\n{0};Cliente Exemplo 03 Ltda (Conceição)\n{1};Cliente Exemplo 04 Ltda\n".format(*n), "cp1252")}
         for nome, (texto, cod) in casos.items():
             arq = self.pasta / nome
             arq.write_bytes(texto.encode(cod))
             rel = leitores.ler(arq)
             self.assertEqual([p["numero"] for p in rel["processos"]], n[:2], nome)
-            self.assertTrue(valor(rel["processos"][0], "cliente").startswith(("Cliente", "Comércio")), nome)
-        self.assertEqual(valor(leitores.ler(self.pasta / "cp1252.csv")["processos"][0], "cliente"), "Comércio Exemplo Ação Ltda")
+            self.assertTrue(valor(rel["processos"][0], "cliente").startswith("Cliente"), nome)
+        self.assertEqual(valor(leitores.ler(self.pasta / "cp1252.csv")["processos"][0], "cliente"), "Cliente Exemplo 03 Ltda (Conceição)")
 
     def test_texto_sem_numero_nao_e_lista(self):
         arq = self.pasta / "nada.txt"
