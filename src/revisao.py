@@ -15,8 +15,8 @@ from flask import Flask
 
 import cadastro
 from comum import config
-from painel import (acesso_tela, atualizar, base, configuracao, documentos, planilha_mes, projetos,
-                    relatorio_html, revisao_eventos)
+from painel import (acesso_tela, atualizar, base, configuracao, documentos, planilha_mes, processo, projetos,
+                    relatorio_html, revisao_eventos, revisao_lote)
 
 app = Flask(__name__)
 TOKEN = secrets.token_urlsafe(24)
@@ -24,7 +24,7 @@ token_ok = base.criar_token_ok(TOKEN)
 cabecalho = base.cabecalho
 
 for tela in (base, projetos, revisao_eventos, atualizar, planilha_mes, relatorio_html, configuracao,
-             documentos, acesso_tela, cadastro):
+             documentos, acesso_tela, cadastro, revisao_lote, processo):
     tela.registrar(app, TOKEN, cabecalho, token_ok)
 
 

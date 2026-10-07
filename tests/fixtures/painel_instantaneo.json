@@ -969,8 +969,13 @@
   "/p/<slug> GET -> trocar",
   "/planilha GET,POST -> planilha_mes",
   "/print GET -> ver_print",
+  "/processo GET -> processo_tela",
+  "/processo/campo POST -> processo_campo",
+  "/processo/evento POST -> processo_evento",
   "/relatorio GET -> ver_relatorio",
-  "/tarefa POST -> tarefa"
+  "/tarefa POST -> tarefa",
+  "/triagem GET -> triagem_tela",
+  "/triagem/lote POST -> triagem_lote"
  ],
  "tela depois de /mostrar": {
   "sha256": "efa5b112128441cc",
