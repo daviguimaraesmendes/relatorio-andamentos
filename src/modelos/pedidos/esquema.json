@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "relatorio-andamentos/pedidos/1",
+  "title": "Resultado da leitura das petições iniciais (pedidos)",
+  "description": "Esquema versionado junto com prompt.md. Valores monetários podem vir como número (1234.56) ou texto; o programa normaliza e recusa o que não for número. Datas em AAAA-MM-DD (DD/MM/AAAA também é aceito e convertido).",
+  "type": "object",
+  "required": ["processos"],
+  "properties": {
+    "versao_prompt": {"type": ["string", "null"], "description": "Versão do prompt que gerou a resposta (copie do cabeçalho do prompt)."},
+    "processos": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/processo"}}
+  },
+  "$defs": {
+    "processo": {
+      "type": "object",
+      "required": ["numero", "cadastro", "pedidos"],
+      "properties": {
+        "numero": {"type": "string", "minLength": 1, "description": "Número CNJ do processo, como aparece na inicial."},
+        "cadastro": {"$ref": "#/$defs/cadastro"},
+        "pedidos": {"type": "array", "items": {"$ref": "#/$defs/pedido"}},
+        "achados": {"type": "array", "items": {"$ref": "#/$defs/achado"}}
+      }
+    },
+    "cadastro": {
+      "type": "object",
+      "required": ["reclamante", "empresa_principal", "valor_causa"],
+      "properties": {
+        "reclamante": {"type": ["string", "null"]},
+        "funcao": {"type": ["string", "null"]},
+        "categoria_funcao": {"type": ["string", "null"]},
+        "empresa_principal": {"type": ["string", "null"]},
+        "outras_empresas": {"type": ["array", "null"], "items": {"type": "string"}},
+        "terceiros": {"type": ["array", "null"], "items": {"type": "string"}},
+        "municipio": {"type": ["string", "null"]},
+        "uf": {"type": ["string", "null"], "pattern": "^[A-Z]{2}$"},
+        "vara": {"type": ["string", "null"]},
+        "tribunal": {"type": ["string", "null"]},
+        "data_ajuizamento": {"type": ["string", "null"], "pattern": "^(\\d{4}-\\d{2}-\\d{2}|\\d{2}/\\d{2}/\\d{4})$"},
+        "valor_causa": {"type": ["number", "string", "null"]},
+        "criterio_valor_causa": {"type": ["string", "null"], "description": "Como o reclamante chegou ao valor da causa: soma dos pedidos, valor arbitrado, alçada, sem critério declarado..."},
+        "advogado_reclamante": {"type": ["string", "null"]},
+        "tipo_acao": {"type": ["string", "null"]},
+        "terceirizado": {"type": ["string", "null"], "enum": ["Sim", "Não", null]}
+      }
+    },
+    "pedido": {
+      "type": "object",
+      "required": ["materia", "pedido_como_formulado", "valor_atribuido", "situacao_valor", "entra_nos_totais"],
+      "properties": {
+        "materia": {"type": "string", "minLength": 1, "description": "Somente nomes da lista do prompt; fora dela, \"Outros\"."},
+        "materia_sugerida": {"type": ["string", "null"], "description": "Quando materia for \"Outros\": o nome que a matéria deveria ter."},
+        "pedido_como_formulado": {"type": "string", "minLength": 1},
+        "valor_atribuido": {"type": ["number", "string", "null"], "description": "Exatamente o valor atribuído pelo reclamante; null quando não há valor."},
+        "situacao_valor": {"type": "string", "enum": ["atribuído", "sem valor atribuído", "fora do valor da causa", "encargos embutidos na causa"]},
+        "pagina_pdf": {"type": ["integer", "null"], "minimum": 1},
+        "entra_nos_totais": {"type": "boolean"}
+      }
+    },
+    "achado": {
+      "type": "object",
+      "required": ["tipo", "descricao"],
+      "properties": {
+        "tipo": {"type": "string", "description": "valor_causa_inconsistente, pedido_sem_valor, pagina_ilegivel, pedido_ambiguo, documento_incompleto, parte_nao_identificada ou observacao."},
+        "descricao": {"type": "string", "minLength": 1},
+        "impacto": {"type": ["string", "null"], "description": "alto, medio ou baixo."}
+      }
+    }
+  }
+}
