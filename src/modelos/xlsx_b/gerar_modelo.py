@@ -285,8 +285,9 @@ def _indicadores(wb):
 
 def _historico(wb):
     ws = wb.create_sheet("Histórico")
-    cabecalhos = ["Data-base", "Processos", "Ativos", "Encerrados", "Valor da causa", "Valor estimado",
-                  "Valor economizado"]
+    # cabeçalhos que o dashboard (modelo C) reconhece na aba Histórico
+    cabecalhos = ["Data-base", "Total de processos", "Processos ativos", "Processos encerrados", "Valor da causa",
+                  "Valor estimado", "Valor economizado"]
     for i, c in enumerate(cabecalhos, start=1):
         cel = ws.cell(1, i, c)
         cel.font = Font(bold=True, color="FFFFFF")

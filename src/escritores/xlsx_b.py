@@ -1785,6 +1785,16 @@ def _preencher_tabela(ed, linhas):
         ed.inserir_linhas(linhas)
 
 
+def _retrato_do_ciclo(fichas, data_base):
+    """Retrato mensal (CONTRATOS 9) do ciclo: o de `historico.retrato` (WS-11), o mesmo que o dashboard e o
+    arquivo AAAA-MM-DD.json usam; se esse módulo não estiver disponível, a conta local equivalente."""
+    try:
+        import historico
+        return historico.retrato(fichas, data_base)
+    except ImportError:
+        return _totais_do_retrato(fichas, data_base)
+
+
 def _totais_do_retrato(fichas, data_base):
     """Linha do histórico mensal (CONTRATOS 9) a partir das fichas."""
     fi = _ficha()
@@ -2282,7 +2292,7 @@ class _Gravacao:
         return None
 
     def historico(self):
-        achado = self._tabela_com("historico", ("database", "processos"))
+        achado = self._tabela_com("historico", ("database",))
         if not achado:
             return
         fi = _ficha()
@@ -2293,15 +2303,17 @@ class _Gravacao:
         for ret in self.estado.get("historico") or []:
             if isinstance(ret, dict) and fi.data(ret.get("data_base")):
                 retratos[str(ret["data_base"])[:10]] = ret
-        retratos[self.data_base] = _totais_do_retrato(self.fichas, self.data_base)
+        retratos[self.data_base] = _retrato_do_ciclo(self.fichas, self.data_base)
         existentes = {}
         if "database" in cols:
             for r in range(ed.lin1, ed.lin2 + 1):
                 d = ed.valor(r, cols["database"])
                 if isinstance(d, datetime.date):
                     existentes[d] = r
-        mapa = {"processos": "processos", "ativos": "ativos", "encerrados": "encerrados", "valordacausa": "valor_causa",
-                "valorestimado": "valor_estimado", "valoreconomizado": "valor_economizado"}
+        mapa = {"totaldeprocessos": "processos", "processos": "processos", "processosativos": "ativos",
+                "ativos": "ativos", "processosencerrados": "encerrados", "encerrados": "encerrados",
+                "valordacausa": "valor_causa", "valorestimado": "valor_estimado",
+                "valoreconomizado": "valor_economizado"}
 
         def linha(ret):
             d = {cols["database"]: fi.data(ret["data_base"])}

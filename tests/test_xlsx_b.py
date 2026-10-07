@@ -834,6 +834,12 @@ class TestModeloPadrao(BaseLO):
         self.assertGreaterEqual(len(ws.data_validations.dataValidation), 8)
         self.assertGreaterEqual(len(ws.conditional_formatting), 2)
 
+    def test_cabecalho_do_historico_e_o_que_o_dashboard_le(self):
+        ws = openpyxl.load_workbook(MODELO)["Histórico"]
+        self.assertEqual([c.value for c in ws[1]], ["Data-base", "Total de processos", "Processos ativos",
+                                                    "Processos encerrados", "Valor da causa", "Valor estimado",
+                                                    "Valor economizado"])
+
     def test_formulas_sem_funcoes_que_quebram_no_excel(self):
         p = partes(MODELO)
         todas = "".join(p[n].decode() for n in p if n.startswith("xl/worksheets/sheet"))
@@ -1356,7 +1362,7 @@ class TestAtualizarArquivoDoCliente(BaseLO):
         self.assertEqual(wb["Parâmetros"]["B3"].value.date(), datetime.date(2026, 10, 31))
         hist = linhas_da_aba(dest, "Histórico")
         self.assertEqual([h["Data-base"].date().isoformat() for h in hist], ["2026-09-30", "2026-10-31"])
-        self.assertEqual(hist[1]["Processos"], 30)
+        self.assertEqual(hist[1]["Total de processos"], 30)
         # o gráfico do histórico acompanhou a linha nova
         grafico = [d.decode() for n, d in partes(dest).items() if n.startswith("xl/charts/chart") and b"Hist" in d]
         self.assertTrue(any("$A$2:$A$3" in c or "$B$1:$B$3" in c or "$B$2:$B$3" in c for c in grafico), grafico)
@@ -2071,5 +2077,64 @@ class TestPlanilhaFase1(BaseLO):
                          "texto antigo. Em 01/10/2026 foi proferida decisão determinando a citação.")
 
 
+def gerar_exemplos(pasta):
+    """Gera planilhas fictícias para a conferência manual no Excel e no Google Planilhas
+    (docs/fase2/conferencia-xlsx.md):  python3 tests/test_xlsx_b.py --exemplos PASTA"""
+    pasta = Path(pasta)
+    pasta.mkdir(parents=True, exist_ok=True)
+    fichas = enriquecer(ficticio.gerar_carteira(200, clientes=5, semente=1))
+    novo = enriquecer(ficticio.gerar_carteira(201, clientes=5, semente=1))[200:]
+    params = {"headcount": 350, "empresas_do_grupo": ["Empresa Exemplo A Ltda", "Empresa Exemplo B Ltda"],
+              "fator_correcao": 1.05}
+    linhas = []
+
+    def registrar(arquivo, res):
+        erros = [a["mensagem"] for a in res["avisos"] if a["nivel"] == "erro"]
+        linhas.append(f"{arquivo}: {'ERRO: ' + '; '.join(erros) if erros else 'gerado'}")
+
+    a1 = pasta / "1-criada-do-zero.xlsx"
+    registrar(a1.name, x.gravar(None, estado_de(fichas, parametros=params), a1))
+    a2 = pasta / "2-criada-do-zero-com-valores-guardados.xlsx"
+    if x.localizar_soffice():
+        registrar(a2.name, x.gravar(None, estado_de(fichas, parametros=params), a2, recalcular_com_soffice=True))
+    else:
+        linhas.append(f"{a2.name}: não gerado (LibreOffice não instalado)")
+    # ciclo seguinte: andamentos novos, um processo novo e uma anotação feita à mão no texto de um processo
+    editado = pasta / ".editado-a-mao.xlsx"
+    x.escrever_celulas(a1, editado, "Processos", {(numero_da_linha(a1, fichas[4]["numero"]), "Andamentos"):
+                                                  "Anotação feita à mão pelo advogado."})
+    eventos = [evento(fichas[3]["numero"], "05/11/2026", "Foi proferida decisão", "determinando a citação do réu"),
+               evento(fichas[4]["numero"], "06/11/2026", "Foi designada audiência", "para o dia 20/12/2026")]
+    a3 = pasta / "3-atualizada-no-ciclo-seguinte.xlsx"
+    registrar(a3.name, x.gravar(editado, estado_de(fichas + novo, data_base="2026-11-07", eventos=eventos,
+                                                   parametros=params), a3))
+    editado.unlink()
+    if g is not None:
+        base = pasta / ".modelo-spike.xlsx"
+        g.gerar(base, "completo")
+        a4 = pasta / "4-modelo-de-cliente-com-dinamica-e-graficos-atualizado.xlsx"
+        registrar(a4.name, x.gravar(base, estado_de(enriquecer(ficticio.gerar_carteira(140, semente=11)[40:])), a4))
+        base.unlink()
+    esperado_txt = ["Valores esperados nos Indicadores (calculados em Python, fora da planilha)", ""]
+    for titulo, lista, data in (("Arquivos 1 e 2 (200 processos, data de referência 07/10/2026)", fichas, DATA_BASE),
+                                ("Arquivo 3 (201 processos, data de referência 07/11/2026)", fichas + novo, "2026-11-07")):
+        esperado_txt += [titulo]
+        for rotulo, valor in esperado(lista, data, 350, 1.05).items():
+            if valor != "":
+                valor = round(float(valor), 4)
+                valor = int(valor) if valor == int(valor) else valor
+            esperado_txt.append(f"  {rotulo}: {valor}")
+        esperado_txt.append("")
+    esperado_txt += ["Arquivo 3: processo que ganhou andamento (texto no fim): " + fichas[3]["numero"],
+                     "Arquivo 3: processo com anotação feita à mão preservada: " + fichas[4]["numero"],
+                     "Arquivo 3: processo novo (última linha da tabela): " + novo[0]["numero"], ""] + linhas
+    (pasta / "LEIA-ME-esperado.txt").write_text("\n".join(esperado_txt) + "\n", encoding="utf-8")
+    print("\n".join(linhas))
+    print(f"Arquivos em {pasta}; valores esperados em LEIA-ME-esperado.txt")
+
+
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    if len(sys.argv) > 2 and sys.argv[1] == "--exemplos":
+        gerar_exemplos(sys.argv[2])
+    else:
+        unittest.main(verbosity=2)
