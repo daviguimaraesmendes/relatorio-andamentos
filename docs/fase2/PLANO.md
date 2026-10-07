@@ -1,6 +1,6 @@
 # Fase 2 — Plano de atuação
 
-Status: **proposta para aprovação** (07/10/2026). Nada deste plano foi executado ainda.
+Status: **plano aprovado** em 07/10/2026, com os ajustes da seção 7 (decisões fechadas). Execução começa pela Etapa 0 (seção 8.2).
 
 Os três modelos de referência, citados aqui por letra (os arquivos reais, com dados de clientes, ficam só no Drive do escritório e **não entram no repositório**):
 
@@ -15,10 +15,10 @@ Os três modelos de referência, citados aqui por letra (os arquivos reais, com 
 ## 1. Resumo
 
 1. A Fase 1 resolve bem **uma coisa**: achar andamentos novos nos autos, resumir, revisar e acrescentar na coluna "Andamentos" de uma planilha existente. É Mac-first, um relatório por vez, sequencial, só escreve `.xlsx`.
-2. A Fase 2 precisa de **três fluxos** na tela inicial: **Importar relatórios existentes** (migração em massa), **Elaborar relatório inicial** (A + B + C) e **Atualizar relatório** (A + B; o C se alimenta do B).
+2. A Fase 2 precisa de **quatro fluxos** na tela inicial: **Importar relatórios existentes** (migração em massa), **Elaborar relatório inicial** (A + B + C), **Atualizar relatório** (A + B; o C se alimenta do B) e **Migrar de modelo** (converter um relatório existente para os modelos da ferramenta).
 3. O que falta não é "mais scraping": é (i) um **modelo de dados único por processo** (a "ficha") que alimente os três entregáveis, (ii) **leitores** dos relatórios que o escritório já tem, (iii) **escritores** de `.docx` e de `.xlsx` completos, (iv) um **gerador de dashboards**, (v) uma **fila de coleta em massa** que sobreviva a horas de execução, e (vi) **revisão por exceção**, porque 200 processos geram centenas de linhas por ciclo.
 4. A migração em massa fica barata por uma decisão de projeto: **o relatório antigo é o histórico**. O que já está escrito nele não é recoletado; o sistema só busca o que veio depois da data-base. Só processo novo (sem relatório anterior) paga o custo da leitura completa.
-5. Campos de **julgamento** (probabilidade de perda, valor estimado, valor economizado, resultado final) continuam **humanos**: o sistema sugere e sinaliza, nunca preenche sozinho.
+5. Campos de **julgamento** (probabilidade de perda, valor estimado, valor economizado, resultado) passam a ter **sugestão automática por regra** (seção 7.2), sempre marcada como `sugerido` e sujeita à revisão humana; o sistema não grava esses campos como definitivos sozinho.
 6. A execução é desenhada para **9 a 10 agentes em paralelo**, separados por arquivo, com uma Etapa 0 curta e sequencial que fixa os contratos (schema da ficha, interfaces, fixtures sintéticas).
 7. O que **não dá para validar aqui na nuvem**: login real (certificado A1, PJe Office, jus.br, captcha do TRT). Tudo isso é testado com coletor simulado; a validação real é um **piloto no seu Mac** (marco M5).
 
@@ -56,7 +56,7 @@ Os três modelos de referência, citados aqui por letra (os arquivos reais, com 
 
 ---
 
-## 3. Os três fluxos do usuário (alvo de usabilidade)
+## 3. Os fluxos do usuário (alvo de usabilidade)
 
 A tela inicial do painel passa a ter **três botões grandes** e uma pasta de trabalho por relatório (`entrada/` e `saida/`, que funciona bem com Drive para Desktop sincronizado).
 
@@ -87,6 +87,18 @@ Meta de usabilidade: 200 processos migrados em **menos de 30 minutos de trabalho
 4. O sistema grava um retrato do mês (série histórica dos dashboards).
 
 Regra de ouro da atualização: **só acrescenta**. Texto que o advogado editou à mão no relatório não é reescrito; se o trecho recente foi alterado à mão, o sistema avisa e não duplica.
+
+### 3.4 Migrar de modelo
+
+Para o relatório que já existe num formato diferente dos modelos da ferramenta (outra planilha, outro texto):
+
+1. Arrastar o arquivo. O leitor extrai a ficha de cada processo.
+2. **Tela de mapeamento**: coluna do arquivo antigo → campo da ficha → coluna do modelo novo. O sistema propõe o mapeamento por similaridade de cabeçalho (como os painéis de referência já fazem) e **lista o que não tem destino** (nada se perde em silêncio: coluna sem destino vai para uma aba "Campos não migrados").
+3. Escolher o modelo de destino (A, B ou os dois) e o perfil.
+4. Receber o relatório convertido, mais o relatório de qualidade da base, para o próprio usuário conferir antes de adotar o novo formato.
+
+Diferença para "Importar": importar adota o relatório **como está** para acompanhar; migrar de modelo **converte** o formato. Os dois usam o mesmo leitor; só o escritor e a tela de mapeamento mudam.
+
 
 ---
 
@@ -140,6 +152,7 @@ Regra de ouro da atualização: **só acrescenta**. Texto que o advogado editou 
 
 ### 5.1 Coleta
 
+- **Dois modos de execução** (decisão D2): **contínuo** (a fila roda sozinha em janelas de horário, por exemplo à noite, e retoma no dia seguinte) e **imediato** (roda agora). No imediato, antes de começar o painel mostra uma **estimativa de duração** (processos × tempo médio medido no seu computador) e pede confirmação; o usuário pode restringir por cliente ou por lista de processos. Os dois modos usam a mesma fila e o mesmo ritmo.
 - **Sem paralelismo contra o jus.br e os TRTs.** Os termos de uso proíbem acesso automatizado (já assumido na Fase 1: ritmo humano, um por vez). A escala vem de **rodar sem acompanhamento** (lotes, janela noturna, retomada), não de abrir várias sessões.
 - **Estimativa a medir no piloto** (não é dado medido): atualização com poucos documentos novos por processo, na ordem de horas para 200 processos; carga inicial "completa", possivelmente mais de um dia de relógio. Daí o nível *Rápido/Padrão/Completo* e os lotes.
 - **Fila** com: estado por processo (`pendente`, `coletando`, `coletado`, `erro`, `manual`), contagem e motivo de erro (captcha, segredo de justiça, não localizado, tempo esgotado, sessão expirada), retomada de onde parou, prioridade (processos com prazo próximo, clientes escolhidos), e **parada segura** em qualquer ponto.
@@ -195,20 +208,55 @@ Priorização: **Agora** (entra na Fase 2), **Depois** (Fase 2, última onda), *
 | IA local pequena erra "momento atual" e narrativa | Relatório errado ao cliente | Vocabulário fechado, regras primeiro, checagem de trecho, revisão obrigatória; modo opcional de modelo maior (D1) |
 | Cobertura de tribunais menor que a esperada | Parte da carteira cai em "manual" | Relatório de cobertura desde o piloto; DJEN como rede de segurança; novas fontes só após medir |
 | Termos de uso do jus.br e do gov.br | Bloqueio de conta | Ritmo humano, sem paralelismo, parada segura, aviso claro (já na Fase 1) |
+| Dado de cliente enviado a IA externa por engano | Quebra de sigilo | Consentimento **por cliente**, selo visível, registro de envios, pseudonimização opcional, padrão local (7.1) |
+| Sugestão de julgamento aceita sem olhar | Indicador errado ao cliente | Marca `sugerido`, evidência por campo, ressalvas automáticas (7.2), revisão obrigatória dos campos monetários, teste retroativo antes de liberar |
 | Dados reais de clientes em testes e no repositório | Vazamento | **Só fixtures sintéticas**; o `empacotar.sh` já barra nomes e números reais; modelos sanitizados em `modelos/` passam por revisão antes de entrar |
 | Windows nunca testado | Nem todo cliente roda no Mac | Fase 2 é validada no Mac; Windows é item de marco próprio (M7) e fica declarado como "não testado" até alguém testar |
 | Edição manual do relatório pelo advogado entre ciclos | Duplicação ou sobrescrita | Regra "só acrescenta", conferência contra o texto existente, aviso de divergência |
 
-### Decisões que preciso de você (com a minha recomendação)
+### Decisões fechadas (07/10/2026)
 
-| # | Decisão | Opções | Recomendação |
-| --- | --- | --- | --- |
-| **D1** | **IA** para a narrativa de histórico completo e para dados de capa | (a) só local, como hoje; (b) local, mas permitindo modelo maior se a máquina tiver memória; (c) opcional, por cliente, com IA externa e consentimento expresso | **(b)** como padrão, com o motor plugável para (c) só se você decidir; (a) e (b) mantêm a promessa de confidencialidade do README |
-| **D2** | **Ritmo da coleta** em massa | Sequencial, humano, em lotes e à noite (padrão) × qualquer paralelismo | Sequencial e noturno. Paralelismo contra jus.br/TRT fica fora |
-| **D3** | **Formato de entrada do modelo A** | Você exporta o Google Doc como `.docx` × leitura direta do Drive | `.docx` exportado (funciona offline e sem credenciais novas); integração com Drive só depois |
-| **D4** | **Modelo de planilha** | Um modelo canônico × usar **o arquivo do próprio cliente** como molde | Os dois: na atualização, o arquivo do cliente é o molde; no relatório inicial, o modelo canônico (sanitizado) com colunas ativadas pelo perfil |
-| **D5** | **Painel de pedidos das iniciais** na Fase 2? | Sim × depois | Depois (avaliar com o resultado de D1) |
-| **D6** | **Campos de julgamento** (probabilidade, valor estimado, valor economizado, resultado) | Só humano × com sugestão da IA | Só humano agora; sugestão fica na lista "Avaliar" |
+| # | Decisão | O que ficou decidido |
+| --- | --- | --- |
+| **D1** | IA | **Local por padrão**, com modelo maior quando a máquina tiver memória. O motor é **plugável**: o usuário escolhe, por relatório e por cliente, um provedor externo (Claude pela API da Anthropic ou outro serviço com API compatível). Ver 7.1 |
+| **D2** | Ritmo da coleta | **Dois modos**: contínuo (janelas, retomada) e imediato (com alerta de duração). Sempre sequencial contra jus.br e TRT |
+| **D3** | Entrada do modelo A | `.docx` exportado do Google Doc |
+| **D4** | Planilha | Na atualização, o arquivo do cliente é o molde; no inicial, modelo padrão sanitizado. **Novo fluxo "Migrar de modelo"** (3.4) |
+| **D5** | Painel de pedidos das iniciais | Fora da extração automática local, mas entra agora o **kit para IA melhor**: prompt, passo a passo e **campo no programa para colar o resultado** (WS-16). Ver 7.3 |
+| **D6** | Campos de julgamento | **Sugestão automática por regra**, com revisão humana. Ver 7.2 |
+
+### 7.1 Provedores de IA externos (D1)
+
+- Cadastro de provedores no painel (nome, endereço da API, modelo, chave). A **chave fica no cofre do sistema**, como a senha do certificado.
+- **Consentimento por cliente**: um relatório/cliente só usa IA externa se o usuário marcar. O painel mostra um **selo visível** (local / externa) em cada tela de resumo e de revisão, e o rótulo de qual motor produziu cada resumo fica gravado no evento.
+- **Minimização do que sai**: só **texto extraído** do documento (nunca prints, certificado ou segredo), com opção de **pseudonimizar** nomes de partes e números de documento antes do envio. Um **registro local** lista o que foi enviado, quando e para qual provedor.
+- O README muda: a promessa "nenhum documento de cliente é enviado para a internet" passa a valer **"salvo quando você ativa IA externa para aquele cliente"**.
+- Sem chave ou sem rede, o sistema cai sozinho para o motor local e avisa.
+
+### 7.2 Sugestão dos campos de julgamento (D6)
+
+**Princípio**: regras determinísticas primeiro, IA só para ler o teor da decisão. Não há "treinamento" de modelo: o volume de exemplos é pequeno e regra explícita é auditável. A calibração é por **teste retroativo**: ao migrar relatórios que já têm esses campos preenchidos por humano, o sistema compara a sugestão com o que foi lançado e mede a concordância por regra. As regras só passam a "sugerir" sem ressalva quando a concordância for aceitável para você.
+
+| Campo | Regra proposta | Ajustes que acrescentei (por favor confirme) |
+| --- | --- | --- |
+| **Resultado** | Teor da decisão de mérito mais recente: Procedência, Parcial procedência, Improcedência | Acrescento os desfechos que já existem nas suas referências e não são mérito: **Acordo**, **Extinto sem mérito**, **Arquivado/desistência**, **Incompetência**. Sem decisão: vazio |
+| **Probabilidade** (de perda) | Possível = antes de decisão; Provável = decisão de procedência; Remota = decisão de improcedência | **(1)** A regra vale do ponto de vista de quem está sendo demandado. Quando o **cliente é o autor** (polo ativo na ficha), o sentido se inverte (procedência = perda remota). **(2)** **Parcial procedência** conta como Provável. **(3)** Valem a decisão **mais recente** e a instância mais alta: sentença sujeita a recurso fica marcada "sujeita a recurso". **(4)** Processo encerrado por acordo ou extinção: sem probabilidade (campo vazio) |
+| **Valor estimado** | Valor da causa, até que sentença (ou acórdão) arbitre valor diverso; então, o valor arbitrado | Em **acordo**, o valor do acordo. Valor arbitrado só quando extraído de decisão com número; sem valor claro, mantém o da causa e marca alerta |
+| **Valor economizado** | Valor da causa − Valor estimado | **Diferença em relação ao que você escreveu**: você escreveu "Valor estimado − Valor da causa", que dá zero ou negativo; usei **causa − estimado** (positivo = economia), que é a definição usada no seu modelo B. **Só para processo encerrado** (como no seu modelo). **Não conta** acordo sem valor lançado, acordo pago por terceiro, exclusão da lide e processo em que o cliente é autor: as notas dos seus quadros mostram que esses casos inflam o indicador, e o sistema marca cada um com ressalva |
+
+Cada sugestão carrega: **origem** (`sugerido`), **regra aplicada**, **evidência** (documento e trecho) e, na revisão, aparece como *antes → depois*. Campo que o humano alterou **nunca é sobrescrito** por sugestão nova.
+
+### 7.3 Kit para IA melhor — pedidos das iniciais (D5)
+
+Em vez de extrair os pedidos com o modelo local, o programa **prepara o trabalho para uma IA de maior capacidade** (por exemplo, o Claude no navegador ou pela API) e **recebe o resultado**:
+
+1. **Pacote por processo**: lista dos processos que têm petição inicial e ainda não têm pedidos extraídos, com o PDF da inicial já localizado na pasta do relatório.
+2. **Prompt versionado** (`modelos/pedidos/prompt.md`) com o esquema de saída exato: um registro por processo (cadastro: função e categoria do reclamante, empresa do grupo, partes, município, vara, ajuizamento, valor da causa, critério do valor da causa) e uma linha por pedido (matéria padronizada pelo vocabulário do relatório, pedido como formulado, valor atribuído, situação do valor, página do PDF), com regras de arredondamento, tratamento de pedido sem valor, reflexos agrupados e encargos embutidos.
+3. **Passo a passo** (`docs/pedidos-iniciais.md`) em linguagem simples, para quem nunca usou: abrir a IA, anexar os PDFs, colar o prompt, copiar a resposta.
+4. **Campo "colar resultado"** no painel (e opção de **enviar o prompt direto pela API**, se o provedor externo estiver cadastrado e consentido, seção 7.1). O programa **valida** o que foi colado (formato, matérias fora do vocabulário, soma dos pedidos contra o valor da causa, processo desconhecido, duplicado) e mostra os achados **antes de gravar**.
+5. O resultado alimenta a planilha de pedidos (abas de cadastro, pedidos, resumo e parâmetros por matéria) e, depois, o painel de pedidos.
+
+O prompt é escrito aqui com dados fictícios; **a qualidade dele só se confirma no seu piloto**, com petições reais na IA que você escolher.
 
 ---
 
@@ -237,28 +285,31 @@ Saída da Etapa 0 (marco **M1**): contratos publicados, fixtures e coletor simul
 
 ### 8.3 Onda 1 — Construção em paralelo (após M1)
 
-Cada workstream tem um agente. Todos dependem **apenas** dos contratos da Etapa 0.
+Cada workstream tem um agente. Todos dependem **apenas** dos contratos da Etapa 0 (WS-5, WS-9 e WS-16 usam o stub de provedor de IA até WS-18 chegar).
 
 | WS | Escopo | Arquivos próprios | Aceite (resumo) |
 | --- | --- | --- | --- |
 | **WS-1** Ficha e taxonomia | Evoluir `ficha.py`/`taxonomia.py`: normalizadores, sinônimos editáveis, regras de "momento atual" por tabela, vínculos entre processos, dedupe | `ficha.py`, `taxonomia.py`, `tests/test_ficha.py` | Normaliza os rótulos soltos das referências (sintéticos); dedupe de vinculados; projetos da Fase 1 abrem sem perda |
-| **WS-2** Leitores (migração) | Ler `.docx` modelo A, `.xlsx` modelo B (aba de processos, parâmetros, data-base), lista bruta; detectar formato; extrair carteira, linha de base, data-base, vínculos; relatório de ambiguidades | `leitores/*`, `tests/test_leitores.py` | 200 processos sintéticos lidos sem erro; ambiguidade nunca vira dado silencioso; ida-e-volta (ler → escrever → ler) preserva a ficha |
+| **WS-2** Leitores (migração) | Ler `.docx` modelo A, `.xlsx` modelo B (aba de processos, parâmetros, data-base), lista bruta e **planilhas/textos fora do modelo** (mapeamento por cabeçalho, base do fluxo "Migrar de modelo"); detectar formato; extrair carteira, linha de base, data-base, vínculos; relatório de ambiguidades | `leitores/*`, `tests/test_leitores.py` | 200 processos sintéticos lidos sem erro; ambiguidade nunca vira dado silencioso; ida-e-volta (ler → escrever → ler) preserva a ficha |
 | **WS-3** Fila de coleta em massa | `fila.py` + integração com `coletor.py`/`trt.py` sem quebrar o uso atual: estados, retomada, prioridade, janelas, ritmo, parada segura, relatório de cobertura | `fila.py`, ajustes mínimos em `coletor.py`/`trt.py`/`rodar.py`, `tests/test_fila.py` | Com o coletor simulado: 200 processos com falhas aleatórias terminam, retomam após interrupção em qualquer ponto e não repetem trabalho |
 | **WS-4** Capa e metadados | `capa.py`: vara, município, ajuizamento, citação, valor da causa, assunto, partes, classe; fontes: telas já abertas (jus.br/TRT), DJEN e, se S3 validar, DataJud | `capa.py`, `djen.py` (extensões), `tests/test_capa.py` | Cada campo com origem e confiança; campo ausente fica vazio (nunca inventado); fixtures de tela cobrem os dois portais |
-| **WS-5** Síntese | `sintese.py`: momento atual (regras + IA com vocabulário fechado), último andamento, narrativa **inicial** (camadas: capa → movimentos → documentos-chave) e **incremental**; motor de IA plugável (D1) | `sintese.py`, `resumir.py` (extensões), `tests/test_sintese.py` | Estilo igual ao dos modelos; cada frase com origem; sem citação inventada; o histórico migrado nunca é reescrito |
+| **WS-5** Síntese | `sintese.py`: momento atual (regras + IA com vocabulário fechado), último andamento, narrativa **inicial** (camadas: capa → movimentos → documentos-chave) e **incremental**; usa os provedores de WS-18 | `sintese.py`, `resumir.py` (extensões), `tests/test_sintese.py` | Estilo igual ao dos modelos; cada frase com origem; sem citação inventada; o histórico migrado nunca é reescrito |
 | **WS-6** Escritor DOCX (A) | Gerar do zero e atualizar `.docx` modelo A: quadro-resumo, fichas por processo, data-base, fecho "sem atualizações", negrito de data | `escritores/docx_a.py`, `modelos/docx_a.*`, `tests/test_docx_a.py` | Atualiza fixture preservando formatação; abre sem aviso no Word e no Google Docs (conferência manual no M5); "só acrescenta" |
 | **WS-7** Escritor XLSX (B) | Generalizar `planilha.py`: colunas por perfil, **linhas novas**, recálculo ao abrir, abas de parâmetros e histórico; criar do modelo canônico; campos humanos nunca sobrescritos | `escritores/xlsx_b.py`, `planilha.py` (refatorado), `modelos/xlsx_b.*`, `tests/test_xlsx_b.py` | Gráficos, tabelas dinâmicas e fórmulas intactos (comparação de partes do pacote); 200 linhas inseridas; abre no Excel e no Sheets |
 | **WS-8** Dashboards (C) | Gerador de dashboard a partir do `.xlsx`: bibliotecas embutidas (offline), modos "arrastar planilha" e "dados embutidos", perfis (trabalhista de grupo; carteira simples tipo A), série histórica | `escritores/dashboard.py`, `modelos/dashboard/*`, `tests/test_dashboard.py` | Abre sem rede; mesmo `.xlsx` gera os mesmos números que o painel de referência; testado com Playwright |
-| **WS-9** Painel e assistente | Tela inicial com os 3 fluxos, arrastar-e-soltar, conferência da migração, progresso em tempo real, pausar/retomar, página de entregas (download), pasta `entrada/`/`saida/`, tela de perfil | `painel/assistente.py`, `painel/migracao.py`, `painel/entregas.py`, `painel/perfil.py` | Fluxos completos com o coletor simulado; sem JavaScript externo; token em todos os formulários, como hoje |
+| **WS-9** Painel e assistente | Tela inicial com os 4 fluxos (inclui tela de mapeamento do "Migrar de modelo"), modo contínuo/imediato com estimativa de duração, arrastar-e-soltar, conferência da migração, progresso em tempo real, pausar/retomar, página de entregas (download), pasta `entrada/`/`saida/`, tela de perfil | `painel/assistente.py`, `painel/migracao.py`, `painel/entregas.py`, `painel/perfil.py` | Fluxos completos com o coletor simulado; sem JavaScript externo; token em todos os formulários, como hoje |
 | **WS-10** Revisão em escala | Triagem (verde/amarelo/vermelho), aprovação em lote com amostragem, visão por processo, filtros, atalhos, revisão de campos derivados (antes → depois) | `painel/revisao_lote.py`, `painel/processo.py`, ajustes em `revisao.py` fatiado | 600 linhas sintéticas revisadas com poucos cliques; regra "sempre humano" respeitada; nada aprovado em lote sem registro |
 | **WS-11** Qualidade da base | `qualidade.py`: verificador (seção 2), "o que mudou neste ciclo", série histórica (retrato mensal), quadros analíticos | `qualidade.py`, `tests/test_qualidade.py` | Detecta cada problema da lista, em fixtures; falso positivo documentado; retrato mensal reproduzível |
+| **WS-16** Kit de pedidos das iniciais | Prompt e esquema de saída versionados, guia passo a passo, pacote por processo, tela "colar resultado", validação (7.3), gravação na planilha de pedidos | `pedidos.py`, `modelos/pedidos/*`, `docs/pedidos-iniciais.md`, `painel/pedidos.py`, `tests/test_pedidos.py` | Validador rejeita cada tipo de erro em fixtures; ida-e-volta com planilha de pedidos sintética; guia legível por leigo |
+| **WS-17** Sugestão de julgamento | `julgamento.py`: regras da seção 7.2, evidência por campo, teste retroativo contra relatórios migrados (relatório de concordância por regra), proteção de campo editado | `julgamento.py`, `tests/test_julgamento.py` | Cada regra com casos de teste (inclusive polo ativo, parcial procedência, acordo com ressalva); nada grava como definitivo; campo humano preservado |
+| **WS-18** Provedores de IA | Interface de provedores (local, Claude/Anthropic, API compatível), cofre de chaves, consentimento por cliente, selo na tela, registro de envios, pseudonimização opcional, fallback para o local | `ia.py`, `painel/ia.py`, `tests/test_ia.py` | Nenhuma chamada externa sem consentimento (teste); registro completo do que saiu; falha de rede cai no local |
 | **WS-13** QA, docs e pacote (contínuo) | Testes de desempenho (200 processos), atualização do README, `empacotar.sh` para novos ativos, checklist de confidencialidade, guia do usuário dos 3 fluxos | `tests/*` transversais, `README.md`, `docs/`, `empacotar.sh` | Pacote gerado limpo; guia testado por quem não conhece o projeto |
 
 ### 8.4 Onda 2 — Integração (coordenador + 2 agentes)
 
 | WS | Escopo | Aceite |
 | --- | --- | --- |
-| **WS-14** `fluxos.py` | Orquestração de `migrar`, `inicial` e `atualizar` ligando leitores, fila, capa, síntese, revisão, escritores e verificador | E2E com o coletor simulado e 200 processos: migrar, atualizar, **interromper e retomar**, entregar A + B (+ C no inicial) |
+| **WS-14** `fluxos.py` | Orquestração de `migrar`, `converter`, `inicial` e `atualizar` ligando leitores, fila, capa, síntese, revisão, escritores e verificador | E2E com o coletor simulado e 200 processos: migrar, converter de modelo, atualizar, **interromper e retomar**, entregar A + B (+ C no inicial) |
 | **WS-15** Teste de carga e regressão | 200 processos, 5 clientes, 3 ciclos mensais; compara saídas entre ciclos (nada some, nada duplica) | Zero duplicação de andamento; zero perda de campo humano; tempo de processamento (sem coleta) dentro de meta a definir com os números reais |
 
 Marco **M4**: fluxos E2E verdes com coletor simulado.
@@ -276,13 +327,13 @@ Marco **M4**: fluxos E2E verdes com coletor simulado.
 
 ```
 Etapa 0 (contratos, fixtures, spikes S1/S2)
-   └─► Onda 1 em paralelo: WS-1 ─ WS-2 ─ WS-3 ─ WS-4 ─ WS-5 ─ WS-6 ─ WS-7 ─ WS-8 ─ WS-9 ─ WS-10 ─ WS-11 ─ WS-13
+   └─► Onda 1 em paralelo: WS-1 ─ WS-2 ─ WS-3 ─ WS-4 ─ WS-5 ─ WS-6 ─ WS-7 ─ WS-8 ─ WS-9 ─ WS-10 ─ WS-11 ─ WS-13 ─ WS-16 ─ WS-17 ─ WS-18
             (WS-9 e WS-10 usam stubs de fila e de escritores até os módulos reais chegarem)
         └─► Onda 2: WS-14 (fluxos) ─► WS-15 (carga/regressão)   [M4]
               └─► Onda 3: Piloto 1 [M5] ─► Piloto 2 [M6] ─► WS-12 extras ─► Pacote v2 [M7]
 ```
 
-Ordem de merge sugerida na Onda 1 (para reduzir conflito): WS-1 → WS-2/WS-3/WS-4/WS-5 (qualquer ordem) → WS-6/WS-7/WS-8 → WS-11 → WS-9/WS-10 → WS-13.
+Ordem de merge sugerida na Onda 1 (para reduzir conflito): WS-1 → WS-18 → WS-2/WS-3/WS-4/WS-5/WS-17 (qualquer ordem) → WS-6/WS-7/WS-8 → WS-11/WS-16 → WS-9/WS-10 → WS-13.
 
 ### 8.7 Marcos
 
@@ -291,7 +342,7 @@ Ordem de merge sugerida na Onda 1 (para reduzir conflito): WS-1 → WS-2/WS-3/WS
 | **M1** | Contratos, fixtures sintéticas, coletor simulado, S1 e S2 resolvidos |
 | **M2** | Migração: ler `.docx`/`.xlsx`/lista e criar relatório, carteira e linha de base (fixtures) |
 | **M3** | Os três entregáveis gerados a partir de fichas sintéticas |
-| **M4** | Fluxos `migrar`, `inicial` e `atualizar` ponta a ponta com o coletor simulado, 200 processos, com interrupção e retomada |
+| **M4** | Fluxos `migrar`, `converter`, `inicial` e `atualizar` ponta a ponta com o coletor simulado, 200 processos, com interrupção e retomada |
 | **M5** | Piloto real pequeno no seu Mac |
 | **M6** | Piloto de ~200 processos em lotes noturnos |
 | **M7** | Pacote v2 com documentação |
