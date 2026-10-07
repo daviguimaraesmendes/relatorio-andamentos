@@ -61,7 +61,6 @@ Limites: tudo foi exercitado com dados fictícios, o ColetorSimulado, provedores
 `ColetorReal`, o Word, o Excel, o Google e a IA real não foram exercitados aqui (piloto M5).
 """
 import contextlib
-import copy
 import datetime
 import hashlib
 import importlib
@@ -1114,7 +1113,7 @@ def atualizar(projeto, arquivos=None, *, profundidade=None, modo=None, entregas=
 
     Devolve o mesmo dict de `inicial`, mais `novos` e `sumiram` (números) quando houve arquivo."""
     avisos, moldes, base_arquivo, extra = [], {}, None, {}
-    with _TRAVA, _em(projeto) as slug:
+    with _TRAVA, _em(projeto):
         if arquivos:
             fichas = ficha.carregar(todas=True)
             lidos = _ler_enviados(arquivos, fichas, avisos, ao_progresso)

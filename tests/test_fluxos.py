@@ -9,7 +9,6 @@ Chromium offline).
 """
 import datetime
 import json
-import os
 import shutil
 import sys
 import unittest
@@ -445,7 +444,6 @@ class Atualizar(Base):
         self.coletor.ate = ate
         r = self.atualizar(arquivos, data_base=data_base)
         self.assertIn(r["etapa"], ("revisao", "entregue"), r["resumo"])
-        aprovados = [e for e in self.eventos() if e["status"] == "rascunho"]
         n = aprovar_tudo()
         if depois:
             depois()
@@ -799,7 +797,6 @@ class IA(Base):
     N, CLIENTES = 30, 3
 
     def setUp(self):
-        import acesso  # noqa: F401
         import ia
         self.ia = ia
         self.cofre = Cofre().__enter__()

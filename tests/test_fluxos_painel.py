@@ -8,7 +8,6 @@ import io
 import re
 import shutil
 import sys
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -19,9 +18,8 @@ import ficticio  # noqa: E402
 import simulado  # noqa: E402
 import comum  # noqa: E402
 import ficha  # noqa: E402
-import fluxos  # noqa: E402
 from flask import Flask  # noqa: E402
-from test_fluxos import ColetorAte, escrever_docx_a, escrever_xlsx_b  # noqa: E402
+from test_fluxos import ColetorAte, escrever_docx_a  # noqa: E402
 
 TOKEN = "token-de-teste"
 DATA_1, DATA_2 = "2026-07-31", "2026-08-31"
