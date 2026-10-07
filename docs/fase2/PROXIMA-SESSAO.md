@@ -8,7 +8,7 @@ Atualizado em 07/10/2026, ao fim da Onda 1. **Nenhum agente está rodando.** Tud
 | --- | --- |
 | Etapa 0 (contratos, fixtures, coletor simulado, painel fatiado, spikes S1/S2) | Concluída (M1) |
 | Onda 1 (15 workstreams) | Concluída e integrada; suíte completa verde (1.183 testes, 2 pulados) |
-| **Onda 2** (WS-14 fluxos ponta a ponta, WS-15 regressão e carga) | **Especificada em `ONDA-2.md`, não iniciada** |
+| **Onda 2** | **WS-14 (fluxos ponta a ponta) concluído e integrado** (`src/fluxos.py`, 4 fluxos + painel ligado; suíte completa 1.215 testes, 2 pulados). **WS-15** virou o roteiro `piloto.md` (escrito pelo coordenador) + os testes de 3 ciclos e retomada que o WS-14 já inclui; carga de 1.000 processos fica opcional |
 | Onda 3 (pilotos M5/M6 no Mac do usuário, extras, pacote v2) | Depende do usuário e da Onda 2 |
 
 Documentos de referência, nesta ordem: `PLANO.md` (o quê e por quê), `CONTRATOS.md` (interfaces), `WORKSTREAMS.md` (Onda 1, já feita), `ONDA-2.md` (o que falta), `STATUS.md` (matriz de módulos), `fixtures.md` (dados fictícios e coletor simulado), `painel-modulos.md` (como criar tela), `spikes/` (S1 planilha, S2 Word, S3 DataJud), os `RFC-*.md` (decisões e convenções propostas pelos agentes).
@@ -20,7 +20,7 @@ Documentos de referência, nesta ordem: `PLANO.md` (o quê e por quê), `CONTRAT
 3. Conferir a base: `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers python3 -m unittest discover -s tests -p "test_*.py"` deve terminar `OK` (2 testes pulados: OCR sem `tesseract` e um condicionado ao ambiente).
 4. Os dois painéis de referência (com nomes de cliente embutidos) **não estão no repositório**. Foram usados só pelo WS-8 e já viraram templates próprios em `src/modelos/dashboard/`. Não é preciso recriá-los.
 
-## Lançar a Onda 2
+## (Histórico) Lançar a Onda 2
 
 1. **WS-14** (um agente, em worktree isolado): prompt pronto abaixo. É o caminho crítico; só ele pode começar agora.
 2. **WS-15** (um agente): só depois de integrar o WS-14.
@@ -31,6 +31,20 @@ Prompt do WS-14 (copiar para a ferramenta de agentes, com `isolation: worktree`)
 > Você é o agente do WS-14 (fluxos ponta a ponta) da Onda 2 da Fase 2 do projeto relatorio-andamentos. PRIMEIRO PASSO: no seu worktree rode `git reset --hard claude/gallant-pasteur-etzpu5` (o worktree nasce no commit inicial; ainda não há trabalho seu). Depois leia `docs/fase2/BRIEFING-AGENTES.md`, `docs/fase2/PLANO.md`, `docs/fase2/CONTRATOS.md`, `docs/fase2/STATUS.md`, `docs/fase2/fixtures.md`, `docs/fase2/painel-modulos.md` e execute a seção "WS-14" de `docs/fase2/ONDA-2.md`. Instale as dependências de teste conforme `docs/fase2/PROXIMA-SESSAO.md` (Playwright 1.56.0). Siga o briefing à risca (sem push, dados fictícios, relatório final no formato pedido). Os módulos da Onda 1 já passam nos seus testes: ligue-os, não os reescreva.
 
 Prompt do WS-15 (depois do WS-14): idem, trocando a seção por "WS-15" e acrescentando "O WS-14 já está integrado em `src/fluxos.py`".
+
+## Próximos passos sugeridos (foco: relatórios mais completos)
+
+Em ordem de valor, **um agente por vez** (ou direto pelo coordenador quando for pequeno):
+
+1. **Piloto M5** (usuário, Mac): seguir `piloto.md`. É o que mais reduz risco; traz dados reais para calibrar.
+2. **Aba de quadros analíticos** no modelo B (`quadros.gerar` já existe; falta o escritor `xlsx_b` criar a aba com acordos × economia, maiores exposições, condenação × causa, composição e desfecho por tese). Pequeno; coordenador ou 1 agente.
+3. **Tela Atualizar do painel** passar a usar a conferência de arquivo dos fluxos (hoje `texto_editado_a_mao` só aparece por código/CLI) e expor `dashboard_modo` (modelo × embutido) na tela de Entregas.
+4. **Planilha (modelo B)**: coluna de cliente e tipo dos vínculos (hoje `migrar` avisa `processo_sem_cliente`; aceita `cliente_padrao`).
+5. **Extras (WS-12)**: alertas (processo parado, audiência e prazo próximos), agenda `.ics`, descoberta contínua pelo DJEN, PDF e rascunho de e-mail ao cliente.
+6. **Calibração** com os dados do piloto: vocabulário, limiares (duplicata, qualidade, triagem), regras de momento atual, mapeamento de cabeçalhos, prompt de pedidos.
+7. **Pacote v2** (README, guia, `empacotar.sh`) e Windows declarado "não testado".
+
+RFCs decididos nesta rodada: o momento atual por regra entra como `coletado` (prioridade 4) para poder atualizar um valor `migrado`; por IA entra como `sugerido`. O texto gravado por ciclo fica em `ultimo_texto_gravado` com `por_entrega` (docx_a e xlsx_b). Propostas dos agentes em `RFC-*.md` que não conflitam com isto seguem como convenção.
 
 ## Decisões do usuário já tomadas (não reabrir)
 
