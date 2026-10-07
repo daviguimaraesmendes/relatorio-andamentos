@@ -49,7 +49,7 @@ Os três modelos de referência, citados aqui por letra (os arquivos reais, com 
 **Problemas de qualidade visíveis nas referências** (viram um verificador automático, WS-11):
 - o mesmo processo contado duas vezes (reajuizamento, duas abas, linha duplicada);
 - rótulos escritos de jeitos diferentes para a mesma matéria ("Reversão Justa Causa", "Reversão da justa causa.");
-- grafias diferentes da mesma empresa ("Sitio"/"Sítio");
+- grafias diferentes da mesma empresa ("Chacara"/"Chácara");
 - linhas-marcador deixadas na base;
 - indicador de "economia" inflado por acordo sem valor lançado, por acordo pago por terceiro e por exclusão da lide (as notas dos próprios quadros avisam disso);
 - processo encerrado sem resultado; resultado e situação em conflito.

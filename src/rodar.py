@@ -2,6 +2,12 @@
 extração do texto, resumo pela IA local. É o que o botão Atualizar do painel roda.
 
     python rodar.py --projeto <pasta> [--desde DD/MM/AAAA] [--historico N] [--processo N1,N2]
+                    [--fila [--modo continuo|imediato] [--profundidade rapido|padrao|completo] [--novo-ciclo]]
+
+Com --fila a coleta passa pela fila persistente (fila.py): retomável após queda, com tentativas por tipo de erro,
+captcha/segredo indo para "conferir manualmente" e, no modo contínuo, só dentro das janelas de horário. Sem
+--fila nada muda (o fluxo da Fase 1 continua igual). Modo padrão: imediato. Quem já foi coletado na fila não é
+coletado de novo; ao começar o ciclo seguinte (outro mês), use --novo-ciclo.
 """
 import datetime
 import os
@@ -29,6 +35,25 @@ def ollama_no_ar():
         return False
 
 
+def coletar_pela_fila(numeros, historico, desde):
+    """Coleta usando fila.Fila + fila.ColetorReal. Os eventos e o estado são gravados pelo ColetorReal, como na
+    coleta direta. NÃO testável sem certificado e rede: validar no piloto."""
+    import fila
+    f = fila.Fila(comum.PROJETO)
+    f.enfileirar(numeros or list(comum.carteira()), modo=_arg("--modo") or "imediato",
+                 profundidade=_arg("--profundidade") or "padrao", desde=desde.isoformat() if desde else None, recoletar="--novo-ciclo" in sys.argv)
+    resumo = f.resumo()
+    print(f"Fila: {resumo['pendente']} processo(s) a coletar.", flush=True)
+
+    def andamento(r):
+        if r["evento"] in ("coletado", "erro", "manual"):
+            print(f"  {r['numero']}: {r['evento']}{' (' + r['codigo'] + ')' if r.get('codigo') else ''}", flush=True)
+    with fila.ColetorReal(historico=historico) as coletor_real:
+        resumo = fila.rodar_fila(f, coletor_real, ao_progresso=andamento)
+    print(f"Fila: {resumo['coletado']} coletado(s), {resumo['manual']} para conferir manualmente, "
+          f"{resumo['erro']} com erro.", flush=True)
+
+
 def main():
     import coletor
     import extrair
@@ -40,7 +65,10 @@ def main():
         desde = datetime.date(a, m, d)
     numeros = [n.strip() for n in _arg("--processo").split(",")] if _arg("--processo") else None
     try:
-        coletor.rodar(numeros, int(_arg("--historico") or 0), desde)
+        if "--fila" in sys.argv:
+            coletar_pela_fila(numeros, int(_arg("--historico") or 0), desde)
+        else:
+            coletor.rodar(numeros, int(_arg("--historico") or 0), desde)
     except Exception as e:
         print(f"Coleta com falha ({e}); seguindo com o que já foi baixado.", flush=True)
     extrair.rodar()

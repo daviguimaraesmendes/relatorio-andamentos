@@ -1,0 +1,65 @@
+{
+  "versao_prompt": "1.0.0",
+  "processos": [
+    {
+      "numero": "1234567-62.2025.5.07.0001",
+      "cadastro": {
+        "reclamante": "Pessoa Fictícia 0001",
+        "funcao": "Motorista de entregas",
+        "categoria_funcao": "Operacional",
+        "empresa_principal": "Empresa Fictícia 001 Ltda",
+        "outras_empresas": ["Empresa Fictícia 002 Ltda"],
+        "terceiros": [],
+        "municipio": "Cidade Exemplo",
+        "uf": "CE",
+        "vara": "1ª Vara do Trabalho de Cidade Exemplo",
+        "tribunal": "TRT7",
+        "data_ajuizamento": "2025-03-10",
+        "valor_causa": 100000.00,
+        "criterio_valor_causa": "soma dos pedidos",
+        "advogado_reclamante": "Advogado Fictício Um",
+        "tipo_acao": "Reclamação trabalhista (rito ordinário)",
+        "terceirizado": "Não"
+      },
+      "pedidos": [
+        {"materia": "Horas extras e reflexos", "pedido_como_formulado": "Horas extras além da 8ª diária e 44ª semanal, com reflexos em DSR, férias + 1/3, 13º salário e FGTS + 40%", "valor_atribuido": 40000.00, "situacao_valor": "atribuído", "pagina_pdf": 12, "entra_nos_totais": true},
+        {"materia": "Intervalo intra/interjornada", "pedido_como_formulado": "Uma hora extra diária pela supressão do intervalo intrajornada, com reflexos", "valor_atribuido": 25000.00, "situacao_valor": "atribuído", "pagina_pdf": 13, "entra_nos_totais": true},
+        {"materia": "Dano moral", "pedido_como_formulado": "Indenização por danos morais", "valor_atribuido": 30000.00, "situacao_valor": "atribuído", "pagina_pdf": 15, "entra_nos_totais": true},
+        {"materia": "Honorários advocatícios", "pedido_como_formulado": "Honorários de sucumbência de 15%", "valor_atribuido": null, "situacao_valor": "sem valor atribuído", "pagina_pdf": 18, "entra_nos_totais": false},
+        {"materia": "Encargos (INSS/IR/custas) no valor da causa", "pedido_como_formulado": "Contribuições previdenciárias e fiscais, incluídas no valor da causa", "valor_atribuido": 5000.00, "situacao_valor": "encargos embutidos na causa", "pagina_pdf": 19, "entra_nos_totais": false}
+      ],
+      "achados": [
+        {"tipo": "pedido_sem_valor", "descricao": "Os honorários de sucumbência (p. 18) não têm valor atribuído.", "impacto": "baixo"}
+      ]
+    },
+    {
+      "numero": "1234568-44.2025.5.07.0002",
+      "cadastro": {
+        "reclamante": "Pessoa Fictícia 0002",
+        "funcao": "Auxiliar de produção",
+        "categoria_funcao": "Operacional",
+        "empresa_principal": "Empresa Fictícia 001 Ltda",
+        "outras_empresas": [],
+        "terceiros": ["Empresa Fictícia 003 Serviços Ltda"],
+        "municipio": "Cidade Exemplo",
+        "uf": "CE",
+        "vara": "2ª Vara do Trabalho de Cidade Exemplo",
+        "tribunal": "TRT7",
+        "data_ajuizamento": "2025-05-22",
+        "valor_causa": 60000.00,
+        "criterio_valor_causa": "valor arbitrado pelo reclamante, sem soma dos pedidos",
+        "advogado_reclamante": null,
+        "tipo_acao": "Reclamação trabalhista (rito ordinário)",
+        "terceirizado": "Sim"
+      },
+      "pedidos": [
+        {"materia": "Adicional de insalubridade", "pedido_como_formulado": "Adicional de insalubridade em grau médio, com reflexos", "valor_atribuido": 18000.00, "situacao_valor": "atribuído", "pagina_pdf": 7, "entra_nos_totais": true},
+        {"materia": "Acúmulo / desvio de função", "pedido_como_formulado": "Diferenças salariais por acúmulo de função", "valor_atribuido": 12000.00, "situacao_valor": "atribuído", "pagina_pdf": 8, "entra_nos_totais": true},
+        {"materia": "Outros", "materia_sugerida": "Multas dos arts. 467 e 477 da CLT", "pedido_como_formulado": "Multas dos arts. 467 e 477 da CLT", "valor_atribuido": null, "situacao_valor": "sem valor atribuído", "pagina_pdf": 9, "entra_nos_totais": false}
+      ],
+      "achados": [
+        {"tipo": "valor_causa_inconsistente", "descricao": "O valor da causa (R$ 60.000,00) foi arbitrado e não corresponde à soma dos pedidos quantificados (R$ 30.000,00).", "impacto": "medio"}
+      ]
+    }
+  ]
+}
