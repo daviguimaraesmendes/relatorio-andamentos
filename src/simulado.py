@@ -592,7 +592,9 @@ class ColetorSimulado:
             principal, vinculo = self.vinculados[numero]
             capa, lista = _capa_e_fatos_do_vinculado(principal, vinculo, self.semente)
             ficha_do_processo = {**principal, "numero": numero}
-        corte = fch.parse_data(desde)
+        corte = fch.data(fch.parse_data(desde)) if desde else None
+        if desde and corte is None:
+            raise ValueError(f"Data 'desde' inválida: {desde!r}")
         movimentos = [m for m in movimentos_dos_fatos(lista) if corte is None or fch.data(m["data"]) > corte]
         documentos = []
         if profundidade != "rapido":
