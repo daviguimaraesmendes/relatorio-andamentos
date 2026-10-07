@@ -41,9 +41,15 @@ Prompt do WS-15 (depois do WS-14): idem, trocando a seção por "WS-15" e acresc
 - Julgamento: sugestão por regra, sempre revisada; **probabilidade é a do resultado, sem inversão por polo**; valor economizado = valor da causa − valor estimado, só de processo encerrado e sem os casos com ressalva.
 - Fecho "sem atualizações" só quando não houve novidade no ciclo.
 
+## Decisões do usuário, segunda parte (07/10/2026)
+
+- O **scraping** (jus.br e TRT, acesso já validado) funcionou bem: o foco agora é **montar e atualizar relatórios mais completos** (fluxos, escritores, qualidade, quadros). Limitações de obtenção de dados ficam para os testes com casos reais.
+- **Saídas** (arquivos gerados na máquina do usuário) estão autorizadas.
+- **Limite de gasto**: usar poucos agentes. Arranjo adotado: **um agente por vez, só no caminho crítico** (hoje o WS-14); o que for pequeno o coordenador faz direto; WS-15 só depois, e talvez reduzido. Ao chegar perto do limite: **parar tudo, commitar, empurrar e atualizar este arquivo** (estado, o que está em andamento, próximo passo) antes de qualquer outra coisa.
+
 ## Pendências que dependem do usuário
 
-1. **DataJud** (API pública do CNJ): fica desligado; o termo de uso diz "fins não comerciais". Decidir se o uso do escritório se enquadra e, se sim, informar a chave do CNJ em `config.json` (`fontes_externas.datajud`).
+1. **DataJud**: o usuário confirmou (07/10/2026) que o uso **não é comercial**; a fonte vem **ligada** em `config.exemplo.json` (`fontes_externas.datajud.ativo`). Falta só a chave pública do CNJ (wiki do DataJud) em `config.json` (`chave`) ou na variável `DATAJUD_CHAVE`; sem ela a fonte avisa e segue sem DataJud. Não traz partes nem valor da causa.
 2. **Excel e Google Planilhas**: abrir as planilhas geradas (`python3 tests/test_xlsx_b.py --exemplos PASTA` cria quatro de exemplo) e seguir `conferencia-xlsx.md`. Pontos de maior risco: tabela dinâmica montada à mão, textos gravados em linha, fórmulas com colunas de nome longo (`#NOME?`).
 3. **Word e Google Docs**: gerar um `.docx` e abrir seguindo `conferencia-docx.md`; testar a ida e volta com uma exportação real do Google Doc (rótulos, título `[ MOMENTO ]` e frase de fecho ainda são suposições).
 4. **Piloto M5/M6 no Mac** (jus.br, TRT, captcha, tempo real por processo, cobertura por tribunal, qualidade do modelo de IA local, prompt de pedidos com petições reais). O roteiro sai do WS-15.

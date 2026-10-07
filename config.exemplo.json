@@ -14,5 +14,11 @@
       4
     ]
   },
-  "revisor": ""
+  "revisor": "",
+  "fontes_externas": {
+    "datajud": {
+      "ativo": true,
+      "chave": ""
+    }
+  }
 }
