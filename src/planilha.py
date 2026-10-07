@@ -9,63 +9,32 @@ A gravação é cirúrgica: só as células "Andamentos" mudam; gráficos, tabel
 dinâmicas, imagens, fórmulas e as outras abas são copiados byte a byte.
 (Bibliotecas comuns de Excel apagam gráficos e tabelas dinâmicas ao salvar.)
 
+Este módulo é o "módulo de texto" do relatório em planilha (Fase 1, mantido na Fase 2):
+as REGRAS do texto de andamentos (só acrescenta, fecho "Até DD/MM/AAAA sem atualizações.",
+não repetir andamento que já consta) e o fluxo simples da Fase 1 (`gerar`, usado pela tela
+"Planilha do mês"). A escrita de células, linhas novas, colunas e o modelo padrão (Fase 2)
+ficam em `escritores/xlsx_b.py`, que usa `montar_texto` daqui. A coluna "Andamentos" e a
+de número são achadas pelo cabeçalho; planilhas sem cabeçalho caem nas colunas A e P da
+Fase 1.
+
 Uso:
     python planilha.py MODELO.xlsx DESTINO.xlsx [--sem-linha-vazia]
 """
 import datetime
-import html
+import os
 import re
 import sys
-import zipfile
-import xml.etree.ElementTree as ET
+import unicodedata
 from pathlib import Path
 
 from comum import carteira, eventos, salvar_eventos
+from escritores import xlsx_b
 
 ABA = "Processos"
-COL_NUMERO, COL_ANDAMENTOS = "A", "P"
+COL_NUMERO, COL_ANDAMENTOS = "A", "P"      # planilhas da Fase 1 sem cabeçalho reconhecível
 CNJ = re.compile(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}")
 FECHO = re.compile(r"\s*Até\s+\d{2}/\d{2}/\d{4},?\s+sem\s+(atualizações|atualização|andamentos?)\.?\s*$", re.I)
-NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
-      "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
-      "rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
-
-
-def _caminho_da_aba(z, nome):
-    wb = ET.fromstring(z.read("xl/workbook.xml"))
-    rid = next(s.get(f"{{{NS['r']}}}id") for s in wb.find("m:sheets", NS) if s.get("name") == nome)
-    rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
-    alvo = next(r.get("Target") for r in rels if r.get("Id") == rid)
-    return "xl/" + alvo.lstrip("/").removeprefix("xl/")
-
-
-def _textos_compartilhados(z):
-    if "xl/sharedStrings.xml" not in z.namelist():
-        return []
-    sst = ET.fromstring(z.read("xl/sharedStrings.xml"))
-    return ["".join(t.text or "" for t in si.iter(f"{{{NS['m']}}}t")) for si in sst.findall("m:si", NS)]
-
-
-def _celula(xml, ref):
-    """(início, fim, texto_da_tag) da célula ref no XML da aba, ou None."""
-    m = re.search(rf'<c r="{ref}"(?:\s[^>]*)?(?:/>|>.*?</c>)', xml, re.S)
-    return (m.start(), m.end(), m.group(0)) if m else None
-
-
-def _valor(tag, compartilhados):
-    if 't="s"' in tag:
-        v = re.search(r"<v>(\d+)</v>", tag)
-        return compartilhados[int(v.group(1))] if v else ""
-    if 't="inlineStr"' in tag:
-        return html.unescape("".join(re.findall(r"<t[^>]*>(.*?)</t>", tag, re.S)))
-    v = re.search(r"<v>(.*?)</v>", tag, re.S)
-    return html.unescape(v.group(1)) if v else ""
-
-
-def _celula_texto(ref, estilo, texto):
-    esc = html.escape(texto, quote=False)
-    s = f' s="{estilo}"' if estilo else ""
-    return f'<c r="{ref}"{s} t="inlineStr"><is><t xml:space="preserve">{esc}</t></is></c>'
+_DATA = re.compile(r"\d{2}/\d{2}/\d{4}")
 
 
 def frase_planilha(ev):
@@ -83,71 +52,140 @@ def frase_planilha(ev):
     return texto
 
 
+# ---------------------------------------------------------------- regras do texto de andamentos
+
+def chave_texto(texto):
+    """Texto para comparar: sem acento, sem caixa, sem pontuação (a barra das datas fica)."""
+    t = unicodedata.normalize("NFKD", texto or "")
+    t = "".join(c for c in t if not unicodedata.combining(c)).casefold()
+    return re.sub(r"[^a-z0-9/]+", " ", t).strip()
+
+
+def _palavras(texto):
+    return {p for p in chave_texto(texto).split() if len(p) >= 4 and not _DATA.fullmatch(p)}
+
+
+def ja_consta(texto, frase, limiar=0.75):
+    """O andamento `frase` já está no `texto`?
+
+    Vale se a frase aparece igual (sem contar acento, caixa e pontuação) ou se há, no texto, um trecho
+    que começa na MESMA data e repete pelo menos `limiar` (0 a 1) das palavras da frase: é o caso de
+    alguém que reescreveu a frase à mão. Heurística, documentada: dois andamentos diferentes do mesmo
+    dia com quase as mesmas palavras podem ser confundidos (por isso o aviso `andamento_ja_presente`
+    sempre lista o que foi tratado como já presente)."""
+    nf = chave_texto(frase)
+    if not nf:
+        return False
+    if nf in chave_texto(texto):
+        return True
+    palavras = _palavras(frase)
+    if not palavras:
+        return False
+    for data in set(_DATA.findall(frase)):
+        for m in re.finditer(re.escape(data), texto or ""):
+            trecho = texto[m.start():m.start() + 800]
+            proxima = _DATA.search(trecho, len(data))
+            if proxima:
+                trecho = trecho[:proxima.start()]
+            if len(palavras & _palavras(trecho)) / len(palavras) >= limiar:
+                return True
+    return False
+
+
+def montar_texto(atual, evs, data_fecho, *, deduplicar=True, fecho_apos_novidade=False, limiar=0.75):
+    """Novo texto da coluna Andamentos: o que já estava (menos o fecho antigo) + os andamentos aprovados;
+    sem andamento no ciclo, o fecho 'Até DD/MM/AAAA sem atualizações.' renovado com `data_fecho`
+    (texto DD/MM/AAAA). Só acrescenta: nunca reescreve o que a pessoa escreveu.
+
+    Volta {"texto", "gravados" (frases acrescentadas), "ignorados" [(evento, frase)] (já constavam; só com
+    `deduplicar`), "fecho_antigo" (texto do fecho retirado ou None), "teve_novidade" (há evento aprovado,
+    mesmo que já presente: é isso que impede o fecho e torna gravar duas vezes idempotente)}."""
+    import relatorio
+    atual = (atual or "").rstrip()
+    fecho = FECHO.search(atual)
+    expressao = fecho.group(1).lower() if fecho else "atualizações"
+    corpo = atual[:fecho.start()].rstrip() if fecho else atual
+    novas, ignorados = [], []
+    for ev in sorted(evs, key=relatorio.ordem):
+        frase = frase_planilha(ev)
+        # contra o que já estava: igual ou parecido; contra o que entrou neste ciclo: só igual
+        if deduplicar and (ja_consta(corpo, frase, limiar) or chave_texto(frase) in chave_texto(" ".join(novas))):
+            ignorados.append((ev, frase))
+        else:
+            novas.append(frase)
+    com_fecho = (not evs) or (fecho_apos_novidade and bool(novas))
+    texto = " ".join(x for x in (corpo, " ".join(novas)) if x)
+    if com_fecho:
+        texto = f"{texto} Até {data_fecho} sem {expressao}.".strip()
+    return {"texto": texto, "gravados": novas, "ignorados": ignorados,
+            "fecho_antigo": fecho.group(0).strip() if fecho else None, "teve_novidade": bool(evs)}
+
+
+# ---------------------------------------------------------------- fluxo da Fase 1
+
+def _colunas(ed):
+    """(coluna do número, coluna de Andamentos): pelo cabeçalho; sem cabeçalho, A e P como na Fase 1."""
+    mapa, _ambiguos = xlsx_b.mapear_cabecalhos(ed.cabecalhos)
+    num = mapa.get("numero") or xlsx_b.col_indice(COL_NUMERO)
+    andamentos = mapa.get("andamentos") or xlsx_b.col_indice(COL_ANDAMENTOS)
+    return num, andamentos
+
+
+def _abrir(caminho, **kw):
+    return xlsx_b.Edicao(caminho, ABA, linha_cabecalho=1, exigir_cabecalho=False, **kw)
+
+
+def _linhas(ed, col_numero):
+    linhas = {}
+    for n in ed.folha.numeros():
+        achado = CNJ.search(str(ed.valor(n, col_numero) or ""))
+        if achado:
+            linhas[achado.group(0)] = n
+    return linhas
+
+
 def linhas_da_aba(caminho_xlsx):
     """{numero: linha} dos processos na aba Processos."""
-    with zipfile.ZipFile(caminho_xlsx) as z:
-        xml = z.read(_caminho_da_aba(z, ABA)).decode("utf-8")
-        compartilhados = _textos_compartilhados(z)
-    linhas = {}
-    for m in re.finditer(rf'<c r="{COL_NUMERO}(\d+)"(?:\s[^>]*)?(?:/>|>.*?</c>)', xml, re.S):
-        achado = CNJ.search(_valor(m.group(0), compartilhados))
-        if achado:
-            linhas[achado.group(0)] = int(m.group(1))
-    return linhas
+    ed = _abrir(caminho_xlsx)
+    return _linhas(ed, _colunas(ed)[0])
 
 
 def gerar(modelo, destino, sem_novidade=True, hoje=None):
     """Volta (processos atualizados, processos sem linha na planilha)."""
+    import relatorio
     hoje = hoje or datetime.date.today()
     lista = eventos()
     aprovados = [e for e in lista if e["status"] == "aprovado"]
     acompanhados = set(carteira())
-    with zipfile.ZipFile(modelo) as z:
-        aba = _caminho_da_aba(z, ABA)
-        xml = z.read(aba).decode("utf-8")
-        compartilhados = _textos_compartilhados(z)
-        partes = {i.filename: (i, z.read(i.filename)) for i in z.infolist()}
-    linhas = linhas_da_aba(modelo)
+    # só texto em uma coluna que nenhuma fórmula lê: nada de recálculo nem de mexer no cache (como na Fase 1)
+    ed = _abrir(modelo, recalcular=False)
+    col_numero, col_andamentos = _colunas(ed)
+    linhas = _linhas(ed, col_numero)
 
     por_processo = {}
     for ev in aprovados:
         por_processo.setdefault(ev["numero"], []).append(ev)
     fora = sorted(n for n in por_processo if n not in linhas)
-    atualizados = []
-    import relatorio
-    for numero, linha in sorted(linhas.items(), key=lambda x: -x[1]):  # de baixo para cima: posições não mudam
+    atualizados, celulas = [], {}
+    for numero, linha in sorted(linhas.items(), key=lambda x: -x[1]):
         evs = sorted(por_processo.get(numero, []), key=relatorio.ordem)
         if not evs and not (sem_novidade and numero in acompanhados):
             continue
-        ref = f"{COL_ANDAMENTOS}{linha}"
-        achada = _celula(xml, ref)
-        if achada:
-            ini, fim, tag = achada
-            atual = _valor(tag, compartilhados).rstrip()
-            estilo = (re.search(r'\ss="(\d+)"', tag) or [None, None])[1]
-        else:  # célula vazia que nem existe no XML: entra no fim da linha
-            m = re.search(rf'<row r="{linha}"[^>]*>(.*?)</row>', xml, re.S)
-            ini = fim = m.end(1)
-            atual, estilo = "", None
+        atual = ed.valor(linha, col_andamentos) or ""
         # o fecho "Até 29/09/2026 sem atualizações." do relatório anterior sai:
         # ou vira andamento novo, ou é renovado com a data de hoje
-        fecho = FECHO.search(atual)
-        expressao = fecho.group(1).lower() if fecho else "atualizações"
-        if fecho:
-            atual = atual[:fecho.start()].rstrip()
-        if evs:
-            acrescimo = " ".join(frase_planilha(e) for e in evs)
-        else:
-            acrescimo = f"Até {hoje:%d/%m/%Y} sem {expressao}."
-        novo = f"{atual} {acrescimo}".strip()
-        xml = xml[:ini] + _celula_texto(ref, estilo, novo) + xml[fim:]
+        celulas[(linha, col_andamentos)] = montar_texto(str(atual), evs, f"{hoje:%d/%m/%Y}", deduplicar=False)["texto"]
         atualizados.append(numero)
-
+    ed.escrever_celulas(celulas)
     destino = Path(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(destino, "w") as out:
-        for nome, (info, dados) in partes.items():
-            out.writestr(info, xml.encode("utf-8") if nome == aba else dados)
+    if destino.exists() and destino.resolve() == Path(modelo).resolve():
+        # Fase 1: gerar de novo "em cima" da planilha de hoje (a referência é a própria saída anterior)
+        provisorio = destino.with_name(destino.name + ".novo")
+        ed.salvar(provisorio)
+        os.replace(provisorio, destino)
+    else:
+        ed.salvar(destino)
 
     agora = datetime.datetime.now().isoformat(timespec="seconds")
     for ev in aprovados:
