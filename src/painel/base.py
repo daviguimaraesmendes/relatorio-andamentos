@@ -42,8 +42,9 @@ pre.log{background:#111;color:#ddd;padding:12px;border-radius:6px;font-size:12px
 .cartao{background:var(--fundo2);border-radius:6px;padding:10px}.cartao b{font-size:22px;display:block}
 </style>"""
 
-SUBABAS = [("atualizar", "/atualizar", "Atualizar"), ("revisar", "/", "Revisar"),
-           ("planilha", "/planilha", "Planilha"), ("cadastro", "/cadastro", "Clientes e processos"),
+SUBABAS = [("fluxo", "/fluxo", "Assistente"), ("atualizar", "/atualizar", "Atualizar"), ("revisar", "/", "Revisar"),
+           ("planilha", "/planilha", "Planilha"), ("entregas", "/entregas", "Entregas"),
+           ("cadastro", "/cadastro", "Clientes e processos"), ("perfil", "/perfil", "Perfil"),
            ("config", "/config", "Configuração")]
 
 
