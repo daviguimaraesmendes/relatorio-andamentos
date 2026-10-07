@@ -319,6 +319,48 @@ class TestSujo(Base):
         self.assertEqual(wb["Processos"]["Y2"].value in (None, ""), True)   # fórmula compartilhada recalcula
 
 
+@unittest.skipUnless(TEM_LO, "LibreOffice ausente")
+class TestArquivoRessalvoPeloLibreOffice(Base):
+    """Fixture 'estrangeira': o modelo re-salvo pelo LibreOffice tem outra cara (atributos aca/customFormat,
+    aspas como &quot;, tabela dinâmica por intervalo COM cache de registros, extLst x14 da barra de dados,
+    sem calculatedColumnFormula). Serve de segunda opinião sobre o que o protótipo assume do XML."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        pasta = cls.tmp / "estrangeiro"
+        pasta.mkdir()
+        p = subprocess.run([SOFFICE, f"-env:UserInstallation=file://{cls.perfil_lo}", "--headless",
+                            "--convert-to", "xlsx", "--outdir", str(pasta), str(cls.completo)],
+                           capture_output=True, text=True, timeout=240)
+        assert p.returncode == 0, p.stderr
+        cls.estr = pasta / "completo.xlsx"
+
+    def test_insercao_em_arquivo_estrangeiro(self):
+        self.assertEqual(x.validar(self.estr), [])
+        self.assertIn("xl/pivotCache/pivotCacheRecords1.xml", partes(self.estr))
+        dest = self.tmp / "estr100.xlsx"
+        r = x.inserir_linhas(self.estr, dest, "Processos", self.linhas_novas(10, 110))
+        self.assertEqual(r.linhas_inseridas, 100)
+        self.assertEqual(x.validar(dest), [])
+        d = partes(dest)
+        self.assertIn("<xm:sqref>O2:O111 Q2:Q111</xm:sqref>", d["xl/worksheets/sheet1.xml"].decode())   # x14
+        cache = d["xl/pivotCache/pivotCacheDefinition1.xml"].decode()
+        self.assertIn('ref="A1:AC111"', cache)
+        self.assertIn('refreshOnLoad="1"', cache)
+        antes = partes(self.estr)
+        self.assertEqual(antes["xl/pivotCache/pivotCacheRecords1.xml"], d["xl/pivotCache/pivotCacheRecords1.xml"])
+        wb = self.lo_valores(dest)
+        exp = g.indicadores_esperados(self.linhas_novas(0, 110))
+        self.assertEqual(wb["Indicadores"]["B2"].value, exp["total"])
+        self.assertAlmostEqual(wb["Indicadores"]["B6"].value, exp["economia"], 2)
+        self.assertEqual([wb["Indicadores"].cell(12 + i, 2).value for i in range(7)], exp["por_situacao"])
+
+    def test_coluna_nova_com_cache_de_dinamica_salvo_e_recusada(self):
+        with self.assertRaises(x.NaoSuportado):
+            x.acrescentar_coluna(self.estr, self.tmp / "estr_col.xlsx", "Processos", "Nova")
+
+
 class TestEscreverCelulas(Base):
     def test_humanos_nunca_sobrescritos(self):
         dest = self.saida("humanos.xlsx")
