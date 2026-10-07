@@ -145,8 +145,10 @@ class TestMomentoRegras(unittest.TestCase):
         f = FICHAS[3]
         movimentos = coleta(f)["movimentos"]
         m = sintese.momento_atual(f, [], movimentos, None)
-        data, texto = m["evidencia"].split(": ", 1)
-        self.assertIn((fch.parse_data(data), texto), [(x["data"], x["texto"]) for x in movimentos])
+        # evidência de taxonomia.momento_por_regras: 'Movimento de DD/MM/AAAA: "texto" (regra: nome)'
+        achado = re.search(r'(\d{2}/\d{2}/\d{4}): "(.+)"', m["evidencia"])
+        self.assertIsNotNone(achado, m["evidencia"])
+        self.assertIn((fch.parse_data(achado[1]), achado[2]), [(x["data"], x["texto"]) for x in movimentos])
 
     def test_usa_os_movimentos_dos_eventos_quando_nao_ha_movimentos(self):
         f = next(f for f in FICHAS if fch.obter(f, "momento_atual") == "AGUARDANDO SENTENÇA")

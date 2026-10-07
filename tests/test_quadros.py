@@ -213,7 +213,7 @@ class TestComposicaoPorTese(unittest.TestCase):
                   encerrada(3, "Improcedente", materia_principal="Horas extras e reflexos", valor_causa="2000.00"),
                   mk(4, materia_principal="Dano moral", valor_causa="4000.00"),
                   mk(5, materia_principal="Honorários advocatícios", valor_causa="1000.00"),
-                  mk(6, materia_principal="Cobrança de condomínio", valor_causa="500.00"),             # fora do vocabulário
+                  mk(6, materia_principal="Matéria Inventada Exemplo", valor_causa="500.00"),             # fora do vocabulário
                   mk(7, materia_principal=None, valor_causa="500.00")]
         q = quadros.composicao_por_tese(fichas)
         por = {l["tese"]: l for l in q["linhas"]}
@@ -222,7 +222,7 @@ class TestComposicaoPorTese(unittest.TestCase):
         self.assertEqual(he["percentual_processos"], round(3 / 7 * 100, 2))
         self.assertEqual(he["percentual_valor"], round(6000 / 12000 * 100, 2))
         self.assertEqual(por["Honorários advocatícios"]["conta_nos_rankings"], "Não")
-        self.assertEqual((por["Cobrança de condomínio"]["tema"], por["Cobrança de condomínio"]["conta_nos_rankings"]), (None, None))
+        self.assertEqual((por["Matéria Inventada Exemplo"]["tema"], por["Matéria Inventada Exemplo"]["conta_nos_rankings"]), (None, None))
         self.assertIn(quadros.SEM_MATERIA, por)
         self.assertEqual(q["linhas"][0]["tese"], "Horas extras e reflexos", "ordenado por quantidade")
         self.assertEqual(sum(l["processos"] for l in q["linhas"]), 7)
@@ -233,7 +233,7 @@ class TestComposicaoPorTese(unittest.TestCase):
         self.assertEqual((jornada["processos"], jornada["valor_causa"]), (3, "6000.00"))
         texto = "\n".join(q["notas"])
         self.assertIn("1 processo(s) sem matéria principal", texto)
-        self.assertIn("Cobrança de condomínio", texto)
+        self.assertIn("Matéria Inventada Exemplo", texto)
         tem_json(self, q)
 
 

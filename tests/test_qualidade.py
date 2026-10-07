@@ -263,12 +263,19 @@ class TestRotulos(unittest.TestCase):
         self.assertEqual(sorted(a["numeros"]), sorted(f["numero"] for f in fichas))
 
     def test_rotulos_soltos_da_mesma_coisa_na_base(self):
-        # os exemplos do PLANO.md: "Reversão Justa Causa" x "Reversão da justa causa."
-        a, b = mk(1, materia_principal="Reversão Justa Causa"), mk(2, materia_principal="Reversão da justa causa.")
-        c = mk(3, materia_principal="Estabilidade pré-aposentadoria")
+        # texto livre que o vocabulário NÃO reconhece, escrito de dois jeitos (os exemplos reais do PLANO.md
+        # passaram a ser reconhecidos pelo vocabulário e saem como `rotulo_parecido`, testado abaixo)
+        a, b = mk(1, materia_principal="Tema Inventado Exemplo"), mk(2, materia_principal="Tema inventado exemplo.")
+        c = mk(3, materia_principal="Outro Assunto Qualquer Exemplo")
         achado, = achados_de([a, b, c], "rotulos_parecidos_na_base")
         self.assertEqual(sorted(achado["numeros"]), sorted([a["numero"], b["numero"]]))
-        self.assertIn("Reversão Justa Causa", achado["mensagem"])
+        self.assertIn("Tema Inventado Exemplo", achado["mensagem"])
+
+    def test_rotulos_que_o_vocabulario_reconhece_saem_como_rotulo_parecido(self):
+        a, b = mk(1, materia_principal="Reversão Justa Causa"), mk(2, materia_principal="Reversão da justa causa.")
+        achados = achados_de([a, b], "rotulo_parecido")
+        self.assertEqual(len(achados), 2)
+        self.assertTrue(all("Reversão de justa causa" in x["sugestao"] for x in achados))
 
     def test_vara_com_numero_diferente_nao_e_parecida(self):
         a, b = mk(1, vara="1ª Vara do Trabalho de Fortaleza"), mk(2, vara="2ª Vara do Trabalho de Fortaleza")
