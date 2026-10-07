@@ -191,86 +191,13 @@ def _chamar(escritor, molde, estado, destino):
 def gerar(entregas=None, tipo="entrega", rodada=None, fichas=None, parametros_extra=None):
     """Gera as entregas pedidas (padrão: as do perfil) numa rodada nova de saida/.
 
-    Devolve {"rodada": Path, "arquivos": [Path], "resultados": {rotulo: Resultado}, "avisos": [Aviso]}.
-    `fichas` permite gerar de um conjunto já carregado (padrão: todas as do relatório);
-    `parametros_extra` entra em `estado["parametros"]` (ex.: campos_nao_migrados na migração)."""
-    perfil_do_relatorio = per.carregar()
-    entregas = [e for e in (entregas or perfil_do_relatorio["entregas"]) if e in per.ENTREGAS]
-    todas = fichas if fichas is not None else ficha.carregar(todas=True)
-    eventos = [ev for ev in comum.eventos() if ev.get("status") == "aprovado"]
-    hoje = datetime.date.today().isoformat()
-    nome_relatorio = comum.projeto().get("nome", comum.PROJETO or "Relatório")
-    rodada = rodada or nova_rodada(tipo)
-    saida = {"rodada": rodada, "arquivos": [], "resultados": {}, "avisos": []}
-    avisos = saida["avisos"]
-    precisa_planilha = "xlsx_b" in entregas or "dashboard" in entregas
-    # 1. texto (um por cliente)
-    if "docx_a" in entregas:
-        try:
-            escritor = modulo("escritores.docx_a", "O escritor do relatório em texto (.docx)")
-            clientes = sorted({ficha.obter(f, "cliente") or "" for f in todas}) or [""]
-            molde = molde_mais_recente(".docx") if len(clientes) == 1 else None
-            if len(clientes) > 1 and molde_mais_recente(".docx"):
-                avisos.append(_aviso("info", "molde_docx_ignorado", "docx_a",
-                                     "Há mais de um cliente: o texto de cada um foi gerado do modelo padrão, não do .docx enviado."))
-            for cliente in clientes:
-                do_cliente = [f for f in todas if (ficha.obter(f, "cliente") or "") == cliente]
-                ids = {f["numero"] for f in do_cliente}
-                evs = [ev for ev in eventos if ev.get("numero") in ids]
-                destino = rodada / f"Relatório - {nome_de_arquivo(cliente or nome_relatorio)}.docx"
-                res = _chamar(escritor, molde, _estado(cliente or nome_relatorio, hoje, do_cliente, evs, perfil_do_relatorio, parametros_extra), destino)
-                saida["resultados"][f"docx_a: {cliente or nome_relatorio}"] = res
-                saida["arquivos"].append(Path(res.get("destino", destino)))
-                avisos.extend(res.get("avisos", []))
-                _guardar_textos(todas, res, hoje, Path(res.get("destino", destino)).name)
-        except Indisponivel as erro:
-            avisos.append(_aviso("erro", "escritor_indisponivel", "docx_a", str(erro)))
-        except Exception as erro:  # noqa: BLE001 - erro de escritor vira aviso; a tela continua
-            avisos.append(_aviso("erro", "escritor_falhou", "docx_a", f"Não consegui gerar o relatório em texto: {erro}"))
-    # 2. planilha
-    caminho_planilha = None
-    if precisa_planilha:
-        try:
-            escritor = modulo("escritores.xlsx_b", "O escritor da planilha (.xlsx)")
-            molde = molde_mais_recente(".xlsx") if perfil_do_relatorio["molde_planilha"] == "cliente" else None
-            destino = rodada / f"Planilha - {nome_de_arquivo(nome_relatorio)}.xlsx"
-            res = _chamar(escritor, molde, _estado(nome_relatorio, hoje, todas, eventos, perfil_do_relatorio, parametros_extra), destino)
-            caminho_planilha = Path(res.get("destino", destino))
-            saida["resultados"]["xlsx_b"] = res
-            saida["arquivos"].append(caminho_planilha)
-            avisos.extend(res.get("avisos", []))
-            _guardar_textos(todas, res, hoje, caminho_planilha.name)
-        except Indisponivel as erro:
-            avisos.append(_aviso("erro", "escritor_indisponivel", "xlsx_b", str(erro)))
-        except Exception as erro:  # noqa: BLE001
-            avisos.append(_aviso("erro", "escritor_falhou", "xlsx_b", f"Não consegui gerar a planilha: {erro}"))
-    # 3. painel (lê a planilha)
-    if "dashboard" in entregas and caminho_planilha:
-        try:
-            escritor = modulo("escritores.dashboard", "O gerador do painel (.html)")
-            destino = rodada / f"Painel - {nome_de_arquivo(nome_relatorio)}.html"
-            res = escritor.gravar(caminho_planilha, destino, perfil_do_relatorio)
-            saida["resultados"]["dashboard"] = res
-            saida["arquivos"].append(Path(res.get("destino", destino)))
-            avisos.extend(res.get("avisos", []))
-        except Indisponivel as erro:
-            avisos.append(_aviso("erro", "escritor_indisponivel", "dashboard", str(erro)))
-        except Exception as erro:  # noqa: BLE001
-            avisos.append(_aviso("erro", "escritor_falhou", "dashboard", f"Não consegui gerar o painel: {erro}"))
-    # 4. qualidade
-    try:
-        achados = verificar_qualidade(todas, perfil_do_relatorio)
-        destino = rodada / "qualidade.html"
-        destino.write_text(html_da_qualidade(achados, f"Qualidade da base: {nome_relatorio}"), encoding="utf-8")
-        saida["arquivos"].append(destino)
-        saida["qualidade"] = achados
-    except Indisponivel as erro:
-        avisos.append(_aviso("info", "qualidade_indisponivel", "qualidade", str(erro)))
-    except Exception as erro:  # noqa: BLE001
-        avisos.append(_aviso("atencao", "qualidade_falhou", "qualidade", f"Não consegui verificar a qualidade da base: {erro}"))
-    if fichas is None:
-        ficha.salvar(todas)    # guarda ultimo_texto_gravado
-    return saida
+    Desde o WS-14 quem faz o trabalho é `fluxos.entregar` (julgamento, escritores, qualidade, "o que mudou",
+    retrato mensal e memória do ciclo); esta função só mantém a assinatura que as telas já usavam.
+    Devolve {"rodada": Path, "arquivos": [Path], "resultados": {rotulo: Resultado}, "avisos": [Aviso], "qualidade": ...}.
+    `fichas` permite gerar de um conjunto já carregado (nada é persistido); `parametros_extra` entra em
+    `estado["parametros"]` (ex.: campos_nao_migrados na migração)."""
+    fluxos = modulo("fluxos", "A geração dos arquivos")
+    return fluxos.entregar(comum.PROJETO, entregas, tipo=tipo, rodada=rodada, fichas=fichas, parametros_extra=parametros_extra)
 
 
 def _guardar_textos(fichas, resultado, data_base, arquivo):

@@ -137,6 +137,11 @@
       "relevante": true
     },
     {
+      "padrao": "^Homologad[oa] (o )?acordo",
+      "frase": "O juiz homologou (aprovou) o acordo entre as partes.",
+      "relevante": true
+    },
+    {
       "padrao": "^Negado seguimento a Recurso",
       "frase": "O tribunal negou seguimento ao recurso.",
       "relevante": true

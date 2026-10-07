@@ -378,8 +378,11 @@ class TelaInicial(Base):
         antes = comum.PROJETOS_DIR, comum.ATUAL_FILE
         comum.PROJETOS_DIR, comum.ATUAL_FILE = vazio, vazio / ".projeto_atual"
         try:
-            r, _ = self.get("/fluxo", seguir=False)
+            r, _ = self.get("/", seguir=False)
             self.assertEqual((r.status_code, r.headers["Location"]), (302, "/novo"))
+            for rota in ("/fluxo", "/fluxo/importar", "/migracao"):          # WS-14: o primeiro uso começa pelo assistente
+                r, _ = self.get(rota, seguir=False)
+                self.assertEqual(r.status_code, 200, rota)
         finally:
             comum.PROJETOS_DIR, comum.ATUAL_FILE = antes
 
@@ -1136,6 +1139,8 @@ class Entregas(Base):
         so_um = [f for f in self.fichas if ficha.obter(f, "cliente") == "Cliente Exemplo 01 Ltda"]
         ficha.salvar(so_um)
         self.m["escritores.docx_a"].chamadas.clear()
+        import os
+        os.utime(entrada / "cliente.docx", (time.time() + 60, time.time() + 60))     # enviado depois da última entrega
         self.post("/entregas/gerar", {"entregas": ["docx_a"]})
         self.assertEqual(self.m["escritores.docx_a"].chamadas[-1]["molde"], entrada / "cliente.docx")
 

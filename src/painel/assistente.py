@@ -79,6 +79,7 @@ DIAS_DE_GUARDA_DOS_LOTES = 3
 
 FABRICA_DE_COLETOR = None       # f() -> Coletor; None = padrão (fila.ColetorReal). Testes e o WS-14 trocam.
 AO_COLETAR = []                 # ganchos g(slug, processo, resultado), chamados a cada processo coletado
+AO_CONCLUIR = []                # ganchos g(slug), chamados quando a rodada de coleta termina (processar e sintetizar)
 
 _e = html.escape
 _TRAVA = threading.Lock()
@@ -558,6 +559,20 @@ def gravar_capa(slug, processo, resultado):
 AO_COLETAR.append(gravar_capa)
 
 
+def _ligar_fluxos():
+    """WS-14: liga os ganchos de `fluxos.py` (movimentos e documentos como eventos; depois da rodada, extração,
+    resumo e síntese). Sem o módulo, a coleta da tela continua gravando só a capa."""
+    try:
+        import fluxos
+    except ImportError:
+        return
+    AO_COLETAR.append(fluxos.ao_coletar)
+    AO_CONCLUIR.append(fluxos.pos_coleta)
+
+
+_ligar_fluxos()
+
+
 class _ColetorComGanchos:
     """Embrulha o coletor: depois de cada processo chama os ganchos de AO_COLETAR (erro de gancho só vai ao registro)."""
 
@@ -617,6 +632,11 @@ def _trabalho(fila_mod, fila, coletor, slug):
             _ESPERA.wait(INTERVALO_DA_JANELA_S)
             if EXEC["pedido"] in ("pausa", "parada"):
                 break
+        for gancho in list(AO_CONCLUIR):        # o que foi coletado vira rascunho para a revisão, mesmo se parou no meio
+            try:
+                gancho(slug)
+            except Exception as erro:  # noqa: BLE001
+                _log(f"gancho {getattr(gancho, '__name__', gancho)} falhou: {erro}")
         EXEC["estado"] = {"pausa": "pausada", "parada": "parada"}.get(EXEC["pedido"], "concluida")
         _log(f"coleta {ROTULO_DA_EXECUCAO[EXEC['estado']]}")
     except Exception as erro:  # noqa: BLE001

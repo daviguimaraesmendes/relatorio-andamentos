@@ -107,5 +107,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         disponiveis = [s for s, _ in comum.projetos()]
         if slug in disponiveis and slug != comum.PROJETO:
             comum.usar_projeto(slug)
-        if not disponiveis and request.path not in ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper"):
+        primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper")
+        # o assistente e a migração de modelo criam o primeiro relatório: ficam liberados sem relatório
+        if not disponiveis and request.path not in primeiro_uso and not request.path.startswith(("/fluxo", "/migracao")):
             return redirect("/novo")
