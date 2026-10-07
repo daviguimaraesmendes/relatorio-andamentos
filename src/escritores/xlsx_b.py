@@ -1113,6 +1113,16 @@ class Edicao:
         return bool(cel is not None and cel.tem_formula)
 
     # ---- colunas ocultas ----------------------------------------------------------------
+    def colunas_ocultas(self):
+        """Índices das colunas ocultas da aba."""
+        m = re.search(r"<cols>(.*?)</cols>", self.folha.pre, re.S)
+        saida = set()
+        for c in re.finditer(r"<col\b([^>]*?)/?>", m.group(1) if m else ""):
+            a = dict(_RE_ATTR.findall(c.group(1)))
+            if a.get("hidden") in ("1", "true"):
+                saida.update(range(int(a["min"]), int(a["max"]) + 1))
+        return saida
+
     def definir_colunas_ocultas(self, ocultas, visiveis=()):
         """Oculta as colunas `ocultas` (índices) e reexibe as `visiveis`; não apaga nada (as fórmulas e os
         dados continuam lá). Edita só o <cols> da aba."""
@@ -2022,9 +2032,13 @@ class _Gravacao:
     def _gravar_aba(self, i, a, planos):
         acc = self.acc
         mapa = dict(a["mapa"])
-        julg = [col for campo, col in mapa.items() if PAPEIS.get(campo) == "julgamento"]
-        ed = Edicao(None, a["nome"], tabela=a["tabela"], pacote=self.pac, humanos=julg)
+        ed = Edicao(None, a["nome"], tabela=a["tabela"], pacote=self.pac)
         onde = a["nome"]
+        if self.ativas is None:
+            # sem lista no perfil, coluna oculta na planilha do cliente é coluna que ninguém usa: não se grava nela
+            ocultas = ed.colunas_ocultas()
+            mapa = {c: col for c, col in mapa.items() if col not in ocultas or c in ("numero", "andamentos")}
+        ed.colunas_humanas = {col for campo, col in mapa.items() if PAPEIS.get(campo) == "julgamento"}
         # colunas do perfil que a planilha não tem
         faltam = [c for c in COLUNAS_B_ORDEM if (self.ativas is not None and c in self.ativas) and c not in mapa
                   and c not in {k for k in a["ambiguos"]}] if not self.modelo else []

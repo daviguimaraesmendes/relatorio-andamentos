@@ -37,7 +37,7 @@ from openpyxl.chart import BarChart, LineChart, Reference                  # noq
 from openpyxl.formatting.rule import FormulaRule                           # noqa: E402
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side     # noqa: E402
 from openpyxl.worksheet.datavalidation import DataValidation               # noqa: E402
-from openpyxl.worksheet.table import Table, TableStyleInfo                 # noqa: E402
+from openpyxl.worksheet.table import Table, TableFormula, TableStyleInfo   # noqa: E402
 
 import ficha                                                               # noqa: E402
 import taxonomia                                                           # noqa: E402
@@ -99,14 +99,24 @@ def _processos(wb):
         if campo in ("andamentos", "objeto"):
             cel.alignment = Alignment(wrap_text=True, vertical="top")
     cab = xlsx_b.CAMPOS_B
-    ws.cell(2, indice["valor_economizado"]).value = (
-        f'=IF(OR({_esta_linha(cab["ativo"])}<>"Não",{_esta_linha(cab["valor_causa"])}="",'
-        f'{_esta_linha(cab["valor_estimado"])}=""),"",{_esta_linha(cab["valor_causa"])}-{_esta_linha(cab["valor_estimado"])})')
-    ws.cell(2, indice["taxa_resolucao_dias"]).value = (
-        f'=IF(OR({_esta_linha(cab["data_transito"])}="",{_esta_linha(cab["data_ajuizamento"])}=""),"",'
-        f'{_esta_linha(cab["data_transito"])}-{_esta_linha(cab["data_ajuizamento"])})')
+    calculadas = {
+        "valor_economizado": (
+            f'IF(OR({_esta_linha(cab["ativo"])}<>"Não",{_esta_linha(cab["valor_causa"])}="",'
+            f'{_esta_linha(cab["valor_estimado"])}=""),"",{_esta_linha(cab["valor_causa"])}-{_esta_linha(cab["valor_estimado"])})'),
+        "taxa_resolucao_dias": (
+            f'IF(OR({_esta_linha(cab["data_transito"])}="",{_esta_linha(cab["data_ajuizamento"])}=""),"",'
+            f'{_esta_linha(cab["data_transito"])}-{_esta_linha(cab["data_ajuizamento"])})')}
+    for campo, formula in calculadas.items():
+        ws.cell(2, indice[campo]).value = "=" + formula
     tabela = Table(displayName=TABELA, ref=f"A1:{_letra(n)}2")
     tabela.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+    # colunas calculadas declaradas na Tabela: o Excel as propaga para as linhas novas digitadas à mão
+    tabela._initialise_columns()
+    for celula, coluna in zip(ws[tabela.ref][0], tabela.tableColumns):
+        coluna.name = str(celula.value)
+        for campo, formula in calculadas.items():
+            if coluna.name == cab[campo]:
+                coluna.calculatedColumnFormula = TableFormula(attr_text=formula)
     ws.add_table(tabela)
     # colunas extras ocultas até o perfil ativá-las
     for campo in xlsx_b.COLUNAS_EXTRAS:
@@ -147,10 +157,9 @@ def _parametros(wb):
     ws["A2"], ws["A3"], ws["A4"], ws["A5"] = (
         "Número de funcionários (headcount)", "Data de referência", "Fator de correção", "Empresas do grupo")
     ws["B3"].number_format = "dd/mm/yyyy"
-    ws["B4"] = 1
     ws["C2"] = "Usado em 'Litígios por 100 funcionários'."
     ws["C3"] = "Data-base do relatório; usada nos 'novos ajuizamentos em 12 meses'."
-    ws["C4"] = "Multiplica o valor da causa total (1 = sem correção)."
+    ws["C4"] = "Multiplica o valor da causa total (vazio = sem correção)."
     ws["C5"] = "Nomes separados por ponto e vírgula."
     for c in ("A1", "B1"):
         ws[c].font = Font(bold=True)

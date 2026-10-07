@@ -684,6 +684,379 @@ class TestAlternativaPreformatada(Base):
         self.assertEqual(ind["B3"].value, real["ativos"] + 240)       # 240 linhas em branco viram "ativo": errado
         self.assertGreater(ind["B3"].value, real["ativos"])
 
+# =====================================================================================================
+# 2. Escritor do contrato: modelo padrão, gravar, planilha.py
+# =====================================================================================================
+
+MODELO = x.MODELO_PADRAO
+GERADOR = RAIZ / "src" / "modelos" / "xlsx_b" / "gerar_modelo.py"
+DATA_BASE = "2026-10-07"
+
+
+def evento(numero, data_br, frase, conteudo="", **extra):
+    """Evento aprovado fictício no formato de comum.py."""
+    ev = {"numero": numero, "status": "aprovado", "data": data_br, "frase": frase, "conteudo": conteudo,
+          "detectado_em": f"{data_br[6:]}-{data_br[3:5]}-{data_br[:2]}T10:00:00", "grau": "1º grau"}
+    ev.update(extra)
+    return ev
+
+
+def estado_de(fichas, data_base=DATA_BASE, eventos=(), perfil=None, parametros=None, **extra):
+    e = {"cliente": "Cliente Exemplo", "data_base": data_base, "fichas": list(fichas), "eventos": list(eventos),
+         "perfil": perfil or {}, "parametros": parametros or {}}
+    e.update(extra)
+    return e
+
+
+def enriquecer(fichas, semente=7):
+    """Completa campos de julgamento em parte das fichas, para os indicadores terem o que contar."""
+    import random
+    for i, f in enumerate(fichas):
+        rng = random.Random(f"{semente}:{i}")
+        if not f["ativo"]:
+            if rng.random() < 0.7:
+                fi.definir(f, "valor_arbitrado", f"{rng.randint(1000, 90000)}.{rng.randint(0, 99):02d}", "humano")
+            if rng.random() < 0.4:
+                fi.definir(f, "valor_execucao", f"{rng.randint(1000, 90000)}.{rng.randint(0, 99):02d}", "humano")
+            if rng.random() < 0.7:
+                fi.definir(f, "data_transito", fi.obter(f, "ultimo_andamento"), "humano")
+        if rng.random() < 0.5:
+            fi.definir(f, "valor_estimado", f"{rng.randint(500, 80000)}.00", "humano")
+        if rng.random() < 0.3:
+            fi.definir(f, "houve_recurso", rng.choice(["Sim", "Não"]), "derivado")
+    return fichas
+
+
+def _edate_menos_12(d):
+    try:
+        return d.replace(year=d.year - 1)
+    except ValueError:               # 29/02
+        return d.replace(year=d.year - 1, day=28)
+
+
+def esperado(fichas, data_ref, headcount, fator=1):
+    """Os indicadores do modelo padrão, calculados em Python direto das fichas (independente da planilha)."""
+    D = fi.dinheiro
+    ativos = [f for f in fichas if f["ativo"]]
+    enc = [f for f in fichas if not f["ativo"]]
+    cont = lambda r: sum(1 for f in fichas if fi.obter(f, "resultado") == r)   # noqa: E731
+    improc, arq, acordo = cont("Improcedente"), cont("Arquivado / desistência"), cont("Acordo")
+    parcial, proc = cont("Parcialmente procedente"), cont("Procedente")
+    decididos = improc + arq + acordo + parcial + proc
+    dias = []
+    for f in fichas:
+        tr, aj = fi.data(fi.obter(f, "data_transito")), fi.data(fi.obter(f, "data_ajuizamento"))
+        if tr and aj:
+            dias.append((tr - aj).days)
+    dias.sort()
+    mediana = (dias[len(dias) // 2] if len(dias) % 2 else (dias[len(dias) // 2 - 1] + dias[len(dias) // 2]) / 2) if dias else ""
+    ref = fi.data(data_ref)
+    novos = sum(1 for f in fichas if fi.data(fi.obter(f, "data_ajuizamento"))
+                and _edate_menos_12(ref) < fi.data(fi.obter(f, "data_ajuizamento")) <= ref)
+    recursos = sum(1 for f in fichas if fi.obter(f, "houve_recurso") == "Sim")
+    arb = lambda f: D(fi.obter(f, "valor_arbitrado"))   # noqa: E731
+    exe = lambda f: D(fi.obter(f, "valor_execucao"))     # noqa: E731
+    causa = lambda f: D(fi.obter(f, "valor_causa")) or Decimal(0)   # noqa: E731
+    lancado = [f for f in enc if arb(f) is not None or exe(f) is not None]
+    realizado = sum((arb(f) if arb(f) is not None else exe(f) for f in lancado), Decimal(0))
+    causa_lancado = sum((causa(f) for f in lancado), Decimal(0))
+    total_causa = sum((causa(f) for f in fichas), Decimal(0))
+    return {
+        "Total de processos": len(fichas), "Processos ativos": len(ativos), "Processos encerrados": len(enc),
+        "Litígios por 100 funcionários": len(fichas) / headcount * 100 if headcount else "",
+        "Novos ajuizamentos em 12 meses": novos,
+        "Tempo médio de resolução (dias)": sum(dias) / len(dias) if dias else "",
+        "Mediana do tempo de resolução (dias)": mediana,
+        "Processos com recurso da empresa": recursos, "Processos decididos": decididos,
+        "Taxa de recurso": recursos / decididos if decididos else "",
+        "Improcedentes": improc, "Arquivadas / desistência": arq, "Acordos": acordo,
+        "Parcialmente procedentes": parcial, "Procedentes": proc,
+        "Taxa de êxito": (improc + arq) / decididos if decididos else "",
+        "% por acordo": acordo / decididos if decididos else "",
+        "Valor da causa total": total_causa, "Valor da causa total corrigido": total_causa * Decimal(str(fator)),
+        "Valor da causa dos encerrados": sum((causa(f) for f in enc), Decimal(0)),
+        "Encerrados com valor realizado lançado": len(lancado),
+        "Encerrados sem valor lançado (fora da economia)": len(enc) - len(lancado),
+        "Valor da causa dos encerrados com valor lançado": causa_lancado,
+        "Valor realizado dos encerrados": realizado, "Economia efetiva": causa_lancado - realizado,
+    }
+
+
+def indicadores_da_planilha(wb):
+    """{rótulo: valor} da aba Indicadores (só as linhas de indicador, que têm valor na coluna B)."""
+    ws = wb["Indicadores"]
+    saida = {}
+    for r in range(2, ws.max_row + 1):
+        rotulo = ws.cell(r, 1).value
+        if rotulo and ws.cell(r, 3).value:           # a coluna C só tem nota nos indicadores
+            saida[rotulo] = ws.cell(r, 2).value
+    return saida
+
+
+def linhas_da_aba(caminho, aba="Processos"):
+    """[{cabeçalho: valor}] da aba (fórmulas aparecem como texto '=...'; sem cache)."""
+    ws = openpyxl.load_workbook(caminho)[aba]
+    cab = [c.value for c in ws[1]]
+    return [dict(zip(cab, [c.value for c in linha])) for linha in ws.iter_rows(min_row=2)
+            if any(c.value is not None for c in linha)]
+
+
+def _carregar_gerador():
+    spec = importlib.util.spec_from_file_location("gerar_modelo_b", GERADOR)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestModeloPadrao(BaseLO):
+    def test_estrutura(self):
+        self.assertTrue(MODELO.exists(), "gere com src/modelos/xlsx_b/gerar_modelo.py")
+        self.assertEqual(x.validar(MODELO), [])
+        wb = openpyxl.load_workbook(MODELO)
+        self.assertEqual(wb.sheetnames, ["Processos", "Parâmetros", "Indicadores", "Dashboard", "Histórico",
+                                         "Campos não migrados"])
+        ws = wb["Processos"]
+        cab = [c.value for c in ws[1]]
+        self.assertEqual(cab[:29], [x.CAMPOS_B[c] for c in x.COLUNAS_PADRAO])
+        self.assertEqual(len(cab), 37)
+        self.assertEqual(len(x.COLUNAS_PADRAO), 29)
+        self.assertIn("tblProcessos", ws.tables)
+        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AK2")
+        self.assertEqual(sorted(wb["Histórico"].tables), ["tblHistorico"])
+        self.assertEqual(sorted(wb["Campos não migrados"].tables), ["tblNaoMigrados"])
+        # colunas extras ocultas; as 29 visíveis
+        ocultas = {c for c, d in ws.column_dimensions.items() if d.hidden}
+        extras = {x.col_letra(cab.index(x.CAMPOS_B[c]) + 1) for c in x.COLUNAS_EXTRAS}
+        self.assertEqual(ocultas, extras)
+        # colunas calculadas declaradas na Tabela (propagam para as linhas novas)
+        tab = partes(MODELO)["xl/tables/table1.xml"].decode()
+        self.assertEqual(tab.count("<calculatedColumnFormula>"), 2)
+        self.assertGreaterEqual(len(ws.data_validations.dataValidation), 8)
+        self.assertGreaterEqual(len(ws.conditional_formatting), 2)
+
+    def test_formulas_sem_funcoes_que_quebram_no_excel(self):
+        p = partes(MODELO)
+        todas = "".join(p[n].decode() for n in p if n.startswith("xl/worksheets/sheet"))
+        for proibida in ("FILTER(", "UNIQUE(", "XLOOKUP(", "LET(", "SORT(", "LAMBDA(", "_xlfn", "_xlws", "SEQUENCE("):
+            self.assertNotIn(proibida, todas)
+        for necessaria in ("COUNTIFS(", "SUMIFS(", "AVERAGE(", "MEDIAN(", "COUNTA("):
+            self.assertIn(necessaria, todas)
+
+    def test_sanitizado_sem_numero_de_processo_nem_nome(self):
+        p = partes(MODELO)
+        texto = "".join(d.decode("utf-8", "replace") for n, d in p.items() if n.endswith((".xml", ".rels")))
+        self.assertEqual(re.findall(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}", texto), [])
+        self.assertNotRegex(texto, r"Ltda|S\.A\.")
+
+    def test_modelo_commitado_igual_ao_gerado(self):
+        """Regerar com o script dá a mesma estrutura e o mesmo conteúdo (bytes podem variar com a versão do openpyxl)."""
+        novo = self.saida("regerado.xlsx")
+        _carregar_gerador().gerar(novo)
+        a, b = partes(MODELO), partes(novo)
+        self.assertEqual(sorted(a), sorted(b))
+        for n in a:
+            if n.endswith(".xml") and not n.startswith("docProps"):
+                self.assertEqual(ET.canonicalize(a[n].decode()), ET.canonicalize(b[n].decode()), n)
+
+    def test_gerador_deterministico(self):
+        mod = _carregar_gerador()
+        mod.gerar(self.saida("m1.xlsx"))
+        mod.gerar(self.saida("m2.xlsx"))
+        self.assertEqual(self.saida("m1.xlsx").read_bytes(), self.saida("m2.xlsx").read_bytes())
+
+    @unittest.skipUnless(TEM_LO, "LibreOffice ausente")
+    def test_abre_no_libreoffice_vazio(self):
+        wb = self.lo_valores(MODELO)
+        ind = indicadores_da_planilha(wb)
+        self.assertEqual(ind["Total de processos"], 0)
+        self.assertEqual(ind["Valor da causa total"], 0)
+        self.assertIn(ind["Taxa de êxito"], (None, ""))           # sem decididos: vazio, não erro
+
+
+class TestGravarModelo200(BaseLO):
+    """gravar(None, ...) com 200 fichas fictícias: criação do zero a partir do modelo padrão."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.fichas = enriquecer(ficticio.gerar_carteira(200, clientes=5, semente=1))
+        cls.parametros = {"headcount": 350, "empresas_do_grupo": ["Empresa Exemplo A Ltda", "Empresa Exemplo B Ltda"],
+                          "fator_correcao": 1.05}
+        cls.estado = estado_de(cls.fichas, parametros=cls.parametros)
+        cls.dest = cls.tmp / "do-zero.xlsx"
+        cls.res = x.gravar(None, cls.estado, cls.dest)
+
+    def erros(self, res):
+        return [a for a in res["avisos"] if a["nivel"] == "erro"]
+
+    def test_a_resultado_do_contrato(self):
+        r = self.res
+        self.assertEqual(self.erros(r), [])
+        self.assertEqual(r["destino"], self.dest)
+        for chave in ("destino", "processos_atualizados", "processos_novos", "ignorados", "mudancas", "avisos",
+                      "textos_gravados"):
+            self.assertIn(chave, r)
+        self.assertEqual(r["processos_novos"], [f["numero"] for f in self.fichas])
+        self.assertEqual(r["processos_atualizados"], [])
+        self.assertEqual(len(r["textos_gravados"]), 200)
+        self.assertEqual(r["cache_formulas"], "invalidado")
+        self.assertTrue(any(a["codigo"] == "cache_de_formulas_invalidado" for a in r["avisos"]))
+        for a in r["avisos"]:
+            self.assertEqual(set(a), {"nivel", "codigo", "onde", "mensagem", "candidatos"})
+
+    def test_b_200_linhas_inseridas_e_estrutura_coerente(self):
+        self.assertEqual(x.validar(self.dest), [])
+        wb = openpyxl.load_workbook(self.dest)
+        ws = wb["Processos"]
+        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AK201")
+        numeros = [ws.cell(r, 1).value for r in range(2, 202)]
+        self.assertEqual(numeros, [f["numero"] if not f["vinculados"] else "; ".join(fi.todos_os_numeros(f))
+                                   for f in self.fichas])
+        self.assertIsNone(ws.cell(202, 1).value)
+        # estilo (formato de data e de dinheiro) herdado na última linha; colunas calculadas propagadas
+        cab = {c.value: c.column for c in ws[1]}
+        self.assertEqual(ws.cell(201, cab["Data do Ajuizamento"]).number_format, "dd/mm/yyyy")
+        self.assertEqual(ws.cell(201, cab["Valor da Causa"]).number_format, "#,##0.00")
+        self.assertTrue(str(ws.cell(201, cab["Valor Economizado"]).value).startswith("=IF("))
+        self.assertTrue(str(ws.cell(201, cab["Taxa de resolução (em dias)"]).value).startswith("=IF("))
+        s = partes(self.dest)["xl/worksheets/sheet1.xml"].decode()
+        for esperado_ in ("A2:AK201", "AA2:AA201", "P2:P201"):
+            self.assertTrue(any(esperado_ in sq for sq in re.findall(r'sqref="([^"]*)"', s)), esperado_)
+        self.assertIn('<dimension ref="A1:AK201"/>', s)
+
+    def test_c_partes_nao_editadas_identicas(self):
+        antes, depois = partes(MODELO), partes(self.dest)
+        self.assertEqual(set(antes), set(depois))
+        alteradas = {n for n in depois if antes[n] != depois[n]}
+        for intacta in ("xl/styles.xml", "xl/theme/theme1.xml", "xl/sharedStrings.xml", "xl/workbook.xml"):
+            if intacta in antes and intacta != "xl/workbook.xml":
+                self.assertNotIn(intacta, alteradas, intacta)
+        for n in antes:
+            if n.startswith(("xl/charts/", "xl/drawings/")):
+                self.assertEqual(antes[n], depois[n], n)
+        self.assertEqual(self.res["partes_alteradas"], sorted(alteradas))
+        self.assertIn("xl/worksheets/sheet1.xml", alteradas)
+        self.assertIn('fullCalcOnLoad="1"', depois["xl/workbook.xml"].decode())
+
+    def test_d_colunas_extras_ocultas_e_perfil_ativa(self):
+        ws = openpyxl.load_workbook(self.dest)["Processos"]
+        cab = [c.value for c in ws[1]]
+        for campo in x.COLUNAS_EXTRAS:
+            letra = x.col_letra(cab.index(x.CAMPOS_B[campo]) + 1)
+            self.assertTrue(ws.column_dimensions[letra].hidden, campo)
+        for campo in x.COLUNAS_PADRAO:
+            letra = x.col_letra(cab.index(x.CAMPOS_B[campo]) + 1)
+            self.assertFalse(ws.column_dimensions[letra].hidden, campo)
+        # perfil: ativa momento atual e esconde garantias; as colunas dos indicadores nunca somem
+        perfil = {"colunas_ativas": ["numero", "autores", "reus", "momento_atual", "garantias", "outras_partes"]}
+        dest = self.saida("perfil.xlsx")
+        r = x.gravar(None, estado_de(self.fichas[:5], perfil=perfil), dest)
+        self.assertEqual(self.erros(r), [])
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        oculto = lambda campo: ws.column_dimensions[x.col_letra(cab.index(x.CAMPOS_B[campo]) + 1)].hidden  # noqa: E731
+        self.assertFalse(oculto("momento_atual"))
+        self.assertFalse(oculto("garantias"))
+        self.assertTrue(oculto("vara"))                    # fora do perfil
+        self.assertFalse(oculto("situacao"))               # usada pelos indicadores: sempre visível
+        self.assertTrue(oculto("ultimo_andamento"))
+        # valor do campo ativo foi gravado
+        linhas = linhas_da_aba(dest)
+        self.assertEqual(linhas[0]["Momento Atual"], fi.obter(self.fichas[0], "momento_atual"))
+        self.assertIsNone(linhas[0]["Vara"])
+
+    def test_e_andamentos_e_campos_gravados(self):
+        linhas = linhas_da_aba(self.dest)
+        for f, linha in zip(self.fichas, linhas):
+            self.assertEqual(linha["Andamentos"], f"Até {fi.data_br(DATA_BASE)} sem atualizações.")
+            self.assertEqual(linha["Réu(s)"], fi.obter(f, "reus"))
+            self.assertEqual(linha["Situação"], fi.obter(f, "situacao"))
+            self.assertEqual(linha["Ativo"], "Sim" if f["ativo"] else "Não")
+            if fi.obter(f, "valor_causa"):
+                self.assertAlmostEqual(linha["Valor da Causa"], float(fi.obter(f, "valor_causa")), 2)
+            if fi.obter(f, "data_ajuizamento"):
+                self.assertEqual(linha["Data do Ajuizamento"].date().isoformat(), fi.obter(f, "data_ajuizamento"))
+            self.assertEqual(linha["Resultado"], fi.obter(f, "resultado"))
+
+    @unittest.skipUnless(TEM_LO, "LibreOffice ausente")
+    def test_f_indicadores_conferem_com_calculo_independente(self):
+        wb = self.lo_valores(self.dest)
+        obtido = indicadores_da_planilha(wb)
+        previsto = esperado(self.fichas, DATA_BASE, 350, 1.05)
+        self.assertEqual(set(obtido), set(previsto))
+        for rotulo, valor in previsto.items():
+            if valor == "":
+                self.assertIn(obtido[rotulo], (None, ""), rotulo)
+            else:
+                self.assertAlmostEqual(float(obtido[rotulo]), float(valor), 4, rotulo)
+        # os indicadores não são todos zero: a conferência está exercitando alguma coisa
+        self.assertGreater(previsto["Economia efetiva"], 0)
+        self.assertGreater(previsto["Encerrados com valor realizado lançado"], 5)
+        self.assertGreater(previsto["Processos decididos"], 20)
+        # colunas calculadas conferem linha a linha
+        ws = wb["Processos"]
+        cab = {c.value: c.column for c in ws[1]}
+        for r, f in zip(range(2, 202), self.fichas):
+            causa = fi.dinheiro(fi.obter(f, "valor_causa"))
+            est = fi.dinheiro(fi.obter(f, "valor_estimado"))
+            econ = ws.cell(r, cab["Valor Economizado"]).value
+            if not f["ativo"] and causa is not None and est is not None:
+                self.assertAlmostEqual(float(econ), float(causa - est), 2)
+            else:
+                self.assertIn(econ, (None, ""))
+            tr, aj = fi.data(fi.obter(f, "data_transito")), fi.data(fi.obter(f, "data_ajuizamento"))
+            taxa = ws.cell(r, cab["Taxa de resolução (em dias)"]).value
+            if tr and aj:
+                self.assertEqual(int(taxa), (tr - aj).days)
+            else:
+                self.assertIn(taxa, (None, ""))
+
+    @unittest.skipUnless(TEM_LO, "LibreOffice ausente")
+    def test_g_quadros_dos_graficos_e_historico(self):
+        wb = self.lo_valores(self.dest)
+        ws = wb["Indicadores"]
+        quadro = {}
+        for r in range(1, ws.max_row + 1):
+            if ws.cell(r, 1).value and ws.cell(r, 3).value is None and ws.cell(r, 2).value is not None:
+                quadro[ws.cell(r, 1).value] = ws.cell(r, 2).value
+        for situacao in ("Ativo", "Encerrado", "Suspenso"):
+            self.assertEqual(quadro[situacao], sum(1 for f in self.fichas if fi.obter(f, "situacao") == situacao))
+        self.assertEqual(quadro["Trabalhista"], sum(1 for f in self.fichas if fi.obter(f, "area") == "Trabalhista"))
+        h = wb["Histórico"]
+        self.assertEqual([c.value for c in h[2]][1:4], [200, sum(1 for f in self.fichas if f["ativo"]),
+                                                       sum(1 for f in self.fichas if not f["ativo"])])
+        self.assertEqual(h["A2"].value.date().isoformat(), DATA_BASE)
+        p = wb["Parâmetros"]
+        self.assertEqual(p["B2"].value, 350)
+        self.assertEqual(p["B3"].value.date().isoformat(), DATA_BASE)
+        self.assertEqual(p["B5"].value, "Empresa Exemplo A Ltda; Empresa Exemplo B Ltda")
+        d = wb["Dashboard"]
+        self.assertEqual(d["A4"].value, 200)
+
+    @unittest.skipUnless(TEM_LO, "LibreOffice ausente")
+    def test_h_pdf_pelo_libreoffice(self):
+        pasta = self.lo(self.dest, "pdf")
+        pdf = (pasta / "do-zero.pdf").read_bytes()
+        self.assertTrue(pdf.startswith(b"%PDF") and len(pdf) > 5000)
+
+    def test_i_deterministico_e_original_do_modelo_intacto(self):
+        antes = sha(MODELO.read_bytes())
+        outro = self.saida("do-zero-2.xlsx")
+        r2 = x.gravar(None, self.estado, outro)
+        self.assertEqual(self.erros(r2), [])
+        self.assertEqual(outro.read_bytes(), self.dest.read_bytes())
+        self.assertEqual(sha(MODELO.read_bytes()), antes)
+
+    def test_j_gravar_de_novo_sobre_o_resultado_e_idempotente(self):
+        """Usar a saída como molde com o mesmo estado: nenhuma linha duplicada, nenhum texto repetido."""
+        dest2 = self.saida("segunda.xlsx")
+        r = x.gravar(self.dest, self.estado, dest2)
+        self.assertEqual(self.erros(r), [])
+        self.assertEqual(r["processos_novos"], [])
+        self.assertEqual(linhas_da_aba(dest2), linhas_da_aba(self.dest))
+        self.assertEqual(r["textos_gravados"], self.res["textos_gravados"])
+        self.assertEqual(x.validar(dest2), [])
+        # e o histórico não ganhou linha repetida
+        self.assertEqual(len(linhas_da_aba(dest2, "Histórico")), 1)
 
 
 if __name__ == "__main__":
