@@ -207,15 +207,20 @@ def _rpr_modelo(rpr, negrito, herdar_destaques=False):
         for tag in RPR_NAO_HERDAR:
             for el in rpr.findall(w(tag)):
                 rpr.remove(el)
-    for tag in ("b", "bCs"):
-        el = rpr.find(w(tag))
+    el = rpr.find(w("b"))
+    if negrito:
+        if el is None:
+            el = etree.Element(w("b"))
+            _inserir_em_rpr(rpr, el)
+        el.set(w("val"), "1")
+    elif el is not None:
+        rpr.remove(el)
+    cs = rpr.find(w("bCs"))                      # negrito de script complexo: só acompanha se o modelo já tinha
+    if cs is not None:
         if negrito:
-            if el is None:
-                el = etree.Element(w(tag))
-                _inserir_em_rpr(rpr, el)
-            el.set(w("val"), "1")
-        elif el is not None:
-            rpr.remove(el)
+            cs.set(w("val"), "1")
+        else:
+            rpr.remove(cs)
     return rpr
 
 
@@ -681,7 +686,7 @@ def _atualizar_andamentos(bloco, upd, data_base, opc, res):
                 else:
                     _substituir(par, fecho.start(1), fecho.end(1), data_base)
                 _mudanca(res, numero, "andamentos_fecho", antes_fecho, f"{prefixo}{data_base}{sufixo}".strip())
-        elif not fecho_no_meio or True:
+        else:
             if texto.strip() and not texto.endswith((" ", "\n")):
                 par.append(_novo_run(" ", modelo_normal))
             anexar_fecho()
@@ -731,7 +736,10 @@ def _atualizar_resumo_e_titulo(doc, resumo, bloco, linha, upd, aceitos, data_bas
                    f"antes da atualização o momento era diferente no título ('{antes_t}') e no resumo ('{antes_r}')")
         if par_t is not None and (antes_t is None or _chave(antes_t) != _chave(novo)):
             m = COLCHETE.search(_texto_par(par_t))
-            _substituir(par_t, m.start(2), m.end(2), novo) if m.group(2) else None
+            if m.group(2):
+                _substituir(par_t, m.start(2), m.end(2), novo)
+            else:                                   # '[ ]' vazio: insere dentro do colchete
+                par_t.append(_novo_run(novo, _rpr_modelo(_rpr_no_offset(par_t, m.start()), True)))
             _mudanca(res, numero, "momento_atual", antes_t, novo)
         elif par_t is None:
             _aviso(res, "atencao", numero, "titulo_sem_momento", "título do bloco sem '[ MOMENTO ]': não alterado")
@@ -801,7 +809,7 @@ def _preencher_andamentos_novo(bloco, proc, data_base, opc):
         if (t.text or "").strip():
             if _negrito(_rpr_de(t)):
                 negrito = negrito if negrito is not None else _rpr_de(t)
-            elif normal is None and (not fecho or True):
+            elif normal is None:
                 normal = _rpr_de(t)
     normal = _rpr_modelo(normal, False)
     negrito = _rpr_modelo(negrito if negrito is not None else normal, True)
@@ -915,11 +923,10 @@ def _inserir_processo_novo(doc, proc, data_base, opc, res):
             for el in list(nova.iter(w(tag))):
                 el.getparent().remove(el)
         cels = _filhos(nova, "tc")
-        ultimo_dt = max([_data_br(a["data"]) for a in proc.get("andamentos") or []] or [_data_br(proc.get("ultimo_andamento"))] or [None],
-                        key=lambda d: _ordem_data(d), default=None) if (proc.get("andamentos") or proc.get("ultimo_andamento")) else None
+        datas_novo = [_data_br(a["data"]) for a in proc.get("andamentos") or []] or [_data_br(proc.get("ultimo_andamento"))]
+        ultimo_dt = max([d for d in datas_novo if d], key=_ordem_data, default=None)
         valores = {"assunto": proc.get("assunto") or "-", "momento": (proc.get("momento_atual") or "").upper(),
                    "ultimo": ultimo_dt or "-"}
-        rpr_dados = None
         if resumo.col["numero"] is not None:
             _definir_paragrafos_celula(cels[resumo.col["numero"]], _linhas_numero_resumo(proc))
         for chave, texto in valores.items():
@@ -1105,7 +1112,7 @@ def atualizar(origem, destino, atualizacoes, data_base, *, fecho_apos_novidade=T
     resumo = doc.resumo()
     if resumo is None:
         _aviso(res, "atencao", "documento", "sem_resumo", "quadro-resumo não encontrado: só os blocos serão atualizados")
-    tocados = set()
+    tocados = []          # tabelas (elementos) atualizadas; comparar por identidade, nunca por id()
     novos = []
     for upd in atualizacoes:
         if upd.get("novo"):
@@ -1122,7 +1129,7 @@ def atualizar(origem, destino, atualizacoes, data_base, *, fecho_apos_novidade=T
             _aviso(res, "atencao", numeros[0], "numero_em_varios_blocos",
                    "número aparece em mais de um bloco: atualizado só o primeiro", [b.numeros[0] for b in blocos])
         bloco = blocos[0]
-        tocados.add(id(bloco.tbl))
+        tocados.append(bloco.tbl)
         if set(numeros) - set(bloco.numeros):
             _aviso(res, "info", bloco.numeros[0], "numero_vinculado_novo",
                    "a atualização traz número que não está no título do bloco (não acrescentado ao título)",
@@ -1139,10 +1146,11 @@ def atualizar(origem, destino, atualizacoes, data_base, *, fecho_apos_novidade=T
         _inserir_processo_novo(doc, proc, data_base, opc, res)
     if renovar_fecho_dos_demais:
         for bloco in doc.blocos():
-            if id(bloco.tbl) not in tocados and bloco.numeros[0] not in res["processos_novos"]:
+            if not any(t is bloco.tbl for t in tocados) and bloco.numeros[0] not in res["processos_novos"]:
                 _atualizar_andamentos(bloco, {"andamentos": []}, data_base, opc, res)
     else:
-        sem = [b.numeros[0] for b in doc.blocos() if id(b.tbl) not in tocados and b.numeros[0] not in res["processos_novos"]]
+        sem = [b.numeros[0] for b in doc.blocos()
+               if not any(t is b.tbl for t in tocados) and b.numeros[0] not in res["processos_novos"]]
         if sem:
             _aviso(res, "info", "documento", "processos_sem_atualizacao",
                    f"{len(sem)} processo(s) do arquivo ficaram intactos (sem atualização informada)", sem)
@@ -1169,8 +1177,9 @@ def atualizar(origem, destino, atualizacoes, data_base, *, fecho_apos_novidade=T
 
 # ------------------------------------------------------------------ conferência de coerência
 
-def verificar_coerencia(docx):
-    """Lista de problemas entre quadro-resumo, blocos, fecho e data-base (lista vazia = coerente)."""
+def verificar_coerencia(docx, fechos=True):
+    """Lista de problemas entre quadro-resumo, blocos, fecho e data-base (lista vazia = coerente).
+    fechos=False ignora fecho com data diferente da data-base (esperado quando só parte dos processos foi atualizada)."""
     doc = _abrir(docx)
     problemas = []
     _, m = doc.par_data_base()
@@ -1204,7 +1213,7 @@ def verificar_coerencia(docx):
             if d["ultimo"] != ult:
                 problemas.append(f"{rotulo}: último andamento do resumo ({d['ultimo']}) difere do último do texto ({ult})")
         fe = _achar_fecho(_plano(texto))
-        if fe and data_base and fe.group(1) != data_base:
+        if fechos and fe and data_base and fe.group(1) != data_base:
             problemas.append(f"{rotulo}: fecho com {fe.group(1)} difere da data-base {data_base}")
     for _tr, ns, _d in linhas:
         if not any(set(ns) & set(b.numeros) for b in blocos):
