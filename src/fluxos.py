@@ -374,6 +374,11 @@ def migrar(arquivos, projeto=None, *, confirmar=True, cliente_padrao=None, nome=
         for f in fichas:
             if not ficha.obter(f, "cliente"):
                 ficha.definir(f, "cliente", cliente_padrao, "migrado")
+    sem_cliente = [f["numero"] for f in fichas if not ficha.obter(f, "cliente")]
+    if sem_cliente:
+        avisos.append(_aviso("atencao", "processo_sem_cliente", "clientes",
+                             f"{len(sem_cliente)} processo(s) vieram sem o nome do cliente (a planilha e as listas nem sempre trazem). "
+                             "Informe o cliente padrão ao importar ou corrija em Clientes e processos.", sem_cliente[:20]))
     sem_destino = []
     for l in lidos:
         for c in l["rel"].get("colunas_sem_destino", []):
@@ -884,8 +889,17 @@ def _rodar_ciclo(tipo, projeto, fichas_alvo_fn, *, profundidade, modo, entregas,
         if mudou:
             perfil_mod.salvar(perfil, slug)
         profundidade, modo = perfil["profundidade"], perfil["modo_coleta"]
-        data_base = ficha.parse_data(data_base) or _hoje()
-        alvo = fichas_alvo_fn(ficha.carregar(todas=True))
+        aberto = (_estado().get("ciclo") or {})
+        aberto = aberto if aberto.get("tipo") == tipo and aberto.get("fase") != "concluido" else None
+        pedida = ficha.parse_data(data_base)
+        if aberto and (pedida is None or pedida == aberto["id"]):     # há um ciclo desta data pela metade: continua nele
+            data_base = aberto["id"]
+        else:
+            data_base, aberto = pedida or _hoje(), None
+        todas_as_fichas = ficha.carregar(todas=True)
+        alvo = fichas_alvo_fn(todas_as_fichas)
+        if aberto:
+            alvo += [f for f in todas_as_fichas if f["numero"] in set(aberto["numeros"]) and f not in alvo]
         numeros_alvo = {n for f in alvo for n in ficha.todos_os_numeros(f)}
         if not alvo:
             return _resultado(True, "Nada a coletar: nenhum processo se enquadra neste fluxo.", avisos, [], etapa="nada",
