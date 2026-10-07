@@ -130,5 +130,29 @@ class TestTaxonomia(unittest.TestCase):
         self.assertTrue(any("conflita" in p for p in ficha.validar(f)))
 
 
+class TestMomentoComQualificador(unittest.TestCase):
+    def test_separa_momento_e_qualificador(self):
+        f = ficha.nova_ficha(NUM)
+        self.assertTrue(ficha.definir(f, "momento_atual", "CUMPRIMENTO DE SENTENÇA (HONORÁRIOS SUSPENSOS)", "migrado"))
+        self.assertEqual(ficha.obter(f, "momento_atual"), "CUMPRIMENTO DE SENTENÇA")
+        self.assertEqual(ficha.obter(f, "momento_qualificador"), "HONORÁRIOS SUSPENSOS")
+        self.assertEqual(taxonomia.formatar_momento(ficha.obter(f, "momento_atual"), ficha.obter(f, "momento_qualificador")),
+                         "CUMPRIMENTO DE SENTENÇA (HONORÁRIOS SUSPENSOS)")
+        self.assertEqual(ficha.validar(f), [])
+
+    def test_qualificador_antigo_sai_quando_o_momento_muda(self):
+        f = ficha.nova_ficha(NUM)
+        ficha.definir(f, "momento_atual", "PROCESSO ARQUIVADO (DECISÃO FAVORÁVEL)", "migrado")
+        ficha.definir(f, "momento_atual", "CUMPRIMENTO DE SENTENÇA", "coletado")
+        self.assertEqual(ficha.obter(f, "momento_atual"), "CUMPRIMENTO DE SENTENÇA")
+        self.assertIsNone(ficha.obter(f, "momento_qualificador"))
+
+    def test_mesmo_momento_mantem_o_qualificador(self):
+        f = ficha.nova_ficha(NUM)
+        ficha.definir(f, "momento_atual", "PROCESSO ARQUIVADO (DECISÃO FAVORÁVEL)", "migrado")
+        ficha.definir(f, "momento_atual", "PROCESSO ARQUIVADO", "coletado")
+        self.assertEqual(ficha.obter(f, "momento_qualificador"), "DECISÃO FAVORÁVEL")
+
+
 if __name__ == "__main__":
     unittest.main()

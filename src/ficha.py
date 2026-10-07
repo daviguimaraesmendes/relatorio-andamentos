@@ -12,6 +12,14 @@ em "campos", cada um com a sua ORIGEM.
      "campos": {"vara": {"valor": "...", "origem": "coletado", "em": "2026-10-07T10:00:00",
                          "evidencia": "capa do processo, jus.br"}, ...}}
 
+Chaves opcionais acrescentadas por outros módulos (todas aditivas): "ultimo_texto_gravado" (texto de andamentos
+que o escritor deixou no arquivo, por ciclo), "consolidacao" (conflitos, linhas absorvidas e rótulos originais,
+gravada por consolidar.py) e "sugestoes_recusadas" (sugestões que uma pessoa recusou na revisão).
+
+Momento atual com qualificador ("CUMPRIMENTO DE SENTENÇA (HONORÁRIOS SUSPENSOS)"): `definir` separa o texto e grava
+o momento do vocabulário em "momento_atual" e o parêntese em "momento_qualificador"; quando o momento muda, o
+qualificador antigo é limpo (descrevia o momento anterior).
+
 Origem de cada campo e quem vence (maior prioridade nunca é sobrescrita por menor):
 
     humano (5)  digitado/aprovado por pessoa, inclusive o que já estava lançado à mão
@@ -68,6 +76,7 @@ CAMPOS = {
     "valor_causa": ("Valor da causa", "capa", "dinheiro", None),
     # situação
     "momento_atual": ("Momento atual do processo", "situacao", "texto", "momento_atual"),
+    "momento_qualificador": ("Momento atual: qualificador", "situacao", "texto", None),
     "situacao": ("Situação", "situacao", "texto", "situacao"),
     "fase": ("Fase", "situacao", "texto", "fase"),
     "ultimo_andamento": ("Data do último andamento", "situacao", "data", None),
@@ -239,6 +248,13 @@ def definir(ficha, nome, valor, origem_nova, evidencia=None, forcar=False):
         raise KeyError(f"Campo desconhecido: {nome}")
     if origem_nova not in PRIORIDADE:
         raise ValueError(f"Origem desconhecida: {origem_nova}")
+    if nome == "momento_atual" and isinstance(valor, str) and "(" in valor:
+        momento, qualificador = taxonomia.normalizar_momento(valor)
+        if momento:
+            gravou = definir(ficha, nome, momento, origem_nova, evidencia, forcar)
+            if qualificador:
+                definir(ficha, "momento_qualificador", qualificador, origem_nova, evidencia, forcar=True)
+            return gravou
     _, _, tipo, vocab = CAMPOS[nome]
     valor = _normalizar_valor(tipo, vocab, valor)
     if valor in (None, ""):
@@ -251,6 +267,8 @@ def definir(ficha, nome, valor, origem_nova, evidencia=None, forcar=False):
     registro = {"valor": valor, "origem": origem_nova, "em": agora()}
     if evidencia:
         registro["evidencia"] = evidencia
+    if nome == "momento_atual" and atual not in (None, "") and atual != valor:
+        ficha.get("campos", {}).pop("momento_qualificador", None)  # descrevia o momento anterior
     ficha.setdefault("campos", {})[nome] = registro
     if nome in PLANOS:
         ficha[nome] = valor  # espelho para o código da Fase 1

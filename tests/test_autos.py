@@ -4,6 +4,7 @@ andamentos copiado da página real), num Chromium de verdade, sem login.
     ../.venv/bin/python -m unittest tests/test_autos.py -v
 """
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -63,6 +64,7 @@ class TelaDosAutos(unittest.TestCase):
         ])
         coletor.abrir_aba(self.page, "Movimentos")
 
+    @unittest.skipUnless(shutil.which("tesseract"), "OCR do print precisa do tesseract (Homebrew no Mac); sem ele o texto do print volta vazio")
     def test_print_e_ocr(self):
         destino = Path(os.environ["RELATORIO_DATA"]) / "print-teste.png"
         coletor.print_elemento(self.page, ".conteudo", destino)

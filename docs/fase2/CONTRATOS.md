@@ -150,7 +150,7 @@ Provedor externo: chave no cofre do sistema (`acesso.py`/keyring); só texto ext
 }
 ```
 
-Gerado a cada atualização concluída; reconstruível a partir de vários `.xlsx` antigos na migração.
+Campos aditivos adotados: `versao`, `por_processo[].cliente` e `totais.valor_economizado_confiavel` (só valor confirmado por pessoa). Gerado a cada atualização concluída; reconstruível a partir de vários `.xlsx` antigos na migração.
 
 ## 10. Sugestão de julgamento (`src/julgamento.py`)
 

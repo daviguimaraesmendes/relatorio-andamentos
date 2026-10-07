@@ -73,7 +73,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 "Outro serviço: o nome do modelo como o serviço o chama.</span></p>"
                 f"<p><label>Endereço da API<br><input type='text' name='endereco' size='60' "
                 f"value='{_e(atual.get('endereco', ''))}'></label>"
-                "<br><span class='dica'>Obrigatório para serviço compatível com OpenAI (ex.: https://servidor.example/v1). "
+                "<br><span class='dica'>Obrigatório para serviço compatível com OpenAI (o endereço da API do serviço). "
                 "Para o Claude, deixe em branco. O endereço precisa começar com https.</span></p>"
                 "<p><label>Chave da API<br><input type='password' name='chave' autocomplete='off' size='50'></label>"
                 "<br><span class='dica'>Vai para o cofre do sistema e não volta a aparecer na tela. "

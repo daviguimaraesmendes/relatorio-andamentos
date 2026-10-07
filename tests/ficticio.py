@@ -253,20 +253,24 @@ def _ficha_sintetica(i, semente, clientes_n):
         if resultado in ("Procedente", "Parcialmente procedente"):
             arbitrado = round(valor_causa * (rng.uniform(0.5, 1.0) if resultado == "Procedente" else rng.uniform(0.2, 0.6)), 2)
             definir("valor_arbitrado", _dinheiro(arbitrado), "humano")
-        estimado = (valor_causa if resultado is None else arbitrado if arbitrado else valor_acordo if valor_acordo else 0.0)
+        estimado = (valor_causa if resultado in (None, "Incompetência declarada") else
+                    arbitrado if arbitrado else valor_acordo if valor_acordo else 0.0)
         definir("valor_estimado", _dinheiro(estimado), "humano")
         if not f["ativo"]:
-            definir("valor_economizado", _dinheiro(valor_causa - estimado), "humano")
+            # economia (causa − estimado) só de encerrado, e não do cliente autor nem de incompetência (PLANO 7.2)
+            if polo == "passivo" and resultado != "Incompetência declarada":
+                definir("valor_economizado", _dinheiro(valor_causa - estimado), "humano")
             definir("taxa_resolucao_dias", (ultimo - ajuizamento).days, "humano")
-        if resultado in ("Acordo", "Extinto sem resolução de mérito"):
-            pass  # sem probabilidade de perda: o processo acabou sem julgamento de mérito
+        if resultado in ("Acordo", "Extinto sem resolução de mérito", "Arquivado / desistência", "Incompetência declarada"):
+            pass  # sem probabilidade: o processo acabou sem julgamento de mérito
         else:
+            # probabilidade do RESULTADO do processo, igual para autor e réu (PLANO 7.2: sem inversão por polo)
             if resultado is None:
                 prob = "Possível"
             elif resultado == "Improcedente":
-                prob = "Remota" if polo == "passivo" else "Provável"
+                prob = "Remota"
             else:
-                prob = "Provável" if polo == "passivo" else "Remota"
+                prob = "Provável"
             if rng.random() < 0.15:
                 prob = rng.choice(["Possível", "Provável", "Remota"])
             definir("probabilidade", prob, "humano")

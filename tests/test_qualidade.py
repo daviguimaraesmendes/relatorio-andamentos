@@ -155,14 +155,11 @@ class TestFixturesDefeitos(unittest.TestCase):
         self.assertEqual([a for a in achados if a["gravidade"] == "erro"], [])
 
     def test_carteira_limpa_so_tem_as_ressalvas_esperadas_do_gerador(self):
-        # O gerador lança economia e probabilidade em processos de cliente autor sem olhar o polo: é o que o
-        # verificador existe para apontar (ver economia_inflada / probabilidade_x_resultado).
+        # O gerador sorteia em ~15% das probabilidades lançadas por humano um valor qualquer (ruído proposital,
+        # para exercitar `probabilidade_x_resultado`); cliente autor gera `ressalva_cliente_autor`. Economia só é
+        # lançada em encerrado do cliente réu (PLANO 7.2), então `economia_inflada` não aparece na carteira limpa.
         achados = qualidade.verificar(self.limpa, hoje=HOJE)
-        self.assertEqual({a["codigo"] for a in achados}, {"economia_inflada", "probabilidade_x_resultado", "ressalva_cliente_autor"})
-        por_numero = {f["numero"]: f for f in self.limpa}
-        for a in achados:
-            if a["codigo"] == "economia_inflada":
-                self.assertEqual(ficha.obter(por_numero[a["numeros"][0]], "polo_cliente"), "ativo")
+        self.assertEqual({a["codigo"] for a in achados}, {"probabilidade_x_resultado", "ressalva_cliente_autor"})
 
     def test_200_fichas_em_tempo_razoavel(self):
         import time
