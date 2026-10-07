@@ -1058,6 +1058,387 @@ class TestGravarModelo200(BaseLO):
         # e o histórico não ganhou linha repetida
         self.assertEqual(len(linhas_da_aba(dest2, "Histórico")), 1)
 
+def construir_cliente(caminho, abas, campos=None, ocultas=(), tabela=True, cabecalhos=None, extra_colunas=()):
+    """Planilha 'de cliente' fictícia feita com openpyxl: {nome_da_aba: [fichas]}; cada aba com tabela do Excel.
+    `campos`: campos da ficha, na ordem das colunas; `cabecalhos`: {campo: texto do cabeçalho} para variar nomes."""
+    from openpyxl import Workbook
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    campos = list(campos or x.COLUNAS_PADRAO)
+    cabecalhos = cabecalhos or {}
+    wb = Workbook()
+    wb.remove(wb.active)
+    for k, (nome, fichas) in enumerate(abas.items()):
+        ws = wb.create_sheet(nome)
+        titulos = [cabecalhos.get(c, x.CAMPOS_B[c]) for c in campos] + list(extra_colunas)
+        ws.append(titulos)
+        for f in fichas:
+            linha = []
+            for c in campos:
+                v = x._valor_da_ficha(f, c)
+                if c == "andamentos":
+                    v = f"Até 30/09/2026 sem atualizações."
+                linha.append(v)
+            ws.append(linha + [None] * len(extra_colunas))
+        for i, c in enumerate(campos, start=1):
+            tipo = fi.CAMPOS.get(c, ("", "", "texto", None))[2]
+            for r in range(2, len(fichas) + 2):
+                if tipo == "data":
+                    ws.cell(r, i).number_format = "dd/mm/yyyy"
+                elif tipo == "dinheiro":
+                    ws.cell(r, i).number_format = "#,##0.00"
+        for c in ocultas:
+            ws.column_dimensions[x.col_letra(campos.index(c) + 1)].hidden = True
+        if tabela:
+            ws.add_table(Table(displayName=f"tbl{k}", ref=f"A1:{x.col_letra(len(titulos))}{max(2, len(fichas) + 1)}",
+                               tableStyleInfo=TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)))
+    wb.save(caminho)
+    return caminho
+
+
+def numero_da_linha(caminho, numero, aba="Processos"):
+    ws = openpyxl.load_workbook(caminho)[aba]
+    for r in range(2, ws.max_row + 1):
+        if numero in str(ws.cell(r, 1).value or ""):
+            return r
+    return None
+
+
+def texto_andamentos(caminho, numero, aba="Processos"):
+    ws = openpyxl.load_workbook(caminho)[aba]
+    cab = {c.value: c.column for c in ws[1]}
+    return ws.cell(numero_da_linha(caminho, numero, aba), cab["Andamentos"]).value
+
+
+def valor_da_celula(caminho, numero, cabecalho, aba="Processos"):
+    ws = openpyxl.load_workbook(caminho)[aba]
+    cab = {c.value: c.column for c in ws[1]}
+    return ws.cell(numero_da_linha(caminho, numero, aba), cab[cabecalho]).value
+
+
+def codigos(res, nivel=None):
+    return [a["codigo"] for a in res["avisos"] if nivel is None or a["nivel"] == nivel]
+
+
+class TestAtualizarArquivoDoCliente(BaseLO):
+    """gravar(molde, ...): a planilha do cliente é o molde (política de colunas, andamentos, idempotência)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        todas = enriquecer(ficticio.gerar_carteira(34, clientes=2, semente=2))
+        cls.base, cls.novas = todas[:30], todas[30:]
+        cls.A = cls.tmp / "A.xlsx"
+        cls.res_a = x.gravar(None, estado_de(cls.base, data_base="2026-09-30"), cls.A)
+        # quem não tem resultado/probabilidade lançados (para testar preenchimento e conflito)
+        cls.sem_resultado = [f for f in cls.base if not fi.obter(f, "resultado") and f["ativo"]]
+        cls.sem_prob = [f for f in cls.base if not fi.obter(f, "probabilidade")]
+
+    def setUp(self):
+        self.fichas = [self.copia(f) for f in self.base]
+        self.por_numero = {f["numero"]: f for f in self.fichas}
+
+    @staticmethod
+    def copia(f):
+        import copy
+        return copy.deepcopy(f)
+
+    def gravar(self, molde, fichas, data_base="2026-10-31", nome="saida.xlsx", eventos=(), **kw):
+        dest = self.saida(nome)
+        if dest.exists():
+            dest.unlink()
+        perfil = kw.pop("perfil", None)
+        res = x.gravar(molde, estado_de(fichas, data_base=data_base, eventos=eventos, perfil=perfil), dest, **kw)
+        self.assertEqual(codigos(res, "erro"), [], res["avisos"])
+        return res, dest
+
+    def test_a_andamentos_so_acrescenta_e_fecho_so_sem_novidade(self):
+        import planilha
+        f3, f4, f5 = self.fichas[3], self.fichas[4], self.fichas[5]
+        ev3 = evento(f3["numero"], "05/10/2026", "Foi proferida decisão", "determinando a citação do réu")
+        ev4a = evento(f4["numero"], "08/10/2026", "Foi designada audiência", "para o dia 20/11/2026")
+        ev4b = evento(f4["numero"], "08/10/2026", "Foi juntada petição", "da parte autora")
+        res, dest = self.gravar(self.A, self.fichas, eventos=[ev3, ev4b, ev4a])
+        self.assertEqual(res["processos_novos"], [])
+        # com novidade: o fecho antigo sai e o andamento entra, sem fecho novo
+        self.assertEqual(texto_andamentos(dest, f3["numero"]), planilha.frase_planilha(ev3))
+        self.assertEqual(res["textos_gravados"][f3["numero"]], planilha.frase_planilha(ev3))
+        # dois andamentos no mesmo dia: os dois entram, em ordem
+        t4 = texto_andamentos(dest, f4["numero"])
+        self.assertEqual(t4, f"{planilha.frase_planilha(ev4b)} {planilha.frase_planilha(ev4a)}")
+        self.assertNotIn("sem atualizações", t4)
+        # sem novidade: o fecho é renovado com a data-base
+        self.assertEqual(texto_andamentos(dest, f5["numero"]), "Até 31/10/2026 sem atualizações.")
+        self.assertIn(f3["numero"], res["processos_atualizados"])
+        self.assertIn(f5["numero"], res["processos_atualizados"])
+
+    def test_b_gravar_duas_vezes_nao_duplica(self):
+        f3 = self.fichas[3]
+        ev = evento(f3["numero"], "05/10/2026", "Foi proferida sentença", "julgando procedente o pedido")
+        r1, B = self.gravar(self.A, self.fichas, eventos=[ev], nome="B.xlsx")
+        r2, C = self.gravar(B, self.fichas, eventos=[ev], nome="C.xlsx")
+        self.assertEqual(linhas_da_aba(C), linhas_da_aba(B))
+        self.assertEqual(r2["processos_novos"], [])
+        self.assertEqual(r2["processos_atualizados"], [])
+        self.assertEqual([i["motivo"] for i in r2["ignorados"] if i["numero"] == f3["numero"]],
+                         ["andamento_ja_presente"])
+        self.assertIn("andamento_ja_presente", codigos(r2))      # aviso agregado, com os processos
+        self.assertEqual(r2["textos_gravados"], r1["textos_gravados"])
+        # ciclo seguinte, sem novidade: o fecho vem DEPOIS do andamento e depois só se renova
+        r3, D = self.gravar(C, self.fichas, data_base="2026-11-30", nome="D.xlsx")
+        t = texto_andamentos(D, f3["numero"])
+        self.assertTrue(t.endswith("Até 30/11/2026 sem atualizações."), t)
+        self.assertEqual(t.count("Em 05/10/2026"), 1)
+        r4, E = self.gravar(D, self.fichas, data_base="2026-12-31", nome="E.xlsx")
+        t = texto_andamentos(E, f3["numero"])
+        self.assertTrue(t.endswith("Até 31/12/2026 sem atualizações."), t)
+        self.assertEqual(t.count("Até "), 1)
+
+    def test_c_edicao_manual_do_texto_e_preservada_e_avisada(self):
+        f4 = self.fichas[4]
+        linha = numero_da_linha(self.A, f4["numero"])
+        editado = self.saida("editado.xlsx")
+        x.escrever_celulas(self.A, editado, "Processos", {(linha, "Andamentos"): "Anotação do advogado sobre o caso."})
+        f4["ultimo_texto_gravado"] = {"data_base": "2026-09-30", "texto": "Até 30/09/2026 sem atualizações.",
+                                      "arquivo": "A.xlsx"}
+        ev = evento(f4["numero"], "08/10/2026", "Foi proferida decisão", "determinando a perícia")
+        res, dest = self.gravar(editado, self.fichas, eventos=[ev])
+        t = texto_andamentos(dest, f4["numero"])
+        self.assertTrue(t.startswith("Anotação do advogado sobre o caso. Em 08/10/2026"), t)
+        self.assertIn("andamentos_editados_a_mao", codigos(res))
+        # sem a memória do último texto gravado, a edição passa em silêncio (e o texto continua preservado)
+        f4.pop("ultimo_texto_gravado")
+        res2, dest2 = self.gravar(editado, self.fichas, eventos=[ev], nome="s2.xlsx")
+        self.assertNotIn("andamentos_editados_a_mao", codigos(res2))
+        self.assertEqual(texto_andamentos(dest2, f4["numero"]), t)
+
+    def test_d_fecho_editado_a_mao_avisa_edicao_manual_sobrescrita(self):
+        f7 = self.fichas[7]
+        linha = numero_da_linha(self.A, f7["numero"])
+        editado = self.saida("fecho-editado.xlsx")
+        x.escrever_celulas(self.A, editado, "Processos", {(linha, "Andamentos"): "Até 15/09/2026 sem atualizações."})
+        f7["ultimo_texto_gravado"] = {"data_base": "2026-09-30", "texto": "Até 30/09/2026 sem atualizações.",
+                                      "arquivo": "A.xlsx"}
+        res, dest = self.gravar(editado, self.fichas)
+        self.assertEqual(texto_andamentos(dest, f7["numero"]), "Até 31/10/2026 sem atualizações.")
+        avisos = [a for a in res["avisos"] if a["codigo"] == "edicao_manual_sobrescrita"]
+        self.assertEqual([a["onde"] for a in avisos], [f7["numero"]])
+
+    def test_e_colunas_mecanicas_trocam_objetivas_e_julgamento_preservam(self):
+        f0 = self.por_numero[self.sem_resultado[0]["numero"]]
+        f0["ativo"] = False
+        fi.definir(f0, "situacao", "Encerrado", "derivado", forcar=True)
+        fi.definir(f0, "resultado", "Improcedente", "sugerido")
+        f1 = self.fichas[1]
+        antigo = valor_da_celula(self.A, f1["numero"], "Valor da Causa")
+        fi.definir(f1, "valor_causa", "99999.00", "coletado", forcar=True)
+        f2 = self.por_numero[next(f for f in self.sem_prob if f["numero"] not in (f0["numero"], f1["numero"]))["numero"]]
+        humano = self.saida("humano.xlsx")
+        x.escrever_celulas(self.A, humano, "Processos", {(numero_da_linha(self.A, f2["numero"]), "Probabilidade"): "Remota"})
+        fi.definir(f2, "probabilidade", "Provável", "sugerido")
+        res, dest = self.gravar(humano, self.fichas)
+        # mecânicas: trocadas
+        self.assertEqual(valor_da_celula(dest, f0["numero"], "Situação"), "Encerrado")
+        self.assertEqual(valor_da_celula(dest, f0["numero"], "Ativo"), "Não")
+        # julgamento com a célula vazia: preenchido (origem sugerido)
+        self.assertEqual(valor_da_celula(dest, f0["numero"], "Resultado"), "Improcedente")
+        self.assertIn(f0["numero"], res["processos_atualizados"])
+        # objetiva já preenchida e diferente: preservada, com aviso agregado
+        self.assertEqual(valor_da_celula(dest, f1["numero"], "Valor da Causa"), antigo)
+        av = [a for a in res["avisos"] if a["codigo"] == "valor_divergente" and "Valor da Causa" in a["onde"]]
+        self.assertEqual(len(av), 1)
+        self.assertIn(f1["numero"], av[0]["candidatos"])
+        # julgamento preenchido por humano: nunca sobrescrito, com aviso
+        self.assertEqual(valor_da_celula(dest, f2["numero"], "Probabilidade"), "Remota")
+        av = [a for a in res["avisos"] if a["codigo"] == "campo_divergente" and "Probabilidade" in a["onde"]]
+        self.assertEqual(len(av), 1)
+        self.assertIn(f2["numero"], av[0]["candidatos"])
+        # mudanças registradas com antes e depois
+        m = {(c["numero"], c["campo"]): c for c in res["mudancas"]}
+        self.assertEqual(m[(f0["numero"], "Situação")]["antes"], "Ativo")
+        self.assertEqual(m[(f0["numero"], "Situação")]["depois"], "Encerrado")
+        self.assertIsNone(m[(f0["numero"], "Resultado")]["antes"])
+
+    def test_f_formulas_nunca_sao_sobrescritas(self):
+        f = next(f for f in self.fichas if not f["ativo"])
+        fi.definir(f, "valor_economizado", "123456.00", "humano")
+        fi.definir(f, "taxa_resolucao_dias", 999, "humano")
+        res, dest = self.gravar(self.A, self.fichas)
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        cab = {c.value: c.column for c in ws[1]}
+        r = numero_da_linha(dest, f["numero"])
+        self.assertTrue(str(ws.cell(r, cab["Valor Economizado"]).value).startswith("=IF("))
+        self.assertTrue(str(ws.cell(r, cab["Taxa de resolução (em dias)"]).value).startswith("=IF("))
+        self.assertEqual(x.validar(dest), [])
+
+    def test_g_mecanica_alterada_a_mao_avisa_quando_ha_memoria(self):
+        f = self.fichas[9]
+        linha = numero_da_linha(self.A, f["numero"])
+        editado = self.saida("situacao-manual.xlsx")
+        x.escrever_celulas(self.A, editado, "Processos", {(linha, "Situação"): "Suspenso"})
+        f["ultimos_valores_gravados"] = {"situacao": fi.obter(f, "situacao")}      # o que o sistema gravou
+        res, dest = self.gravar(editado, self.fichas)
+        self.assertEqual(valor_da_celula(dest, f["numero"], "Situação"), fi.obter(f, "situacao"))
+        av = [a for a in res["avisos"] if a["codigo"] == "edicao_manual_sobrescrita" and a["onde"] == f["numero"]]
+        self.assertEqual(len(av), 1)
+        # sem memória: troca sem aviso
+        f.pop("ultimos_valores_gravados")
+        res2, _ = self.gravar(editado, self.fichas, nome="sem-memoria.xlsx")
+        self.assertEqual([a for a in res2["avisos"] if a["codigo"] == "edicao_manual_sobrescrita"], [])
+
+    def test_h_processo_novo_entra_ao_fim_com_estilo_e_formulas(self):
+        novo = self.novas[0]
+        res, dest = self.gravar(self.A, self.fichas + [self.copia(novo)])
+        self.assertEqual(res["processos_novos"], [novo["numero"]])
+        self.assertEqual(x.validar(dest), [])
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        self.assertEqual(ws.max_row, 32)
+        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AK32")
+        self.assertEqual(ws["A32"].value, novo["numero"])
+        self.assertTrue(str(ws["W32"].value).startswith("=IF("))
+        self.assertEqual(ws["G32"].number_format, "dd/mm/yyyy")
+        self.assertEqual(res["textos_gravados"][novo["numero"]], "Até 31/10/2026 sem atualizações.")
+        # partes não editadas idênticas (gráficos, desenhos, estilos)
+        a, d = partes(self.A), partes(dest)
+        for n in a:
+            if n.startswith("xl/charts/") and b"Hist" in a[n]:
+                continue                  # o gráfico do histórico cresce com a linha nova do retrato mensal
+            if n.startswith(("xl/charts/", "xl/drawings/")) or n in ("xl/styles.xml", "xl/theme/theme1.xml"):
+                self.assertEqual(a[n], d[n], n)
+
+    def test_i_linha_de_base_entra_no_texto_de_processo_novo_e_de_celula_vazia(self):
+        novo = self.copia(self.novas[1])
+        ficticio.anexar_linha_de_base(novo, data_base="2026-09-30")
+        base = novo["linha_de_base"]["andamentos_texto"]
+        self.assertTrue(base)
+        ev = evento(novo["numero"], "05/10/2026", "Foi proferida decisão", "determinando a citação do réu")
+        res, dest = self.gravar(self.A, self.fichas + [novo], eventos=[ev])
+        t = texto_andamentos(dest, novo["numero"])
+        self.assertTrue(t.startswith(base.rstrip()), t[:80])
+        self.assertTrue(t.endswith("determinando a citação do réu."), t[-80:])
+        # célula de Andamentos vazia numa linha existente: parte do histórico migrado
+        f = self.fichas[11]
+        ficticio.anexar_linha_de_base(f, data_base="2026-09-30")
+        vazio = self.saida("vazio.xlsx")
+        x.escrever_celulas(self.A, vazio, "Processos", {(numero_da_linha(self.A, f["numero"]), "Andamentos"): x.LIMPAR})
+        res2, dest2 = self.gravar(vazio, self.fichas, nome="vazio-out.xlsx")
+        self.assertTrue(texto_andamentos(dest2, f["numero"]).startswith(f["linha_de_base"]["andamentos_texto"].rstrip()))
+
+    def test_j_texto_acima_do_limite_do_excel_so_afeta_aquele_processo(self):
+        f, g2 = self.fichas[12], self.fichas[13]
+        grande = self.saida("grande.xlsx")
+        x.escrever_celulas(self.A, grande, "Processos",
+                           {(numero_da_linha(self.A, f["numero"]), "Andamentos"): "a" * 32760})
+        ev = evento(f["numero"], "05/10/2026", "Foi proferida decisão", "determinando a citação do réu")
+        ev2 = evento(g2["numero"], "05/10/2026", "Foi proferida decisão", "determinando a citação do réu")
+        dest = self.saida("grande-out.xlsx")
+        res = x.gravar(grande, estado_de(self.fichas, data_base="2026-10-31", eventos=[ev, ev2]), dest)
+        self.assertIsNotNone(res["destino"])
+        erros = [a for a in res["avisos"] if a["nivel"] == "erro"]
+        self.assertEqual([(a["codigo"], a["onde"]) for a in erros], [("texto_acima_do_limite", f["numero"])])
+        self.assertIn({"numero": f["numero"], "motivo": "texto_acima_do_limite"}, res["ignorados"])
+        self.assertEqual(texto_andamentos(dest, f["numero"]), "a" * 32760)       # intacto, não truncado
+        self.assertTrue(texto_andamentos(dest, g2["numero"]).startswith("Em 05/10/2026"))
+        self.assertEqual(x.validar(dest), [])
+
+    def test_k_perfil_restringe_colunas_gravadas(self):
+        f0 = self.por_numero[self.sem_resultado[0]["numero"]]
+        fi.definir(f0, "resultado", "Improcedente", "sugerido")
+        res, dest = self.gravar(self.A, self.fichas, perfil={"colunas_ativas": ["numero", "andamentos", "situacao"]})
+        self.assertIsNone(valor_da_celula(dest, f0["numero"], "Resultado"))       # coluna fora do perfil
+        res2, dest2 = self.gravar(self.A, self.fichas, nome="s2.xlsx",
+                                  perfil={"colunas_ativas": ["numero", "andamentos", "resultado", "campo_que_nao_existe"]})
+        self.assertEqual(valor_da_celula(dest2, f0["numero"], "Resultado"), "Improcedente")
+        self.assertIn("coluna_desconhecida_no_perfil", codigos(res2))
+
+    def test_l_data_de_referencia_e_historico_do_segundo_ciclo(self):
+        res, dest = self.gravar(self.A, self.fichas, data_base="2026-10-31")
+        wb = openpyxl.load_workbook(dest)
+        self.assertEqual(wb["Parâmetros"]["B3"].value.date(), datetime.date(2026, 10, 31))
+        hist = linhas_da_aba(dest, "Histórico")
+        self.assertEqual([h["Data-base"].date().isoformat() for h in hist], ["2026-09-30", "2026-10-31"])
+        self.assertEqual(hist[1]["Processos"], 30)
+        # o gráfico do histórico acompanhou a linha nova
+        grafico = [d.decode() for n, d in partes(dest).items() if n.startswith("xl/charts/chart") and b"Hist" in d]
+        self.assertTrue(any("$A$2:$A$3" in c or "$B$1:$B$3" in c or "$B$2:$B$3" in c for c in grafico), grafico)
+        self.assertEqual(x.validar(dest), [])
+        # mesma data-base de novo: a linha é atualizada, não duplicada
+        res2, dest2 = self.gravar(dest, self.fichas, data_base="2026-10-31", nome="h2.xlsx")
+        self.assertEqual(len(linhas_da_aba(dest2, "Histórico")), 2)
+        # retratos anteriores informados pelo coordenador entram uma vez, em ordem
+        antes = {"data_base": "2026-08-31", "totais": {"processos": 25, "ativos": 20, "encerrados": 5,
+                                                        "valor_causa": "1000.00", "valor_estimado": "0.00",
+                                                        "valor_economizado": "0.00"}}
+        dest3 = self.saida("h3.xlsx")
+        r3 = x.gravar(self.A, estado_de(self.fichas, data_base="2026-10-31", historico=[antes, antes]), dest3)
+        self.assertEqual(codigos(r3, "erro"), [])
+        datas = [h["Data-base"].date().isoformat() for h in linhas_da_aba(dest3, "Histórico")]
+        self.assertEqual(datas, ["2026-09-30", "2026-08-31", "2026-10-31"])   # só se acrescenta ao fim
+
+    def test_m_campos_nao_migrados_idempotente(self):
+        nm = [{"coluna": "Observação do advogado", "amostra": ["a", "b"],
+               "valores": {self.fichas[0]["numero"]: "ligar na segunda", self.fichas[1]["numero"]: "ok"}},
+              {"coluna": "Cor", "amostra": ["azul"]}]
+        dest = self.saida("nm.xlsx")
+        r = x.gravar(None, estado_de(self.fichas[:3], campos_nao_migrados=nm), dest)
+        self.assertEqual(codigos(r, "erro"), [])
+        linhas = linhas_da_aba(dest, "Campos não migrados")
+        self.assertEqual([(l["Coluna de origem"], l["Processo"], l["Valor"]) for l in linhas],
+                         [("Observação do advogado", self.fichas[0]["numero"], "ligar na segunda"),
+                          ("Observação do advogado", self.fichas[1]["numero"], "ok"), ("Cor", None, "azul")])
+        dest2 = self.saida("nm2.xlsx")
+        x.gravar(dest, estado_de(self.fichas[:3], campos_nao_migrados=nm), dest2)
+        self.assertEqual(len(linhas_da_aba(dest2, "Campos não migrados")), 3)
+        # molde sem a aba: aviso, sem erro
+        r3 = x.gravar(construir_cliente(self.saida("sem-aba.xlsx"), {"Processos": self.fichas[:2]}),
+                      estado_de(self.fichas[:2], campos_nao_migrados=nm), self.saida("sem-aba-out.xlsx"))
+        self.assertIn("campos_nao_migrados_sem_aba", codigos(r3))
+
+    def test_n_numero_duplicado_na_planilha_nao_e_atualizado(self):
+        f = self.fichas[2]
+        duplicada = self.saida("dup.xlsx")
+        outra = numero_da_linha(self.A, self.fichas[20]["numero"])
+        x.escrever_celulas(self.A, duplicada, "Processos", {(outra, "Número do Processo"): f["numero"]})
+        res, dest = self.gravar(duplicada, self.fichas)
+        self.assertIn("numero_duplicado_na_planilha", codigos(res))
+        self.assertIn({"numero": f["numero"], "motivo": "numero_duplicado_na_planilha"}, res["ignorados"])
+
+    def test_o_vinculado_na_celula_acha_a_linha_do_principal(self):
+        f = next(f for f in self.fichas if f["vinculados"])
+        principal = f["numero"]
+        r = numero_da_linha(self.A, principal)
+        self.assertIn(f["vinculados"][0]["numero"], str(valor_da_celula(self.A, principal, "Número do Processo")))
+        # o principal sumiu da célula e só o vinculado ficou: ainda acha a linha, sem criar processo novo
+        so_vinculado = self.saida("so-vinculado.xlsx")
+        x.escrever_celulas(self.A, so_vinculado, "Processos", {(r, "Número do Processo"): f["vinculados"][0]["numero"]})
+        res, dest = self.gravar(so_vinculado, self.fichas)
+        self.assertEqual(res["processos_novos"], [])
+
+    def test_p_evento_de_processo_fora_das_fichas_vira_aviso(self):
+        ev = evento(ficticio.numero_ficticio(4999), "05/10/2026", "Foi proferida decisão", "determinando a citação")
+        res, dest = self.gravar(self.A, self.fichas, eventos=[ev])
+        self.assertIn("evento_sem_ficha", codigos(res))
+
+    def test_q_evento_nao_aprovado_nao_entra(self):
+        f = self.fichas[3]
+        ev = evento(f["numero"], "05/10/2026", "Foi proferida decisão", "determinando a citação", status="rascunho")
+        res, dest = self.gravar(self.A, self.fichas, eventos=[ev])
+        self.assertEqual(texto_andamentos(dest, f["numero"]), "Até 31/10/2026 sem atualizações.")
+
+    def test_r_fecho_apos_novidade_opcional(self):
+        f = self.fichas[3]
+        ev = evento(f["numero"], "05/10/2026", "Foi proferida decisão", "determinando a citação do réu")
+        res, dest = self.gravar(self.A, self.fichas, eventos=[ev], fecho_apos_novidade=True)
+        self.assertTrue(texto_andamentos(dest, f["numero"]).endswith("determinando a citação do réu. Até 31/10/2026 sem atualizações."))
+
+    def test_s_original_nunca_alterado_e_destino_igual_ao_molde(self):
+        antes = sha(self.A.read_bytes())
+        res, dest = self.gravar(self.A, self.fichas, eventos=[])
+        self.assertEqual(sha(self.A.read_bytes()), antes)
+        r = x.gravar(self.A, estado_de(self.fichas), self.A)
+        self.assertIsNone(r["destino"])
+        self.assertEqual(codigos(r, "erro"), ["destino_igual_ao_molde"])
+        self.assertEqual(sha(self.A.read_bytes()), antes)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

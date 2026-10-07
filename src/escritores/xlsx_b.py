@@ -553,10 +553,14 @@ class Extensor:
         m = _RE_CEL.match(original)
         return f"{m.group(1)}{col_letra(c2)}{m.group(3)}{r2}"
 
-    def formula(self, texto, na_aba):
-        """Texto de fórmula -> texto de fórmula. na_aba: as refs sem aba são da aba da tabela."""
+    def formula(self, texto, na_aba, grafico=False):
+        """Texto de fórmula -> texto de fórmula. na_aba: as refs sem aba são da aba da tabela.
+        grafico: série de gráfico; numa tabela de UMA linha só (o modelo recém-criado) a referência a uma
+        célula única da linha também vale como intervalo e acompanha o crescimento."""
         def sub(m):
-            if not m.group("ref") or not m.group("b"):
+            if not m.group("ref"):
+                return m.group(0)
+            if not m.group("b") and not (grafico and self.lin1 == self.lin2):
                 return m.group(0)
             aba = m.group("aba")
             if aba:
@@ -564,7 +568,8 @@ class Extensor:
                     return m.group(0)
             elif not na_aba:
                 return m.group(0)
-            a, b = m.group("a"), m.group("b")
+            a = m.group("a")
+            b = m.group("b") or a
             c1, r1, c2, r2 = _intervalo_ref(f"{a}:{b}")
             n1, nr1, n2, nr2 = self.intervalo(c1, r1, c2, r2)
             if (n2, nr2) == (c2, r2):
@@ -591,14 +596,14 @@ class Extensor:
         return self.sqref(texto)
 
 
-def _sub_f(xml, extensor, na_aba, tags=r"(?:\w+:)?f|formula[12]?|definedName|(?:\w+:)?formula[12]?"):
+def _sub_f(xml, extensor, na_aba, tags=r"(?:\w+:)?f|formula[12]?|definedName|(?:\w+:)?formula[12]?", grafico=False):
     """Aplica extensor.formula ao conteúdo de <f>, <c:f>, <xm:f>, <formula*>, <definedName>."""
     def sub(m):
         bruto = m.group(2)
         if not bruto or "!" not in bruto and not na_aba:
             return m.group(0)
         txt = html.unescape(bruto)
-        novo = extensor.formula(txt, na_aba)
+        novo = extensor.formula(txt, na_aba, grafico)
         if novo == txt:
             return m.group(0)
         return m.group(1) + html.escape(novo, quote=False) + m.group(3)
@@ -1250,7 +1255,7 @@ class Edicao:
                         pac.definir(nome, novo)
             elif re.fullmatch(r"xl/charts/[^/]*chart[^/]*\.xml", nome):
                 txt = pac.texto(nome)
-                novo = _sub_f(txt, ext, False, tags=r"(?:\w+:)?f")
+                novo = _sub_f(txt, ext, False, tags=r"(?:\w+:)?f", grafico=True)
                 if novo != txt:
                     pac.definir(nome, novo)
         self._dinamicas(ext)
@@ -2027,7 +2032,14 @@ class _Gravacao:
         # passo 2: uma aba de cada vez
         for i, a in enumerate(abas):
             self._gravar_aba(i, a, [p for p in planos if p.aba == i and not p.motivo_ignorado])
-        # processos que ficaram de fora também têm texto "gravado" (o que já está no arquivo): nada a dizer
+        presentes = [d for d in acc["ignorados"] if d["motivo"] == "andamento_ja_presente"]
+        if presentes:
+            numeros = list(dict.fromkeys(d["numero"] for d in presentes))
+            acc["avisos"].append(_aviso(
+                "info", "andamento_ja_presente", "Andamentos",
+                f"{len(presentes)} andamento(s) de {len(numeros)} processo(s) não foram gravados porque já constam no "
+                "texto da planilha (igual ou reescrito com a mesma data). Confira os que foram tratados como "
+                "'já presentes' em `ignorados`.", numeros[:50]))
 
     def _gravar_aba(self, i, a, planos):
         acc = self.acc
