@@ -1,14 +1,64 @@
 #!/bin/bash
 # Gera dist/relatorio-andamentos.zip para levar a outra máquina ou publicar no Hub.
 # NUNCA inclui dados de clientes: projetos/, ensaio/, data/, diagnósticos, ambiente Python.
+#
+# O que entra: o código (src/, inclusive src/modelos/ com os modelos sanitizados), os testes, a documentação do
+# usuário (README.md, docs/), os instaladores e os arquivos de configuração de exemplo.
+# O que NÃO entra: dados e ambiente (projetos/, ensaio/, data/, .venv, dist/), os protótipos (spikes/), pastas de
+# ferramentas (.git, .claude), arquivos pessoais (config.json, revisar.command, cadastro.command), os documentos
+# internos de coordenação da Fase 2 (docs/fase2/BRIEFING-AGENTES.md e WORKSTREAMS.md) e arquivos de teste
+# grandes (tests/fixtures com mais de 1 MB).
+#
+# Depois de copiar, o script confere o pacote (mesma regra do tests/test_confidencialidade.py): número de processo
+# fora do modelo (0000000-00... e 9999999-99...) e dos sintéticos dos testes (1234567-... a 1234570-...), nome de
+# cliente cadastrado neste computador, CPF/CNPJ/e-mail reais, segredos, certificados, referência externa em HTML
+# de modelo. O texto dentro de .docx/.xlsx também é lido. Se achar algo, recusa gerar o pacote.
+# Só precisa de bash e python3 (a cópia e o .zip são feitos pelo próprio Python).
 set -e
 cd "$(dirname "$0")"
 rm -rf dist/relatorio-andamentos dist/relatorio-andamentos.zip && mkdir -p dist/relatorio-andamentos
-rsync -a \
-  --exclude '.venv' --exclude 'projetos' --exclude 'ensaio' --exclude 'data' --exclude 'dist' \
-  --exclude '__pycache__' --exclude '*.pyc' --exclude '.DS_Store' --exclude '*.log' --exclude 'hub' \
-  --exclude 'revisar.command' --exclude 'cadastro.command' --exclude 'config.json' \
-  ./ dist/relatorio-andamentos/
+
+# 1) copia o que deve ir no pacote
+python3 - <<'PY'
+import fnmatch
+import shutil
+from pathlib import Path
+
+DESTINO = Path("dist/relatorio-andamentos")
+NA_RAIZ = {".venv", "venv", "projetos", "ensaio", "data", "dist", "hub", "spikes", ".claude", ".git"}
+ARQUIVOS_NA_RAIZ = {"config.json", "revisar.command", "cadastro.command"}
+EM_QUALQUER_LUGAR = ("__pycache__", ".pytest_cache", ".DS_Store", "*.pyc", "*.log")
+CAMINHOS = {"docs/fase2/BRIEFING-AGENTES.md", "docs/fase2/WORKSTREAMS.md"}
+
+
+def ignorar(pasta, nomes):
+    pasta = Path(pasta)
+    rel = pasta.relative_to(".") if pasta != Path(".") else Path(".")
+    fora = set()
+    for nome in nomes:
+        caminho = (rel / nome).as_posix()
+        if rel == Path(".") and (nome in NA_RAIZ or nome in ARQUIVOS_NA_RAIZ):
+            fora.add(nome)
+        elif caminho in CAMINHOS or any(fnmatch.fnmatch(nome, p) for p in EM_QUALQUER_LUGAR):
+            fora.add(nome)
+    return fora
+
+
+DESTINO.mkdir(parents=True, exist_ok=True)
+for item in sorted(Path(".").iterdir()):
+    if item.name in NA_RAIZ or item.name in ARQUIVOS_NA_RAIZ or any(fnmatch.fnmatch(item.name, p) for p in EM_QUALQUER_LUGAR):
+        continue
+    if item.is_dir():
+        shutil.copytree(item, DESTINO / item.name, symlinks=True, ignore=ignorar)
+    else:
+        shutil.copy2(item, DESTINO / item.name, follow_symlinks=False)
+
+# arquivos de teste grandes ficam de fora
+for grande in sorted((DESTINO / "tests" / "fixtures").rglob("*")) if (DESTINO / "tests" / "fixtures").exists() else []:
+    if grande.is_file() and grande.stat().st_size > 1_000_000:
+        print(f"  fora do pacote (maior que 1 MB): {grande.relative_to(DESTINO)}")
+        grande.unlink()
+PY
 mkdir -p dist/relatorio-andamentos/projetos
 # identificadores do escritório e revisor ficam de fora: cada máquina configura os seus
 python3 - <<'PY'
@@ -20,18 +70,35 @@ d.update(identificadores_escritorio=[], revisor="")
 d.pop("jusbr_autologin", None)
 p.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
 PY
-# conferência: nada de cliente pode ter entrado no pacote
-# (nomes dos clientes cadastrados neste Mac + qualquer número de processo; só o modelo 0000000-00... e os
-# números sintéticos dos testes, 1234567-... a 1234570-..., são permitidos)
-NOMES=$(cat projetos/*/clientes.json 2>/dev/null | python3 -c "import json,sys,re
-txt=sys.stdin.read(); objs=re.findall(r'\"nome\": \"([^\"]+)\"', txt)
-print('|'.join(re.escape(n.split()[0]) for n in objs if len(n.split()[0]) > 3))")
-PADRAO="\b[0-9]{7}-[0-9]{2}\.[0-9]{4}\.[0-9]\.[0-9]{2}\.[0-9]{4}\b${NOMES:+|$NOMES}"
-ACHADOS=$(grep -rIn -E "$PADRAO" dist/relatorio-andamentos --exclude=empacotar.sh 2>/dev/null | grep -v -E "0000000-00\.0000\.0\.00\.0000|9999999-99\.9999\.9\.99\.9999|123456[7-9]-|1234570-" || true)
-if [ -n "$ACHADOS" ]; then
-  echo "$ACHADOS" | cut -c1-200
-  echo "ATENÇÃO: o pacote contém nome de cliente ou número de processo (arquivos acima). Revise antes de publicar."
+
+# 2) o pacote tem de ao menos compilar (erro de sintaxe num módulo novo aparece aqui, não na máquina do usuário)
+python3 - <<'PY'
+import sys
+from pathlib import Path
+erros = []
+for p in sorted(Path("dist/relatorio-andamentos").rglob("*.py")):
+    try:
+        compile(p.read_bytes(), str(p), "exec")
+    except SyntaxError as e:
+        erros.append(f"  {p.relative_to('dist/relatorio-andamentos')}:{e.lineno}: {e.msg}")
+if erros:
+    print("\n".join(erros))
+    print("ATENÇÃO: há arquivo .py com erro de sintaxe no pacote (acima).")
+    sys.exit(1)
+PY
+
+# 3) conferência de confidencialidade (nada de cliente, segredo ou domínio externo pode ter entrado no pacote).
+# Os nomes dos clientes cadastrados NESTE Mac (projetos/*/clientes.json, config.json) vêm da raiz do repositório.
+# Nome de empresa "suspeito" por heurística só avisa (o teste do repositório é que o barra).
+if ! python3 tests/confidencialidade_regras.py dist/relatorio-andamentos --raiz . --sem-heuristica; then
+  echo "ATENÇÃO: o pacote contém nome de cliente, número de processo, segredo ou referência externa (itens acima). Revise antes de publicar."
+  rm -rf dist/relatorio-andamentos
   exit 1
 fi
-(cd dist && zip -qr relatorio-andamentos.zip relatorio-andamentos)
+
+# 4) o .zip
+python3 - <<'PY'
+import shutil
+shutil.make_archive("dist/relatorio-andamentos", "zip", root_dir="dist", base_dir="relatorio-andamentos")
+PY
 echo "Pacote: dist/relatorio-andamentos.zip ($(du -h dist/relatorio-andamentos.zip | cut -f1))"
