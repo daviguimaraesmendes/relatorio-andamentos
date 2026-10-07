@@ -1114,12 +1114,14 @@ def atualizar(origem, destino, atualizacoes, data_base, *, fecho_apos_novidade=T
         _aviso(res, "atencao", "documento", "sem_resumo", "quadro-resumo não encontrado: só os blocos serão atualizados")
     tocados = []          # tabelas (elementos) atualizadas; comparar por identidade, nunca por id()
     novos = []
+    todos_blocos = doc.blocos()                                   # índices feitos UMA vez (200 processos: O(n), não O(n²))
+    linhas_resumo = resumo.dados() if resumo is not None else []
     for upd in atualizacoes:
         if upd.get("novo"):
             novos.append(upd["novo"])
             continue
         numeros = list(upd.get("numeros") or ([upd["numero"]] if upd.get("numero") else []))
-        blocos = [b for b in doc.blocos() if set(b.numeros) & set(numeros)]
+        blocos = [b for b in todos_blocos if set(b.numeros) & set(numeros)]
         if not blocos:
             res["nao_encontrados"].append(numeros[0] if numeros else None)
             _aviso(res, "atencao", numeros[0] if numeros else "documento", "processo_nao_encontrado",
@@ -1136,7 +1138,7 @@ def atualizar(origem, destino, atualizacoes, data_base, *, fecho_apos_novidade=T
                    sorted(set(numeros) - set(bloco.numeros)))
         linha = None
         if resumo is not None:
-            linha = next((tr for tr, ns, _ in resumo.dados() if set(ns) & set(bloco.numeros)), None)
+            linha = next((tr for tr, ns, _ in linhas_resumo if set(ns) & set(bloco.numeros)), None)
             if linha is None:
                 _aviso(res, "atencao", bloco.numeros[0], "sem_linha_no_resumo", "bloco sem linha correspondente no quadro-resumo")
         aceitos = _atualizar_andamentos(bloco, upd, data_base, opc, res) or []

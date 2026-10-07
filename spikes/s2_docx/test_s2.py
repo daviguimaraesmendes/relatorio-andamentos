@@ -27,6 +27,12 @@ w = da.w
 DATA_BASE_NOVA = "07/10/2026"
 SOFFICE = shutil.which("soffice")
 TMP = Path(tempfile.mkdtemp(prefix="s2-docx-"))
+
+
+def tearDownModule():
+    shutil.rmtree(TMP, ignore_errors=True)
+
+
 PROCS = gm.processos()
 
 
@@ -287,6 +293,20 @@ class TestAtualizacao(Base):
             pos = fim
         self.assertGreater(verificados, 10)
 
+    def test_recarrega_com_python_docx(self):
+        import docx
+        destino, _ = self.aplicar(self.atualizacoes() + [{"novo": proc_novo()}], nome="pydocx")
+        d = docx.Document(str(destino))
+        self.assertEqual(len(d.tables), 14)                      # resumo + 13 blocos
+        self.assertEqual(len(d.tables[0].rows), 14)              # cabeçalho + 13 processos
+        self.assertIn("02/10/2026", d.tables[1].rows[-1].cells[-1].text)
+        self.assertEqual(d.tables[0].rows[1].cells[2].text, "CUMPRIMENTO DE SENTENÇA")
+        runs = [r for r in d.tables[1].rows[-1].cells[-1].paragraphs[0].runs if r.text == "02/10/2026"]
+        self.assertTrue(runs and runs[0].bold)
+        self.assertEqual(runs[0].font.name, "Arial")
+        self.assertEqual(runs[0].font.size.pt, 11)
+        d.save(str(TMP / "reabre.docx"))                          # e o python-docx consegue regravar
+
     def test_idempotencia(self):
         d1, r1 = self.aplicar(nome="um")
         self.assertTrue(r1["mudancas"])
@@ -511,6 +531,28 @@ class TestProcessoNovo(Base):
         self.assertNotIn("Observação manual", texto_el(tabelas(destino)[-1]))
         self.assertTrue([a for a in res["avisos"] if a["codigo"] in ("celula_limpa", "modelo_imperfeito")])
         self.assertIn("Observação manual", texto_el(tabelas(destino)[1]))        # o original do advogado ficou
+
+
+class TestEscala(Base):
+    def test_200_processos(self):
+        import time
+        procs = []
+        for i in range(200):
+            p = PROCS[i % 12]
+            procs.append({"numeros": [gm.cnj(i, 2020 + i % 6, 8, 6, 100 + i)], "assunto": p["assunto"], "autores": p["autores"],
+                          "reus": p["reus"], "ajuizamento": p["ajuizamento"], "valor_causa": p["valor_causa"] or None,
+                          "data_citacao": p["citacao"], "juizo": p["juizo"], "area": p["area"], "materia": p["materia"],
+                          "momento_atual": p["momento"], "andamentos": [{"data": d, "texto": t} for d, t in p["andamentos"]]})
+        base = self.destino("g200")
+        da.gerar(base, {"cliente": gm.CLIENTE, "data_base": gm.DATA_BASE, "processos": procs})
+        upds = [{"numero": p["numeros"][0], "momento_atual": "Cumprimento de sentença",
+                 "andamentos": [{"data": "02/10/2026", "texto": "foi proferida sentença."}]} for p in procs]
+        t0 = time.time()
+        destino, res = self.aplicar(upds, molde=base, nome="a200")
+        self.assertLess(time.time() - t0, 30)
+        self.assertEqual(len(res["processos_atualizados"]), 200)
+        self.assertEqual(da.verificar_coerencia(destino), [])
+        self.assertEqual(len(da.ler_estrutura(destino)["processos"]), 200)
 
 
 class TestVariantes(Base):
