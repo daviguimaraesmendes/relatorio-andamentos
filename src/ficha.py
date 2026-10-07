@@ -8,6 +8,7 @@ em "campos", cada um com a sua ORIGEM.
      "polo_cliente": "passivo", "parte_contraria": "...", "responsavel": "...", "ativo": true,
      "vinculados": [{"numero": "...", "tipo": "agravo"}],
      "linha_de_base": {"data_base": "2026-09-18", "andamentos_texto": "...", "arquivo": "..."},
+     "ultimo_texto_gravado": {"data_base": "2026-10-07", "texto": "...", "arquivo": "..."},
      "campos": {"vara": {"valor": "...", "origem": "coletado", "em": "2026-10-07T10:00:00",
                          "evidencia": "capa do processo, jus.br"}, ...}}
 

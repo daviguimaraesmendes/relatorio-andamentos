@@ -61,7 +61,7 @@ ProcessoLido = {
   "ultimo_andamento": "AAAA-MM-DD" | None,
   "origem_no_arquivo": "linha 12" | "tabela 3",
 }
-Aviso = {"nivel": "info|atencao|erro", "onde": str, "mensagem": str, "candidatos": [..]}
+Aviso = {"nivel": "info|atencao|erro", "codigo": str, "onde": str, "mensagem": str, "candidatos": [..]}   # codigo: identificador estável (ex.: edicao_manual_sobrescrita, andamento_ja_presente, formato_nao_reconhecido)
 ```
 
 Regras: ambiguidade (mesmo número duas vezes, rótulo fora do vocabulário, data inválida) gera `Aviso` e **não** vira dado silencioso; número com dígito errado é recusado e listado; um ler → escrever → ler preserva os campos.
@@ -76,8 +76,10 @@ escritores.dashboard.gravar(xlsx, destino, perfil, **opcoes) -> Resultado
 
 - `molde`: `Path` do arquivo do cliente (atualização) ou `None` (cria do modelo padrão em `src/modelos/`).
 - `EstadoRelatorio = {"cliente", "data_base" (ISO), "fichas": [ficha...], "eventos": [evento aprovado...], "perfil": Perfil, "parametros": {...}}`.
-- `Resultado = {"destino": Path, "processos_atualizados": [numero], "processos_novos": [numero], "mudancas": [{"numero", "campo", "antes", "depois"}], "avisos": [Aviso]}`.
-- **Só acrescenta** no texto de andamentos; nunca apaga o que um humano escreveu. Idempotente: gravar duas vezes o mesmo estado não duplica. O original nunca é sobrescrito (`destino != molde`).
+- `Resultado = {"destino": Path, "processos_atualizados": [numero], "processos_novos": [numero], "ignorados": [{"numero", "motivo"}], "mudancas": [{"numero", "campo", "antes", "depois"}], "avisos": [Aviso]}` (`ignorados`: andamento não gravado por já constar no texto).
+- **Texto gravado por ciclo**: o escritor devolve em `Resultado["textos_gravados"] = {numero: texto}` o texto de andamentos que ficou no arquivo; o coordenador (fluxos) o guarda em `ficha["ultimo_texto_gravado"] = {"data_base", "texto", "arquivo"}`. Sem isso a detecção de edição manual fica cega depois do primeiro ciclo.
+- **Só acrescenta** no texto de andamentos; nunca apaga o que um humano escreveu. **Exceções mecânicas, nomeadas** (campos que o sistema recalcula a cada ciclo): data da frase de fecho ("Em DD/MM/AAAA, sem atualizações."), "momento atual" (quadro-resumo e título do bloco), "último andamento" e "Data-Base". Se o humano editou algum deles à mão, o sistema o troca e devolve aviso `edicao_manual_sobrescrita` quando o valor anterior já divergia do último que o sistema gravou.
+- **Frase de fecho**: só quando o processo **não** teve andamento novo no ciclo (padrão `fecho_apos_novidade=False`, igual à planilha da Fase 1 e ao modelo de referência, em que o processo com novidade termina na própria novidade). A opção existe, mas o padrão é este. Idempotente: gravar duas vezes o mesmo estado não duplica. O original nunca é sobrescrito (`destino != molde`).
 - `.xlsx`: edição cirúrgica do pacote (partes não editadas idênticas byte a byte), recálculo forçado ao abrir; campos `humano` nunca sobrescritos. `.docx`: runs e tabelas preservados, datas em negrito nos trechos novos.
 - `dashboard`: HTML **autônomo e offline** (bibliotecas embutidas); modos `modelo` (arrasta a planilha) e `embutido` (dados do retrato).
 
