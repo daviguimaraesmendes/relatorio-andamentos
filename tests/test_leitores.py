@@ -509,6 +509,18 @@ class TestDocxA(unittest.TestCase):
     def test_origem_no_arquivo(self):
         self.assertTrue(all(re.fullmatch(r"tabela \d+", p["origem_no_arquivo"]) for p in self.rel["processos"]))
 
+    def test_concorda_com_o_ler_estrutura_do_prototipo(self):
+        """O leitor de produção e a leitura do protótipo do spike S2 enxergam os mesmos blocos."""
+        est = s2_da.ler_estrutura(self.arquivo)
+        self.assertEqual(len(est["processos"]), len(self.rel["processos"]))
+        for item, p in zip(est["processos"], self.rel["processos"]):
+            self.assertEqual([p["numero"]] + [v["numero"] for v in p["vinculados"]], item["numeros"])
+            self.assertEqual([ficha.data_br(a["data"]) for a in p["andamentos"]], [a["data"] for a in item["andamentos"]])
+            self.assertEqual([a["data_em_negrito"] for a in p["andamentos"]], [a["data_em_negrito"] for a in item["andamentos"]])
+            self.assertEqual(ficha.data_br(p["fecho"]) if p.get("fecho") else None, item["fecho"]["data"] if item["fecho"] else None)
+            if item["momento_atual"] and valor(p, "momento_atual"):
+                self.assertIn(item["momento_atual"].upper(), valor(p, "momento_atual"))     # "ARQUIVADO" -> "PROCESSO ARQUIVADO"
+
     def test_fragmentacao_dos_runs_nao_muda_o_resultado(self):
         referencia = json.dumps(self.rel["processos"], sort_keys=True, ensure_ascii=False)
         for semente in (1, 2, 5, 9):

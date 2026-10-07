@@ -520,6 +520,14 @@ _ERROS_EXCEL = {"#N/A", "#N/D", "#VALUE!", "#VALOR!", "#REF!", "#DIV/0!", "#NAME
 _TOTAL = re.compile(r"^(sub ?)?total|^totais|^soma\b|^media\b")
 
 
+def _repete_cabecalho(cabecalho, linha):
+    """True se a linha repete o cabeçalho (duas tabelas empilhadas na mesma aba, cada uma com o seu cabeçalho)."""
+    textos = [c for c in cabecalho if isinstance(c, str) and c.strip()]
+    iguais = sum(1 for a, b in zip(cabecalho, linha)
+                 if isinstance(a, str) and isinstance(b, str) and a.strip() and base.chave(a) == base.chave(b))
+    return iguais >= max(2, int(0.6 * len(textos)))
+
+
 def _amostra(grade, i0, j, n=3):
     saida = []
     for r in range(i0, len(grade.linhas)):
@@ -559,6 +567,9 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
         bruto_num = grade.celula(i, col_num)
         texto_num = "" if base.vazio(bruto_num) else base.limpar_texto(bruto_num)
         primeira = next((base.limpar_texto(linha[j]) for j in nao_vazias), "")
+        if not base.achar_numeros(texto_num) and _repete_cabecalho(grade.linhas[indice_cab], linha):
+            ignoradas.append(f"linha {numero_linha}: cabeçalho repetido")
+            continue
         if not texto_num or not base.achar_numeros(texto_num):
             eh_total = bool(_TOTAL.match(base.chave(texto_num or primeira)))
             if eh_total or len(nao_vazias) <= 2:

@@ -32,7 +32,7 @@ import datetime
 import difflib
 import re
 import unicodedata
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import carteira as cart
 import ficha
@@ -236,6 +236,14 @@ def converter_data(bruto, epoch=None):
 _TOKEN_NUM = re.compile(r"-?\d[\d.,]*")
 
 
+def _parse_dinheiro_seguro(bruto):
+    """ficha.parse_dinheiro sem estourar com NaN, infinito ou valor gigante (Decimal levanta InvalidOperation)."""
+    try:
+        return ficha.parse_dinheiro(bruto)
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
+
+
 def converter_dinheiro(bruto):
     """-> ("1234.56" | None, problema | None). Aceita número, 'R$ 1.234,56', '1.234,56', '1234.56', '(1.234,56)' (negativo)."""
     if bruto is None:
@@ -243,7 +251,8 @@ def converter_dinheiro(bruto):
     if isinstance(bruto, bool):
         return None, "invalido"
     if isinstance(bruto, (int, float, Decimal)):
-        return ficha.parse_dinheiro(bruto), None
+        valor = _parse_dinheiro_seguro(bruto)
+        return valor, (None if valor is not None else "invalido")
     texto = limpar_texto(bruto)
     if eh_vazio_logico(texto, amplo=True):
         return None, None
@@ -252,7 +261,7 @@ def converter_dinheiro(bruto):
         return None, "invalido"
     if len({t.rstrip(".,") for t in tokens}) > 1:
         return None, "ambiguo"
-    valor = ficha.parse_dinheiro(tokens[0].rstrip(".,"))
+    valor = _parse_dinheiro_seguro(tokens[0].rstrip(".,"))
     if valor is not None and texto.startswith("(") and texto.endswith(")") and not valor.startswith("-"):
         valor = "-" + valor
     return valor, (None if valor is not None else "invalido")
@@ -283,6 +292,8 @@ def converter_numero(bruto, percentual=False, formato_celula=None):
             n = float(s)
         except ValueError:
             return None, "invalido"
+    if n != n or n in (float("inf"), float("-inf")):      # NaN ou infinito não é número de relatório
+        return None, "invalido"
     if percentual:
         if tem_pct_no_texto:
             n = n / 100.0
@@ -444,10 +455,10 @@ def converter_campo(campo, bruto, formato_celula=None, epoch=None):
     else:
         if isinstance(bruto, float) and bruto.is_integer():
             bruto = int(bruto)
-        texto = limpar_texto(bruto)
+        texto = re.sub(r"[ \t]+", " ", limpar_texto(bruto))
         if eh_vazio_logico(texto, amplo=False):
             return saida
-        saida["valor"] = texto
+        saida["valor"] = texto.upper() if campo == "uf" and len(texto) == 2 else texto
     return saida
 
 
