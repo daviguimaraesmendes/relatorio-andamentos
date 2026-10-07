@@ -11,6 +11,9 @@ Uso:
     python resumir.py              # processa a fila
     python resumir.py --modelo     # mostra o modelo escolhido para esta máquina
     python resumir.py --testar ARQ.pdf [tipo]   # resume um arquivo avulso
+
+Fase 2: resumir_com_provedor() faz o mesmo pedido por um provedor de IA recebido como objeto
+(interface de CONTRATOS §8); é o que a síntese (sintese.py) usa. O fluxo acima não muda.
 """
 import json
 import re
@@ -279,6 +282,41 @@ def resumir_texto(texto, tipo, quem, frase, modelo, ctx):
         })
         resultado = json.loads(resposta["message"]["content"])
     return resultado, conferir(resultado, texto)
+
+
+def resumir_com_provedor(provedor, texto, tipo, quem, frase, ctx, cliente=""):
+    """Mesmo pedido de resumir_texto, mas por um provedor de IA recebido como objeto (CONTRATOS §8:
+    `provedor.gerar(sistema, usuario, *, esquema, cliente) -> {"texto", "json", "motor"}`), sem Ollama.
+    Usado pela síntese (sintese.py), que injeta o provedor local, o externo ou um falso nos testes.
+
+    Volta (resultado, alertas, motor): `resultado` no formato de ESQUEMA, com `conteudo` já limpo
+    (limpar_conteudo); `alertas`, as checagens de `conferir`; `motor`, o que realmente respondeu.
+    Como em resumir_texto, pede uma vez de novo se o conteúdo não vier em gerúndio. Resposta que
+    não seja JSON no formato do esquema levanta ValueError (quem chama trata e segue sem resumo)."""
+    pedido = montar_pedido(texto, tipo, quem, frase, ctx)
+
+    def uma_vez(usuario):
+        resposta = provedor.gerar(SISTEMA, usuario, esquema=ESQUEMA, cliente=cliente)
+        dados = resposta.get("json")
+        if dados is None:
+            try:
+                dados = json.loads(resposta.get("texto") or "")
+            except ValueError as e:
+                raise ValueError("A resposta da IA não é um JSON válido.") from e
+        if not isinstance(dados, dict) or not isinstance(dados.get("conteudo"), str):
+            raise ValueError("A resposta da IA não traz o campo 'conteudo'.")
+        return dados, resposta.get("motor") or ""
+
+    resultado, motor = uma_vez(pedido)
+    primeira = (limpar_conteudo(resultado["conteudo"]).split() or [""])[0].lower()
+    if not primeira.endswith("ndo") and "nao foi possivel" not in normalizar(resultado["conteudo"]):
+        resultado, motor = uma_vez(pedido + "\n\nO campo conteudo precisa CONTINUAR a frase inicial começando com um "
+                                   "verbo no gerúndio (ex.: 'determinando...', 'acolhendo...', 'intimando...'), em uma só "
+                                   "frase de até 40 palavras. Corrija.")
+    resultado = {"trecho_origem": "", "prazo": None, "audiencia": None, "efeito": "incerto", **resultado}
+    resultado["conteudo"] = limpar_conteudo(resultado["conteudo"])
+    resultado["trecho_origem"] = str(resultado["trecho_origem"] or "").strip()
+    return resultado, conferir(resultado, texto), motor
 
 
 def processar_movimento(ev, docs_da_rodada=()):

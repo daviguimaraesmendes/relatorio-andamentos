@@ -1,0 +1,29 @@
+{
+  "_fixture": "FICTÍCIA. Só dataHoraAjuizamento, orgaoJulgador.nome e classe[].descricao seguem o formato visto na resposta real da busca do portal (docstring de coletor.tramitacoes_da_resposta). assunto, partes e valorAcao são PRESUMIDOS (não capturados de página real). Número e nomes são trocados em tempo de execução.",
+  "content": [
+    {
+      "numeroProcesso": "@@NUMERO@@",
+      "tramitacoes": [
+        {
+          "dataHoraAjuizamento": "2026-03-10T16:39:08",
+          "orgaoJulgador": {"nome": "1ª Vara Cível da Comarca de Cidade Exemplo"},
+          "classe": [{"descricao": "Procedimento Comum Cível"}],
+          "assunto": [{"descricao": "Contratos Bancários"}, {"descricao": "Indenização por Dano Moral", "principal": true}],
+          "valorAcao": 15000.5,
+          "partes": [
+            {"nome": "Pessoa Fictícia 0001", "polo": "ATIVO", "tipoParte": "AUTOR"},
+            {"nome": "Advogado Fictício Um", "polo": "ATIVO", "tipoParte": "ADVOGADO"},
+            {"nome": "Cliente Exemplo 01 Ltda", "polo": "PASSIVO", "tipoParte": "RÉU"},
+            {"nome": "Perito Fictício", "polo": "OUTROS", "tipoParte": "PERITO"},
+            {"nome": "Terceira Interessada Fictícia", "polo": "TERCEIRO", "tipoParte": "TERCEIRO INTERESSADO"}
+          ]
+        },
+        {
+          "dataHoraAjuizamento": "2026-08-01T10:00:00",
+          "orgaoJulgador": {"nome": "1ª Câmara de Direito Privado"},
+          "classe": [{"descricao": "Apelação Cível"}]
+        }
+      ]
+    }
+  ]
+}

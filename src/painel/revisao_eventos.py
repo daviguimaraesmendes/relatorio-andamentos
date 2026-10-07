@@ -1,5 +1,10 @@
 """Revisar andamentos (página inicial, /): lista os rascunhos por cliente e grava a aprovação,
-o descarte ou a edição (/evento)."""
+o descarte ou a edição (/evento).
+
+Esta continua sendo a revisão padrão, evento a evento. Para muitos rascunhos há a triagem por nível
+(/triagem, painel/revisao_lote.py) e a visão por processo (/processo, painel/processo.py); a página
+só sugere a triagem quando passa de `triagem.sugerir_a_partir_de` rascunhos (padrão 20). A regra de
+gravar aprovar/salvar/descartar está em `aplicar_acao`, que a visão por processo reaproveita."""
 import datetime
 import getpass
 import html
@@ -9,8 +14,28 @@ from flask import abort, redirect, request
 
 import comum
 import relatorio
+import triagem
 from comum import config, eventos, salvar_eventos
 from painel.base import _msg
+
+
+def aplicar_acao(lista, form):
+    """Aplica aprovar | salvar | descartar ao rascunho `form["id"]` da `lista` de eventos (modifica a lista;
+    quem chama grava com salvar_eventos). 404 se não houver rascunho com o id; 400 se aprovar sem frase."""
+    ev = next((e for e in lista if e["id"] == form["id"]), None)
+    if ev is None or ev["status"] != "rascunho":
+        abort(404)
+    for campo in ("frase", "conteudo", "prazo", "audiencia"):
+        ev[campo] = form.get(campo, "").strip() or None
+    acao = form["acao"]
+    if acao == "aprovar":
+        if not ev.get("frase"):
+            abort(400, "Frase vazia.")
+        ev.update(status="aprovado", aprovado_por=config().get("revisor") or getpass.getuser(),
+                  aprovado_em=datetime.datetime.now().isoformat(timespec="seconds"))
+    elif acao == "descartar":
+        ev.update(status="descartado", motivo="Descartado na revisão.")
+    return ev
 
 
 def registrar(app, TOKEN, cabecalho, token_ok):
@@ -53,6 +78,9 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 h.append("<button name='acao' value='aprovar' class='principal'>Aprovar</button>"
                          "<button name='acao' value='salvar'>Salvar sem aprovar</button>"
                          "<button name='acao' value='descartar'>Descartar</button></form>")
+        if len(rascunhos) >= triagem.configuracao()["sugerir_a_partir_de"]:
+            h.insert(4, "<p class='dica'>Muitos rascunhos? A <a href='/triagem'>triagem</a> separa por risco e "
+                        "aprova os tranquilos em lote.</p>")
         if not rascunhos:
             h.append("<p>Nada para revisar. Use <a href='/atualizar'>Atualizar</a> para buscar andamentos novos.</p>")
         return "".join(h)
@@ -61,18 +89,6 @@ def registrar(app, TOKEN, cabecalho, token_ok):
     def evento():
         token_ok()
         lista = eventos()
-        ev = next((e for e in lista if e["id"] == request.form["id"]), None)
-        if ev is None or ev["status"] != "rascunho":
-            abort(404)
-        for campo in ("frase", "conteudo", "prazo", "audiencia"):
-            ev[campo] = request.form.get(campo, "").strip() or None
-        acao = request.form["acao"]
-        if acao == "aprovar":
-            if not ev.get("frase"):
-                abort(400, "Frase vazia.")
-            ev.update(status="aprovado", aprovado_por=config().get("revisor") or getpass.getuser(),
-                      aprovado_em=datetime.datetime.now().isoformat(timespec="seconds"))
-        elif acao == "descartar":
-            ev.update(status="descartado", motivo="Descartado na revisão.")
+        aplicar_acao(lista, request.form)
         salvar_eventos(lista)
         return redirect("/")

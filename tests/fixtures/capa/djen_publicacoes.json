@@ -1,0 +1,11 @@
+{
+  "_fixture": "FICTÍCIA. Itens no formato que djen.buscar devolve (campos usados pelo código: numeroprocessocommascara, siglaTribunal, nomeClasse, nomeOrgao, destinatarios[].nome/polo). Número e nomes são trocados em tempo de execução.",
+  "items": [
+    {"numeroprocessocommascara": "@@NUMERO@@", "siglaTribunal": "TJCE", "nomeClasse": "Procedimento Comum Cível", "nomeOrgao": "1ª Vara Cível da Comarca de Cidade Exemplo",
+     "data_disponibilizacao": "2026-09-01",
+     "destinatarios": [{"nome": "PESSOA FICTICIA 0001", "polo": "A"}, {"nome": "CLIENTE EXEMPLO 01 LTDA", "polo": "P"}]},
+    {"numeroprocessocommascara": "@@NUMERO@@", "siglaTribunal": "TJCE", "nomeClasse": "Procedimento Comum Cível", "nomeOrgao": "1ª Vara Cível da Comarca de Cidade Exemplo",
+     "data_disponibilizacao": "2026-09-10",
+     "destinatarios": [{"nome": "PESSOA FICTICIA 0001", "polo": "A"}, {"nome": "Empresa Tomadora Fictícia S.A.", "polo": "P"}, {"nome": "Administrador Judicial Fictício", "polo": "X"}]}
+  ]
+}
