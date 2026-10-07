@@ -73,7 +73,7 @@ CAMPOS = {
     "houve_recurso": ("Houve recurso da empresa?", "situacao", "sim_nao", None),
     # julgamento
     "resultado": ("Resultado", "julgamento", "texto", "resultado"),
-    "probabilidade": ("Probabilidade (de perda)", "julgamento", "texto", "probabilidade"),
+    "probabilidade": ("Probabilidade (do resultado)", "julgamento", "texto", "probabilidade"),
     "valor_arbitrado": ("Valor arbitrado em juízo", "julgamento", "dinheiro", None),
     "valor_estimado": ("Valor estimado", "julgamento", "dinheiro", None),
     "valor_execucao": ("Valor da execução", "julgamento", "dinheiro", None),
