@@ -14,7 +14,6 @@ import isolamento  # noqa: E402,F401  (antes de tudo)
 import ficha  # noqa: E402
 import ficticio  # noqa: E402
 import qualidade  # noqa: E402
-import taxonomia  # noqa: E402
 
 HOJE = ficticio.HOJE
 NUM = ficticio.numero_ficticio
