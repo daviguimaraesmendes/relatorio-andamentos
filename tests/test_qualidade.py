@@ -284,13 +284,13 @@ class TestRotulos(unittest.TestCase):
         self.assertEqual(len(achados_de([a, c], "rotulos_parecidos_na_base")), 1)
 
     def test_grafias_da_parte(self):
-        a, b = mk(1, autores="Sitio Exemplo Ltda"), mk(2, autores="Sítio Exemplo LTDA.")
+        a, b = mk(1, autores="Chacara Exemplo Ltda"), mk(2, autores="Chácara Exemplo LTDA.")
         achado, = achados_de([a, b], "grafias_diferentes_da_parte")
         self.assertEqual(sorted(achado["numeros"]), sorted([a["numero"], b["numero"]]))
         # sufixo societário, caixa e pontuação não distinguem; a mesma grafia repetida não é achado
-        c = mk(3, autores="SITIO EXEMPLO S.A.")
+        c = mk(3, autores="CHACARA EXEMPLO S.A.")
         self.assertEqual(len(achados_de([a, b, c], "grafias_diferentes_da_parte")), 1)
-        self.assertEqual(achados_de([a, mk(9, autores="Sitio Exemplo Ltda")], "grafias_diferentes_da_parte"), [])
+        self.assertEqual(achados_de([a, mk(9, autores="Chacara Exemplo Ltda")], "grafias_diferentes_da_parte"), [])
 
     def test_falso_negativo_documentado_da_grafia(self):
         # erro de letra NÃO é pego de propósito: Silva e Silvia podem ser pessoas diferentes

@@ -176,6 +176,10 @@ IMPORT_PARA_PACOTE = {"docx": "python-docx", "yaml": "pyyaml", "PIL": "pillow", 
                       "dateutil": "python-dateutil", "win32com": "pywin32", "win32api": "pywin32", "cv2": "opencv-python"}
 
 
+# usados só em teste, quando instalados (o teste se protege com try/except ou skip): não precisam constar
+OPCIONAIS_DE_TESTE = {"jsonschema"}
+
+
 def _normalizar_pacote(nome):
     return re.sub(r"[-_.]+", "-", nome).lower()
 
@@ -220,6 +224,8 @@ class Dependencias(unittest.TestCase):
         reqs = requisitos()
         faltam = {}
         for modulo, arquivos in imports_de_terceiros().items():
+            if modulo in OPCIONAIS_DE_TESTE:
+                continue
             pacote = _normalizar_pacote(IMPORT_PARA_PACOTE.get(modulo, modulo))
             if pacote not in reqs:
                 faltam[modulo] = sorted(arquivos)[:2]

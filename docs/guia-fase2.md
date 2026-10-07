@@ -86,7 +86,7 @@ trabalho seu (a coleta que vem depois roda sem acompanhamento).
    - **Duplicados**: o mesmo processo em duas linhas ou duas abas;
    - **Vinculados**: principal, agravo e apenso que serão tratados como **uma**
      linha do relatório;
-   - **Clientes sem nome padronizado**: "Sitio" e "Sítio", com e sem "Ltda",
+   - **Clientes sem nome padronizado**: "Chacara" e "Chácara", com e sem "Ltda",
      maiúsculas e minúsculas. A ferramenta **sugere** a junção; só junta se você
      confirmar;
    - **Campos sem destino**: colunas do arquivo que a ferramenta não sabe onde
@@ -350,7 +350,7 @@ usa ainda não foram testados**. Antes do primeiro envio de cada tipo de arquivo
 | Ao importar: aviso de formato não reconhecido (código formato_nao_reconhecido) | O arquivo não é um texto `.docx`, uma planilha `.xlsx` ou uma lista que a ferramenta entenda, ou está corrompido. | Confirme que é `.docx` (no Google Docs: Arquivo > Fazer download > Microsoft Word) ou `.xlsx`, e não um PDF ou atalho. Abra o arquivo no Word/Excel: se nem lá abre, está corrompido. Se for de outro modelo, use **Migrar de modelo**. |
 | "Número de processo inválido" | O dígito verificador não bate: erro de digitação. | Corrija o número no arquivo e importe de novo. O processo fica fora enquanto isso. |
 | "Duplicado" ou "mesmo processo em duas abas" | O mesmo número aparece mais de uma vez. | Confira qual linha vale e mantenha uma. A ferramenta agrupa como **vinculados** o principal, o agravo e o apenso, e os casos de "mesma ação" (reajuizamento); confira esses grupos na tela de conferência. |
-| Cliente aparece com dois nomes ("Sitio" e "Sítio") | Grafias diferentes da mesma empresa. | Na conferência da migração, aceite a junção sugerida. A ferramenta nunca junta sem a sua confirmação. |
+| Cliente aparece com dois nomes ("Chacara" e "Chácara") | Grafias diferentes da mesma empresa. | Na conferência da migração, aceite a junção sugerida. A ferramenta nunca junta sem a sua confirmação. |
 | "Campos sem destino" | Há colunas no arquivo que a ferramenta não conhece. | Confirme que nada importante está ali. Ao **migrar de modelo**, elas vão para a aba "Campos não migrados"; se forem importantes, mapeie-as na tela de mapeamento. |
 | Momento atual em branco, com alerta | A ferramenta não achou evidência clara nos andamentos. | Defina o momento você mesmo, na revisão dos campos do processo, pela lista de opções; a ferramenta nunca inventa uma opção fora da lista. |
 | Processo em "conferir manualmente": **captcha** | O TRT pediu o captcha e ninguém digitou. | Inicie de novo; digite o captcha quando a janela aparecer. |

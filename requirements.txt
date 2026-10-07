@@ -7,4 +7,6 @@ pypdf>=5.0
 # Fase 2: leitura e escrita de .docx (modelo A) e edição do XML dos .docx/.xlsx
 python-docx>=1.1
 lxml>=5.0
+# Fase 2: IA externa opcional (só é importado quando um provedor Anthropic é usado)
+anthropic>=1.11
 pywinauto>=0.6.8; sys_platform == "win32"

@@ -347,39 +347,39 @@ class TestGrafias(unittest.TestCase):
         return [nova(200 + i, cliente=n) for i, n in enumerate(nomes)]
 
     def test_variantes_de_acento_caixa_e_sufixo(self):
-        fichas = self.fichas(["Sítio Exemplo Ltda", "Sítio Exemplo Ltda", "Sitio Exemplo", "SITIO EXEMPLO LTDA.",
+        fichas = self.fichas(["Chácara Exemplo Ltda", "Chácara Exemplo Ltda", "Chacara Exemplo", "CHACARA EXEMPLO LTDA.",
                               "Outro Cliente S.A."])
         grupos = consolidar.sugerir_grafias(fichas)
         self.assertEqual(len(grupos), 1)
         g = grupos[0]
-        self.assertEqual(g["canonico_sugerido"], "Sítio Exemplo Ltda")
-        self.assertEqual(g["variantes"][0], "Sítio Exemplo Ltda")
-        self.assertEqual(set(g["variantes"]), {"Sítio Exemplo Ltda", "Sitio Exemplo", "SITIO EXEMPLO LTDA."})
-        self.assertEqual(g["ocorrencias"]["Sítio Exemplo Ltda"], 2)
+        self.assertEqual(g["canonico_sugerido"], "Chácara Exemplo Ltda")
+        self.assertEqual(g["variantes"][0], "Chácara Exemplo Ltda")
+        self.assertEqual(set(g["variantes"]), {"Chácara Exemplo Ltda", "Chacara Exemplo", "CHACARA EXEMPLO LTDA."})
+        self.assertEqual(g["ocorrencias"]["Chácara Exemplo Ltda"], 2)
         self.assertEqual(g["campos"], ["cliente"])
 
     def test_empate_prefere_acento_e_caixa_mista(self):
-        grupos = consolidar.sugerir_grafias(self.fichas(["Sitio Exemplo", "Sítio Exemplo", "SITIO EXEMPLO"]))
-        self.assertEqual(grupos[0]["canonico_sugerido"], "Sítio Exemplo")
+        grupos = consolidar.sugerir_grafias(self.fichas(["Chacara Exemplo", "Chácara Exemplo", "CHACARA EXEMPLO"]))
+        self.assertEqual(grupos[0]["canonico_sugerido"], "Chácara Exemplo")
 
     def test_nomes_diferentes_nao_agrupam(self):
         self.assertEqual(consolidar.sugerir_grafias(self.fichas(["Empresa Alfa Ltda", "Empresa Beta Ltda", "Empresa Alfa Ltda"])), [])
         self.assertEqual(consolidar.sugerir_grafias(self.fichas(["Pessoa Fictícia 0001", "Pessoa Fictícia 0002"])), [])
 
     def test_consolidar_so_sugere_e_aplicar_unifica_so_o_confirmado(self):
-        fichas = self.fichas(["Sítio Exemplo Ltda", "Sitio Exemplo", "Outro Nome Ltda", "OUTRO NOME"])
+        fichas = self.fichas(["Chácara Exemplo Ltda", "Chacara Exemplo", "Outro Nome Ltda", "OUTRO NOME"])
         saida, avisos = consolidar.consolidar(fichas)
         self.assertEqual([ficha.obter(f, "cliente") for f in saida], [ficha.obter(f, "cliente") for f in fichas])
         self.assertEqual(len(com_codigo(avisos, "grafias_do_mesmo_nome")), 2)
-        confirmadas = {"Sitio Exemplo": "Sítio Exemplo Ltda"}                       # só o primeiro grupo foi confirmado
+        confirmadas = {"Chacara Exemplo": "Chácara Exemplo Ltda"}                       # só o primeiro grupo foi confirmado
         novas, avisos = consolidar.aplicar_grafias(saida, confirmadas)
         self.assertEqual([ficha.obter(f, "cliente") for f in novas],
-                         ["Sítio Exemplo Ltda", "Sítio Exemplo Ltda", "Outro Nome Ltda", "OUTRO NOME"])
-        self.assertEqual(novas[1]["cliente"], "Sítio Exemplo Ltda")                  # espelho plano
-        self.assertEqual(novas[1]["consolidacao"]["originais"]["cliente"], "Sitio Exemplo")
+                         ["Chácara Exemplo Ltda", "Chácara Exemplo Ltda", "Outro Nome Ltda", "OUTRO NOME"])
+        self.assertEqual(novas[1]["cliente"], "Chácara Exemplo Ltda")                  # espelho plano
+        self.assertEqual(novas[1]["consolidacao"]["originais"]["cliente"], "Chacara Exemplo")
         self.assertEqual(ficha.origem(novas[1], "cliente"), "coletado")              # origem preservada
         self.assertEqual(avisos[0]["codigo"], "grafia_unificada")
-        self.assertEqual(ficha.obter(saida[1], "cliente"), "Sitio Exemplo")           # a lista recebida não muda
+        self.assertEqual(ficha.obter(saida[1], "cliente"), "Chacara Exemplo")           # a lista recebida não muda
         self.assertEqual(consolidar.campos_humanos_perdidos(saida, novas), [])
 
     def test_partes_com_varios_nomes(self):

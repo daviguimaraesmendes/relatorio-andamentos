@@ -7,7 +7,7 @@ nome e rótulos soltos. Este módulo arruma o que dá para arrumar SEM adivinhar
 Uso
     fichas, avisos = consolidar.consolidar(fichas)               # devolve cópias; a lista recebida não é alterada
     grupos = consolidar.sugerir_grafias(fichas)                  # grafias parecidas, para o usuário confirmar
-    fichas, avisos = consolidar.aplicar_grafias(fichas, [{"canonico": "Sítio X Ltda", "variantes": ["SITIO X"]}])
+    fichas, avisos = consolidar.aplicar_grafias(fichas, [{"canonico": "Chácara X Ltda", "variantes": ["CHACARA X"]}])
     consolidar.campos_humanos_perdidos(antes, depois)            # [] = nenhum campo "humano" se perdeu
     consolidar.migrar_projeto("meu-relatorio")                   # carteira.json da Fase 1 -> fichas v2, em lote
 
@@ -30,7 +30,7 @@ O que consolidar() faz, nesta ordem
        valor fica como está. O qualificador do momento "(HONORÁRIOS SUSPENSOS)" é preservado.
     5. Sugestões (nada é alterado): `duplicata_provavel` (mesmo cliente, mesmas partes e mesma data de
        ajuizamento com números diferentes), `vinculo_provavel` (classe "Agravo"/"Apenso"... com as mesmas partes de
-       outra linha) e `grafias_do_mesmo_nome` (Sitio/Sítio, com e sem Ltda, caixa; candidatos[0] é a grafia
+       outra linha) e `grafias_do_mesmo_nome` (Chacara/Chácara, com e sem Ltda, caixa; candidatos[0] é a grafia
        sugerida). Nomes só são unificados por aplicar_grafias(), com a confirmação de quem usa.
 
 Garantias

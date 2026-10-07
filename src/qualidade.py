@@ -39,7 +39,7 @@ desde o último relatório?
       - `possivel_acao_repetida` junta fichas com as mesmas partes, mesmo valor da causa e mesma matéria; ações
         realmente distintas (várias cobranças iguais contra o mesmo devedor) caem aqui;
       - `grafias_diferentes_da_parte` só junta nomes que diferem em acento, caixa, pontuação, espaço ou sufixo
-        societário (Ltda, S.A., ME...). Erro de letra ("Sitio" x "Sítio" entra; "Silva" x "Silvia" não) NÃO é
+        societário (Ltda, S.A., ME...). Erro de letra ("Chacara" x "Chácara" entra; "Silva" x "Silvia" não) NÃO é
         pego de propósito: nome parecido de pessoas diferentes é comum;
       - `rotulos_parecidos_na_base` usa semelhança de texto (nunca para textos com número); duas matérias
         diferentes e muito parecidas podem ser juntadas;

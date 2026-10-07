@@ -62,6 +62,7 @@ GENERICAS = {
     "reu", "re", "de", "da", "do", "das", "dos", "e", "a", "o", "em", "para", "com", "cia", "companhia", "filial",
     "matriz", "cada", "uma", "um", "outra", "outro", "qualquer", "nova", "novo", "sem", "numero", "ltda", "sa",
     "eireli", "x", "y", "z", "primeiro", "segunda", "terceira",
+    "chacara", "tomadora", "aparece", "que", "nao",
 }
 # Nomes já presentes no repositório antes deste teste existir, a confirmar com quem é dono do arquivo.
 # Chave: (arquivo, sha1 do nome normalizado) para este arquivo não repetir o nome. Quando o nome for trocado por

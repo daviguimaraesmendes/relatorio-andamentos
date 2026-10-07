@@ -168,7 +168,7 @@ class ArquivosVersionados(unittest.TestCase):
 
     def test_ativos_dos_modelos_sao_sanitizados(self):
         """docx/xlsx de src/modelos/ são lidos por dentro (XML): sem número, nome ou segredo. Pulado até existirem."""
-        ativos = [p for p in self.arquivos if p.parts[:2] == ("src", "modelos") and p.suffix.lower() in T.EXTENSOES_OFFICE]
+        ativos = [p for p in self.arquivos if p.parts[:2] == ("src", "modelos") and p.suffix.lower() in R.EXTENSOES_OFFICE]
         if not ativos:
             self.skipTest("src/modelos/ ainda não tem .docx/.xlsx (WS-6/WS-7/WS-8); reativar na integração")
         achados = R.varrer(T.RAIZ, ativos, nomes=set(), heuristica=True)

@@ -133,7 +133,8 @@ def assinatura_compativel(func, posicionais=(), nomeados=()):
     tem_kwargs = any(p.kind is p.VAR_KEYWORD for p in params)
     tem_args = any(p.kind is p.VAR_POSITIONAL for p in params)
     posicionais_reais = [p.name for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
-    if not tem_args and posicionais_reais[:len(posicionais)] != list(posicionais):
+    # nome com '_' no fim (capa_) existe para não sobrepor o nome de um módulo: vale como o nome sem ele
+    if not tem_args and [n.rstrip('_') for n in posicionais_reais[:len(posicionais)]] != list(posicionais):
         return f"parâmetros {posicionais_reais} não começam por {list(posicionais)}"
     nomes = {p.name for p in params}
     faltam = [n for n in nomeados if n not in nomes and not tem_kwargs]
