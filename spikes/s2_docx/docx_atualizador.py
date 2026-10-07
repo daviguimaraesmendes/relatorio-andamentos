@@ -593,7 +593,6 @@ def _atualizar_andamentos(bloco, upd, data_base, opc, res):
             if m:
                 fecho_longe = (p, m)
                 break
-    corpo_par = texto[:fecho.start()] if fecho else texto
     corpo_celula = bloco.andamentos_texto()
     if fecho:
         corpo_celula = _plano(corpo_celula)
@@ -610,7 +609,6 @@ def _atualizar_andamentos(bloco, upd, data_base, opc, res):
 
     # 1) o que de fato é novo (dedupe: mesma data + mesmo núcleo)
     aceitos, repetidos = [], 0
-    manual = False
     conhecido = upd.get("texto_conhecido")
     for a in upd.get("andamentos") or []:
         data = _data_br(a.get("data"))
@@ -645,7 +643,6 @@ def _atualizar_andamentos(bloco, upd, data_base, opc, res):
         cf2 = _achar_fecho(_plano(conhecido))
         cauda = _chave(_plano(conhecido)[:cf2.start()] if cf2 else conhecido)[-120:]
         if cauda and not _chave(corpo_celula).endswith(cauda):
-            manual = True
             _aviso(res, "atencao", numero, "edicao_manual",
                    "o final do texto de andamentos foi alterado à mão desde o último ciclo: só foi acrescentado, "
                    "nada reescrito; conferir o resultado")

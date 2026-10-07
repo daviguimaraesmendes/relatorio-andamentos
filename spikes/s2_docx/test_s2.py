@@ -6,7 +6,6 @@ Os testes do LibreOffice são pulados se o `soffice` não existir. NADA aqui pro
 abrem os arquivos: só python-docx, lxml e LibreOffice foram usados.
 """
 import copy
-import os
 import re
 import shutil
 import subprocess
@@ -733,7 +732,6 @@ class TestContratoGravar(Base):
         self.assertIn("Em 01/10/2026, no 2º grau, foi julgado o agravo de instrumento.", est["processos"][1]["andamentos_texto"])
         self.assertEqual(est["processos"][-1]["valor_causa"], "R$ 1.500,00")
         # idempotente
-        res2 = da.gravar(self.molde, self.estado(), self.destino("g2"))
         res3 = da.gravar(destino, self.estado(), self.destino("g3"))
         self.assertEqual(res3["mudancas"], [])
         with self.assertRaises(ValueError):
