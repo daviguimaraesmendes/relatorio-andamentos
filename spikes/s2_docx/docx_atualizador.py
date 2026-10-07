@@ -585,7 +585,14 @@ def _atualizar_andamentos(bloco, upd, data_base, opc, res):
     texto = _texto_par(par)
     revisao = _tem_revisao(par)
     fecho = _achar_fecho(texto)
-    fecho_no_meio = None
+    fecho_longe = None        # (parágrafo, casamento): fecho que ficou num parágrafo ANTERIOR (o advogado escreveu depois dele)
+    if not fecho:
+        pars = [p for p in _filhos(bloco.campos["andamentos"], "p") if _texto_par(p).strip()]
+        for p in reversed(pars[:-1]):
+            m = _achar_fecho(_texto_par(p))
+            if m:
+                fecho_longe = (p, m)
+                break
     corpo_par = texto[:fecho.start()] if fecho else texto
     corpo_celula = bloco.andamentos_texto()
     if fecho:
@@ -594,9 +601,12 @@ def _atualizar_andamentos(bloco, upd, data_base, opc, res):
         corpo_celula = corpo_celula[:cf.start()] if cf else corpo_celula
     existentes = [a for a in _parse_andamentos(corpo_celula) if not a["fecho"]]
     if not fecho and any(a["fecho"] for a in _parse_andamentos(texto)):
-        fecho_no_meio = True
         _aviso(res, "atencao", numero, "fecho_no_meio",
                "há uma frase 'sem atualizações' que não é a última do texto (texto acrescentado depois dela): mantida")
+    if fecho_longe:
+        _aviso(res, "atencao", numero, "fecho_fora_do_fim",
+               "a frase de fecho está num parágrafo anterior ao último (texto do advogado depois dela): "
+               "nunca é apagada; sem novidade só a data é renovada ali; com novidade o texto novo vai no último parágrafo")
 
     # 1) o que de fato é novo (dedupe: mesma data + mesmo núcleo)
     aceitos, repetidos = [], 0
@@ -676,7 +686,13 @@ def _atualizar_andamentos(bloco, upd, data_base, opc, res):
         par.append(_novo_run(sufixo, fecho_normal))
 
     if not aceitos:
-        if fecho:
+        if fecho_longe:
+            p_longe, m_longe = fecho_longe
+            if m_longe.group(1) != data_base and not _tem_revisao(p_longe):
+                _substituir(p_longe, m_longe.start(1), m_longe.end(1), data_base)
+                _mudanca(res, numero, "andamentos_fecho", m_longe.group(0).strip(),
+                         m_longe.group(0).strip().replace(m_longe.group(1), data_base))
+        elif fecho:
             if fecho.group(1) != data_base:
                 if revisao:
                     _aviso(res, "atencao", numero, "revisao_no_trecho",

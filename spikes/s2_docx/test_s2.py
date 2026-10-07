@@ -582,6 +582,46 @@ class TestVariantes(Base):
             self.assertEqual(da.verificar_coerencia(destino, fechos=False), [], f"semente {semente}")
             self.assertTrue(all(a["data_em_negrito"] for p in est["processos"] for a in p["andamentos"]))
 
+    def test_espaco_nao_separavel_no_fecho(self):
+        def mexer(raiz):
+            tbl = raiz.find(w("body")).findall(w("tbl"))[1]
+            par = tbl.findall(w("tr"))[-1].findall(w("tc"))[-1].findall(w("p"))[-1]
+            for t in par.iter(w("t")):
+                t.text = (t.text or "").replace(", sem atualizações", ",\u00a0sem\u00a0atualizações")
+        nbsp = TMP / "nbsp.docx"
+        escrever_doc(self.molde, nbsp, mexer)
+        self.assertEqual(da.ler_estrutura(nbsp)["processos"][0]["fecho"]["data"], gm.DATA_BASE)
+        destino, res = self.aplicar([{"numero": num(0)}], molde=nbsp, nome="nbsp")
+        self.assertEqual(da.ler_estrutura(destino)["processos"][0]["fecho"]["data"], DATA_BASE_NOVA)
+        self.assertEqual(da.ler_estrutura(destino)["processos"][0]["andamentos_texto"].count("sem"), 1)
+
+    def test_advogado_escreveu_outro_paragrafo_depois_do_fecho(self):
+        def mexer(raiz):
+            tbl = raiz.find(w("body")).findall(w("tbl"))[1]
+            tc = tbl.findall(w("tr"))[-1].findall(w("tc"))[-1]
+            par = tc.findall(w("p"))[-1]
+            novo = copy.deepcopy(par)
+            for r in novo.findall(w("r"))[1:]:
+                novo.remove(r)
+            primeiro = novo.findall(w("r"))[0]
+            for t in primeiro.iter(w("t")):
+                t.text = "Observação do advogado: aguardar retorno do cliente."
+            par.addnext(novo)
+        molde = TMP / "dois_par.docx"
+        escrever_doc(self.molde, molde, mexer)
+        # sem novidade: só a data do fecho muda, ali mesmo
+        d1, r1 = self.aplicar([{"numero": num(0)}], molde=molde, nome="sem_novidade")
+        pars = [texto_el(p) for p in tabelas(d1)[1].findall(w("tr"))[-1].findall(w("tc"))[-1].findall(w("p"))]
+        self.assertTrue(pars[0].endswith(f"Em {DATA_BASE_NOVA}, sem atualizações."))
+        self.assertEqual(pars[1], "Observação do advogado: aguardar retorno do cliente.")
+        self.assertTrue([a for a in r1["avisos"] if a["codigo"] == "fecho_fora_do_fim"])
+        # com novidade: texto novo vai no último parágrafo; o do advogado e o fecho antigo continuam
+        d2, _ = self.aplicar([{"numero": num(0), "andamentos": [{"data": "02/10/2026", "texto": "foi proferida sentença."}]}],
+                             molde=molde, nome="com_novidade")
+        pars = [texto_el(p) for p in tabelas(d2)[1].findall(w("tr"))[-1].findall(w("tc"))[-1].findall(w("p"))]
+        self.assertTrue(pars[0].endswith(f"Em {gm.DATA_BASE}, sem atualizações."))
+        self.assertTrue(pars[1].startswith("Observação do advogado") and "Em 02/10/2026, foi proferida sentença." in pars[1])
+
     def test_controle_de_alteracoes_e_comentario_no_trecho_final(self):
         """Limite documentado: com revisão/comentário no parágrafo, nada é removido; só acrescenta e avisa."""
         def mexer(raiz):
