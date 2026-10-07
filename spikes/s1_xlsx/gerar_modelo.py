@@ -34,6 +34,7 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
 from openpyxl.formatting.rule import ColorScaleRule, DataBarRule, FormulaRule
+from openpyxl.styles.cell_style import StyleArray
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -231,10 +232,9 @@ def construir(variante="completo", n_linhas=10):
             for c in range(1, 30):
                 ws.cell(r, c).border = est["corpo"]["border"]
         for c in range(1, 30):                       # linha 7 inteira sem estilo
-            ws.cell(7, c)._style = ws.cell(1000, 1)._style
+            ws.cell(7, c)._style = StyleArray()
         for r in range(2, ultima + 1):                # coluna AC sem estilo
-            ws.cell(r, 29)._style = ws.cell(1000, 1)._style
-        ws.cell(1000, 1)._style = ws.cell(1001, 1)._style
+            ws.cell(r, 29)._style = StyleArray()
 
     # ---- formatação condicional (3 tipos, uma com vários intervalos)
     fim = ultima
@@ -495,6 +495,11 @@ def _posprocessar(dados, linhas, fim, variante, pivot=True):
     partes["[Content_Types].xml"] = ct.replace("</Types>", "".join(novos_ct) + "</Types>").encode("utf-8")
 
     _compartilhar_textos(partes)
+    # o openpyxl carimba a hora do salvamento em core.xml: fixa para o arquivo ser determinístico
+    carimbo = DATA_FIXA.strftime("%Y-%m-%dT%H:%M:%SZ")
+    core = partes["docProps/core.xml"].decode("utf-8")
+    core = re.sub(r"(<dcterms:(?:created|modified)\b[^>]*>)[^<]*", lambda m: m.group(1) + carimbo, core)
+    partes["docProps/core.xml"] = core.encode("utf-8")
     ordem = ["[Content_Types].xml"] + sorted(k for k in partes if k != "[Content_Types].xml")
     return [(k, partes[k]) for k in ordem]
 

@@ -532,6 +532,7 @@ class Edicao:
         self.preservar_humanos = preservar_humanos
         self.avisos, self.ignoradas = [], []
         self._ss = None
+        self._cab_norm = None
         self._xfs_data = None
         self._base1904 = 'date1904="1"' in self.pac.texto("xl/workbook.xml")
         self._carregar_regiao(tabela, linha_cabecalho)
@@ -619,7 +620,13 @@ class Edicao:
         """Índice de coluna a partir de int, cabeçalho (tolerante a acento/caixa) ou letra."""
         if isinstance(spec, int):
             return spec
-        achados = [c for c, t in self.cabecalhos.items() if _norm(t) == _norm(spec) and t != ""]
+        if self._cab_norm is None or self._cab_norm[0] != len(self.cabecalhos):
+            mapa = {}
+            for c, t in self.cabecalhos.items():
+                if t != "":
+                    mapa.setdefault(_norm(t), []).append(c)
+            self._cab_norm = (len(self.cabecalhos), mapa)
+        achados = self._cab_norm[1].get(_norm(spec), [])
         if len(achados) > 1:
             raise ColunaDesconhecida(f"cabeçalho ambíguo {spec!r}: colunas {[col_letra(c) for c in achados]}")
         if achados:
@@ -664,7 +671,7 @@ class Edicao:
     def _formulas_compartilhadas(self):
         """si -> (ref_mestre, texto) das fórmulas compartilhadas da aba."""
         mestres = {}
-        for m in re.finditer(r'<c r="([A-Z]+\d+)"[^>]*>(?:(?!</c>).)*?<f\b([^>]*)>(.*?)</f>',
+        for m in re.finditer(r'<c r="([A-Z]+\d+)"[^>]*>(?:(?!</c>).)*?<f\b([^>]*?)(?<!/)>(.*?)</f>',
                              "".join(b for _s, b in self.folha._bruto.values()), re.S):
             if 't="shared"' in m.group(2) and m.group(3):
                 si = re.search(r'si="(\d+)"', m.group(2)).group(1)
