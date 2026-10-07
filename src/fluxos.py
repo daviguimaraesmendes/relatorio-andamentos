@@ -882,6 +882,9 @@ def _rodar_ciclo(tipo, projeto, fichas_alvo_fn, *, profundidade, modo, entregas,
             return _resultado(True, "Nada a coletar: nenhum processo se enquadra neste fluxo.", avisos, [], etapa="nada",
                               processos=0, conferir_manualmente=[], pendentes_de_revisao=0)
         ciclo, retomado = _abrir_ciclo(tipo, data_base, [f["numero"] for f in alvo], profundidade, arquivos_do_ciclo)
+        if retomado:        # o escopo do ciclo é o que ele abriu (a coleta pode ter encerrado processos que saíram do filtro)
+            alvo = [f for f in ficha.carregar(todas=True) if f["numero"] in set(ciclo["numeros"])]
+            numeros_alvo = {n for f in alvo for n in ficha.todos_os_numeros(f)}
         _progresso(ao_progresso, "coleta", f"{'Retomando' if retomado else 'Iniciando'} a coleta de {len(alvo)} processo(s)")
         usar_real = coletor is None
         if usar_real:
