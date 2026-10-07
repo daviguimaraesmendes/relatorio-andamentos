@@ -816,6 +816,15 @@ def _abrir_ciclo(tipo, data_base, numeros, profundidade, arquivos):
     return ciclo, retomado
 
 
+def _guardar_avisos_do_ciclo(avisos):
+    """Os avisos de antes da revisão (arquivo enviado: processo novo, texto editado à mão...) precisam chegar ao
+    resultado da entrega, que acontece numa chamada posterior."""
+    estado = _estado()
+    if estado.get("ciclo"):
+        estado["ciclo"]["avisos"] = list(avisos)[-500:]
+        _salvar_estado(estado)
+
+
 def _fechar_ciclo(fase):
     estado = _estado()
     if estado.get("ciclo"):
@@ -882,6 +891,10 @@ def _rodar_ciclo(tipo, projeto, fichas_alvo_fn, *, profundidade, modo, entregas,
             return _resultado(True, "Nada a coletar: nenhum processo se enquadra neste fluxo.", avisos, [], etapa="nada",
                               processos=0, conferir_manualmente=[], pendentes_de_revisao=0)
         ciclo, retomado = _abrir_ciclo(tipo, data_base, [f["numero"] for f in alvo], profundidade, arquivos_do_ciclo)
+        if retomado:
+            vistos = {(a["codigo"], a["onde"]) for a in avisos}
+            avisos = [a for a in ciclo.get("avisos", []) if (a["codigo"], a["onde"]) not in vistos] + avisos
+        _guardar_avisos_do_ciclo(avisos)
         if retomado:        # o escopo do ciclo é o que ele abriu (a coleta pode ter encerrado processos que saíram do filtro)
             alvo = [f for f in ficha.carregar(todas=True) if f["numero"] in set(ciclo["numeros"])]
             numeros_alvo = {n for f in alvo for n in ficha.todos_os_numeros(f)}
@@ -968,6 +981,14 @@ def _molde_por_cliente(lidos_docx, clientes):
     return saida
 
 
+_FECHO = re.compile(r"\s*(?:Em|Até|Ate)\s+\d{2}/\d{2}/\d{4},?\s+sem\s+atualiza[cç][oõ]es\.?\s*$", re.I)
+
+
+def _sem_fecho(texto):
+    """Tira a frase de fecho ("Em 31/08/2026, sem atualizações.") do fim: os leitores a separam do texto de andamentos."""
+    return _FECHO.sub("", texto or "")
+
+
 def _texto_gravado(f, entrega):
     """O registro do último texto que o programa gravou nesta entrega (ou o único registro antigo)."""
     u = f.get("ultimo_texto_gravado") or {}
@@ -1000,9 +1021,9 @@ def _ler_enviados(arquivos, fichas, avisos, ao_progresso):
         entrega = rel["formato"]
         for p in rel["processos"]:
             f = por_numero.get(p["numero"])
-            texto = _norm(p.get("andamentos_texto"))
+            texto = _norm(_sem_fecho(p.get("andamentos_texto")))
             gravado = _texto_gravado(f, entrega) if f is not None else None
-            if f is not None and gravado and gravado.get("texto") and texto and _norm(gravado["texto"]) != texto:
+            if f is not None and gravado and gravado.get("texto") and texto and _norm(_sem_fecho(gravado["texto"])) != _norm(_sem_fecho(p.get("andamentos_texto"))):
                 avisos.append(_aviso("info", "texto_editado_a_mao", p["numero"],
                                      f"O texto de andamentos de {p['numero']} em {nome} difere do último que o programa gravou "
                                      "(edição à mão ou outra origem). O programa só acrescenta; nada do que está lá será reescrito."))

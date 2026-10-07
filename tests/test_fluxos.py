@@ -117,16 +117,19 @@ def dec(v):
 class Base(unittest.TestCase):
     N, CLIENTES = 200, 5
 
-    def abrir_projeto(self, magras=True, n=None, clientes=None, semente=1, **kw):
+    def abrir_projeto(self, magras=True, n=None, clientes=None, semente=1, reserva=0, **kw):
+        """Projeto com `n` processos (lista de números) e o coletor simulado conhecendo `n + reserva` (os da reserva
+        podem ser 'cadastrados depois'). `self.verdade` são as fichas completas que o tribunal simulado conhece."""
         n = n or self.N
-        self.verdade = ficticio.gerar_carteira(n, clientes=clientes or self.CLIENTES, semente=semente)
-        fichas = [magra(f) for f in self.verdade] if magras else self.verdade
+        todas = ficticio.gerar_carteira(n + reserva, clientes=clientes or self.CLIENTES, semente=semente)
+        self.verdade, self.reserva = list(todas), list(todas[n:])
+        fichas = [magra(f) for f in todas[:n]] if magras else todas[:n]
         shutil.rmtree(TMP / "projetos-de-teste", ignore_errors=True)
         self.proj = ficticio.criar_projeto_de_teste(fichas, nome="Relatório de Fluxos")
         self.addCleanup(ficticio.restaurar_comum)
         self.slug = self.proj["slug"]
         self.relogio = Relogio()
-        self.simulado = simulado.ColetorSimulado(self.verdade, semente=1, taxa_falha=kw.pop("taxa_falha", 0.0),
+        self.simulado = simulado.ColetorSimulado(todas, semente=1, taxa_falha=kw.pop("taxa_falha", 0.0),
                                                  pasta=self.proj["pasta"] / "docs-sim", **kw)
         self.coletor = ColetorAte(self.simulado, DATA_1)
         return self.proj
@@ -401,6 +404,121 @@ class Entregas200(Base):
         self.assertEqual(len(dados["por_processo"]), len(fichas))
         with fluxos._em(self.slug):
             self.assertEqual([x["data_base"] for x in historico.carregar(self.slug)], [DATA_1])
+
+
+# ------------------------------------------------------------------ atualizar
+
+def _estrutura(caminho):
+    from escritores import docx_a
+    return docx_a.ler_estrutura(caminho)
+
+
+def _andamentos_por_numero(docxs):
+    saida = {}
+    for caminho in docxs:
+        for b in _estrutura(caminho)["processos"]:
+            saida[b["numeros"][0]] = [(a["data"], a["texto"]) for a in b["andamentos"]]
+    return saida
+
+
+def editar_docx_a_mao(origem, destino, numero, frase):
+    """O advogado acrescenta uma frase à mão no texto de andamentos de um processo (python-docx)."""
+    import docx
+    doc = docx.Document(origem)
+    for tabela in doc.tables[1:]:
+        if numero in tabela.rows[0].cells[0].text:
+            for linha in tabela.rows:
+                if linha.cells[0].text.strip().startswith("Andamentos"):
+                    linha.cells[1].paragraphs[-1].add_run(" " + frase)
+                    doc.save(destino)
+                    return destino
+    raise AssertionError(f"processo {numero} não achado em {origem}")
+
+
+class Atualizar(Base):
+    N, CLIENTES = 200, 5
+
+    def _ciclo(self, data_base, ate, arquivos=None, depois=None):
+        """Um ciclo completo: atualizar (para na revisão), revisão humana, atualizar de novo (entrega)."""
+        self.coletor.ate = ate
+        r = self.atualizar(arquivos, data_base=data_base)
+        self.assertIn(r["etapa"], ("revisao", "entregue"), r["resumo"])
+        aprovados = [e for e in self.eventos() if e["status"] == "rascunho"]
+        n = aprovar_tudo()
+        if depois:
+            depois()
+        r = self.atualizar(None, data_base=data_base)
+        self.assertEqual(r["etapa"], "entregue", r["resumo"])
+        return r, n
+
+    def test_tres_ciclos_sem_duplicar_sem_perder_humano_e_sem_sobrescrever_edicao_manual(self):
+        self.abrir_projeto(reserva=1)
+        r0 = self.inicial()
+        with fluxos._em(self.slug):                                # um campo humano que nenhum ciclo pode perder
+            fs = ficha.carregar(todas=True)
+            ficha.definir(fs[3], "valor_estimado", "1234.56", "humano")
+            ficha.definir(fs[3], "observacoes", "Cliente prioritário", "humano")
+            humano_numero = fs[3]["numero"]
+            ficha.salvar(fs)
+        aprovar_tudo()
+        r0 = self.inicial()
+        self.assertEqual(r0["etapa"], "entregue", r0["resumo"])
+        saida0 = [Path(a) for a in r0["arquivos"]]
+        base0 = _andamentos_por_numero(a for a in saida0 if a.suffix == ".docx")
+        # ---- ciclo 2: sem enviar arquivo (parte da última entrega do programa); só vem o que é posterior
+        r1, n1 = self._ciclo(DATA_2, DATA_2)
+        self.assertGreater(n1, 0)
+        saida1 = [Path(a) for a in r1["arquivos"]]
+        base1 = _andamentos_por_numero(a for a in saida1 if a.suffix == ".docx")
+        for numero, antigos in base0.items():
+            self.assertEqual(base1[numero][:len(antigos)], antigos, f"{numero}: o que já estava no texto não pode mudar")
+        novos_ciclo2 = sum(len(base1[n]) - len(base0[n]) for n in base0)
+        self.assertGreater(novos_ciclo2, 0)
+        # ---- ciclo 3: o advogado edita um texto à mão e envia o .docx; entra um processo novo na carteira
+        alvo = next(n for n, a in base1.items() if len(a) > 2)
+        docx_enviado = next(a for a in saida1 if a.suffix == ".docx" and alvo in str(_estrutura(a)["processos"]))
+        editado = editar_docx_a_mao(docx_enviado, TMP / "editado-por-advogado.docx", alvo,
+                                    "Em 05/09/2026, o cliente telefonou pedindo notícias (nota do advogado).")
+        novo_numero = self.reserva[0]["numero"]
+        with fluxos._em(self.slug):
+            fs = ficha.carregar(todas=True)
+            fs.append(magra(self.reserva[0]))
+            ficha.salvar(fs)
+        r2, n2 = self._ciclo(DATA_3, DATA_3, arquivos=[editado])
+        self.assertIn("texto_editado_a_mao", self.codigos(r2) | {a["codigo"] for a in r2["avisos"]})
+        avisos_edicao = [a for a in r2["avisos"] if a["codigo"] == "texto_editado_a_mao"]
+        self.assertEqual([a["onde"] for a in avisos_edicao], [alvo])
+        saida2 = [Path(a) for a in r2["arquivos"]]
+        base2 = _andamentos_por_numero(a for a in saida2 if a.suffix == ".docx")
+        self.assertIn(novo_numero, base2)                                   # o processo novo entrou
+        self.assertTrue(base2[novo_numero])
+        estrutura_alvo = next(b for a in saida2 if a.suffix == ".docx" for b in _estrutura(a)["processos"] if b["numeros"][0] == alvo)
+        self.assertIn("nota do advogado", estrutura_alvo["andamentos_texto"])      # a edição manual sobreviveu
+        for numero, antigos in base1.items():
+            if numero != alvo:
+                self.assertEqual(base2[numero][:len(antigos)], antigos)
+        # ---- em nenhum ciclo houve duplicata de andamento nem perda de campo humano; evento relatado uma vez só
+        for base in (base0, base1, base2):
+            for numero, lista in base.items():
+                self.assertEqual(len(lista), len(set(lista)), f"{numero}: andamento duplicado")
+        ids = [e["id"] for e in self.eventos()]
+        self.assertEqual(len(ids), len(set(ids)))
+        h = next(f for f in self.fichas() if f["numero"] == humano_numero)
+        self.assertEqual((ficha.origem(h, "valor_estimado"), ficha.obter(h, "valor_estimado")), ("humano", "1234.56"))
+        self.assertEqual(ficha.obter(h, "observacoes"), "Cliente prioritário")
+        # ---- três retratos mensais coerentes com as fichas
+        with fluxos._em(self.slug):
+            serie = historico.carregar(self.slug)
+        self.assertEqual([x["data_base"] for x in serie], [DATA_1, DATA_2, DATA_3])
+        self.assertEqual([x["totais"]["processos"] for x in serie], [self.N, self.N, self.N + 1])
+        # ---- a planilha da última entrega tem a linha do processo novo e o texto sem duplicata
+        import openpyxl
+        xlsx = next(a for a in saida2 if a.suffix == ".xlsx")
+        ws = openpyxl.load_workbook(xlsx, data_only=True)["Processos"]
+        cab = [c.value for c in ws[1]]
+        numeros_b = {row[cab.index("Número do Processo")] for row in ws.iter_rows(min_row=2, values_only=True)}
+        self.assertEqual(numeros_b, {f["numero"] for f in self.fichas()})
+        self.assertGreaterEqual(len(r2["arquivos"]), 8)
 
 if __name__ == "__main__":
     unittest.main()
