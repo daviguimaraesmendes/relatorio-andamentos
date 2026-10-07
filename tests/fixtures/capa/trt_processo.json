@@ -1,0 +1,18 @@
+{
+  "_fixture": "FICTÍCIA, no formato que trt.itens_do_processo consome (numero e itensProcesso conforme o código). Os campos de capa (classe, orgaoJulgador, autuadoEm, valorDaCausa, assuntos, poloAtivo, poloPassivo) são PRESUMIDOS: ainda não foram capturados de uma consulta real do TRT. Número e nomes são trocados em tempo de execução.",
+  "id": 100001,
+  "numero": "@@NUMERO@@",
+  "classe": "Ação Trabalhista - Rito Ordinário",
+  "orgaoJulgador": "2ª Vara do Trabalho de Cidade Exemplo",
+  "autuadoEm": "2026-02-02T09:15:00.000",
+  "valorDaCausa": 50000,
+  "assuntos": [{"descricao": "Horas Extras"}, {"descricao": "Reconhecimento de Vínculo"}],
+  "poloAtivo": [{"nome": "Pessoa Fictícia 0002"}],
+  "poloPassivo": [{"nome": "Cliente Exemplo 01 Ltda"}, {"nome": "Empresa Tomadora Fictícia S.A."}],
+  "itensProcesso": [
+    {"id": 3, "documento": false, "titulo": "Audiência de conciliação designada", "data": "2026-04-20T10:00:00.00"},
+    {"id": 2, "documento": true, "titulo": "Petição Inicial", "tipo": "Petição Inicial", "data": "2026-02-02T09:15:00.00", "idUnicoDocumento": "abc1234", "publico": true},
+    {"id": 1, "documento": false, "titulo": "Distribuído por dependência", "data": "2026-02-03T08:00:00.00"},
+    {"id": 4, "documento": false, "titulo": "Citação realizada", "data": "2026-03-01T12:00:00.00"}
+  ]
+}
