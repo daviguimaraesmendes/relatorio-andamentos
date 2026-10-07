@@ -15,6 +15,12 @@ em "campos", cada um com a sua ORIGEM.
 Chaves opcionais acrescentadas por outros módulos (todas aditivas): "ultimo_texto_gravado" (texto de andamentos
 que o escritor deixou no arquivo, por ciclo), "consolidacao" (conflitos, linhas absorvidas e rótulos originais,
 gravada por consolidar.py) e "sugestoes_recusadas" (sugestões que uma pessoa recusou na revisão).
+Gravadas por fluxos.py (WS-14): "ultimo_texto_gravado" = {"data_base", "texto", "arquivo", "campos" (momento_atual e
+ultimo_andamento como ficaram no .docx, para o aviso edicao_manual_sobrescrita), "por_entrega": {"docx_a": {...},
+"xlsx_b": {...}}} (o texto do .docx e o da planilha têm formatos diferentes, então cada escritor lê o registro da sua
+entrega; as chaves de cima espelham a gravação mais recente); "ultimos_valores_gravados" = {campo: valor} (colunas
+mecânicas da planilha, para a mesma detecção); "precisa_relatorio_inicial" (True nos processos que vieram só como
+número: "novo, precisa de relatório inicial"); "ultima_coleta" = {"em", "movimentos", "documentos", "profundidade"}.
 
 Momento atual com qualificador ("CUMPRIMENTO DE SENTENÇA (HONORÁRIOS SUSPENSOS)"): `definir` separa o texto e grava
 o momento do vocabulário em "momento_atual" e o parêntese em "momento_qualificador"; quando o momento muda, o

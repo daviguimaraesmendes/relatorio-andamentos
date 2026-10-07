@@ -1,52 +1,54 @@
 # Status da Fase 2: matriz módulo x estado x pendência
 
-Mantida pelo WS-13. Última atualização: **07/10/2026**, sobre o commit de integração `2a97514` (M1 fechado), com os
-testes transversais do WS-13 já no repositório e **nenhum módulo da Onda 1 integrado ainda**.
+Mantida pelo WS-13 e atualizada pelo WS-14. Última atualização: **07/10/2026**, depois da Onda 2 / WS-14 (fluxos ponta a
+ponta): os 15 workstreams da Onda 1 e o `src/fluxos.py` estão integrados e ligados; o WS-15 (regressão e carga) ainda não
+começou.
 
 **Como atualizar a cada merge.** Rode `python3 tests/test_contratos.py --matriz`: ele imprime a coluna "Estado no
 repositório" (ausente / só a base da Etapa 0 / presente, no contrato / presente, DIVERGE) de cada módulo. Os testes
-transversais **se reativam sozinhos** quando o módulo passa a existir (nada a editar neles); o que mudar de estado nesta
-página é só a tabela da seção 1 e a seção 3.
+transversais se reativam sozinhos quando o módulo passa a existir; o que muda nesta página é a tabela da seção 1 e a
+seção 3.
 
-**Situação dos testes em 07/10/2026** (Python 3.13, Linux): base da Fase 1 e do M1 (`test_pipeline`, `test_painel`,
-`test_ficha`, `test_ficticio`, `test_simulado`): 76 de 76 passam. Testes transversais do WS-13 (`test_confidencialidade`,
-`test_desempenho`, `test_contratos`, `test_empacotamento`): 86 execuções, 25 passam e 61 são **puladas** com mensagem
-(módulos da Onda 1 ainda ausentes), nenhuma falha. `tests/test_autos.py` continua falhando por falta de Playwright
-(conhecido, anterior a este trabalho).
+**Situação dos testes** (Python 3.13, Linux, `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`): suíte completa verde. Os testes
+novos do WS-14 são `tests/test_fluxos.py` (migrar, converter, inicial, atualizar em três ciclos, retomada em cinco pontos,
+IA e consentimento, falhas injetadas, entregas A, B e C com 200 processos e 5 clientes conferidas por cálculo
+independente, retrato mensal) e `tests/test_fluxos_painel.py` (os quatro fluxos pelo painel, a partir do primeiro uso, com
+o coletor simulado e a página de Entregas).
 
 ## 1. Matriz por módulo
 
-Legenda do estado: **integrado** = no branch de integração e testado; **em construção** = workstream da Onda 1 ainda
-não integrado (não há o arquivo no repositório); **pronto para conferência** = só falta o roteiro humano.
+Legenda do estado: **integrado** = no branch de integração, ligado aos fluxos e testado com dado fictício; **pronto para conferência** =
+integrado e só falta o roteiro humano (Word, Excel, Google); **depende do piloto** = só se valida com acesso, rede ou IA reais.
 
 | WS | Módulo / arquivos | Estado em 07/10/2026 | Teste transversal que o cobre (hoje) | Pendência / depende de teste real |
 | --- | --- | --- | --- | --- |
 | Etapa 0 | `src/ficha.py`, `src/taxonomia.py` (base), `src/simulado.py`, `tests/ficticio.py`, painel fatiado em `src/painel/` | **integrado** (M1) | `test_contratos` (base da Etapa 0), `test_desempenho` etapa `carteira_e_ficha`, `test_confidencialidade` (painel) | Spikes S3 (cobertura real e DataJud), S4 (tempo real de coleta) e S5 (modelo local) dependem do computador do usuário |
-| WS-1 | `src/taxonomia.py` (extensões), `src/consolidar.py` | em construção | `test_contratos` (pula: só a base da Etapa 0 / ausente), `test_desempenho` etapa `consolidacao` (pula) | Vocabulário e sinônimos a calibrar com relatórios reais no piloto (M5) |
-| WS-2 | `src/leitores/__init__.py` (+ `detectar`, `docx_a`, `xlsx_b`, `lista`, `tabela_livre`) | em construção | `test_contratos`, `test_desempenho` etapas `leitura_docx_a`, `leitura_xlsx_b`, `leitura_lista` (pulam) | `.docx` **exportado de um Google Doc real** e planilhas reais do escritório: só fixtures sintéticas aqui (M5) |
-| WS-3 | `src/fila.py` (+ `ColetorReal` em `coletor.py`/`trt.py`/`rodar.py`) | em construção | `test_contratos`, `test_desempenho` etapa `fila` (pula) | `ColetorReal` **não é testável aqui** (certificado, jus.br, captcha do TRT): validar no piloto (M5/M6); tempos e cobertura reais a medir |
-| WS-4 | `src/capa.py` (+ `djen.py`) | em construção | `test_contratos` (pula) | Telas reais do jus.br e do TRT; campos reais do DataJud (spike S3: nota em `docs/fase2/spikes/S3-datajud.md` a conferir) |
-| WS-5 | `src/sintese.py` (+ `resumir.py`) | em construção | `test_contratos` (pula) | Qualidade do **modelo de IA real** em "momento atual" e narrativa (S5): só provedor falso aqui |
-| WS-6 | `src/escritores/docx_a.py`, `src/modelos/docx_a/`, `docs/fase2/conferencia-docx.md` | em construção | `test_contratos`, `test_desempenho` etapa `escritor_docx_a` (pula), `test_confidencialidade` modelos e saída (pulam) | Abrir no **Word e no Google Docs**: roteiro `conferencia-docx.md`; só LibreOffice aqui |
-| WS-7 | `src/escritores/xlsx_b.py`, `src/planilha.py`, `src/modelos/xlsx_b/`, `docs/fase2/conferencia-xlsx.md` | em construção | `test_contratos`, `test_desempenho` etapas `escritor_xlsx_b` e `fase1_planilha_e_relatorio` (esta já roda e vigia a regressão da Fase 1) | Fica **pronto para conferência**, não "pronto", até o usuário abrir no **Excel (Windows e Mac) e no Google Sheets** (M5); cache de fórmulas |
-| WS-8 | `src/escritores/dashboard.py`, `src/modelos/dashboard/` | em construção | `test_contratos`, `test_desempenho` etapa `dashboard` (pula), `test_confidencialidade` (templates e saídas; pula) | Navegadores reais do cliente; Playwright/Chromium só no ambiente de desenvolvimento |
-| WS-9 | `src/painel/assistente.py`, `src/painel/migracao.py`, `src/painel/entregas.py`, `src/painel/perfil.py` | em construção | `test_contratos` (inclui "registrada em `revisao.py`"), `test_confidencialidade` (rotas `/fluxo`, `/migracao`, `/entregas`, `/perfil`; pulam) | Usabilidade com quem nunca usou o painel; `docs/guia-fase2.md` descreve o **desenho aprovado**, a revisar contra as telas reais |
-| WS-10 | `src/triagem.py`, `src/painel/revisao_lote.py`, `src/painel/processo.py` | em construção | `test_contratos` (pula) | Revisão de 600 eventos com pessoas reais; percentual de amostragem a calibrar |
-| WS-11 | `src/qualidade.py`, `src/historico.py`, `src/quadros.py` | em construção | `test_contratos`, `test_desempenho` etapa `qualidade` (pula) | Falsos positivos a medir em carteira real |
-| WS-16 | `src/pedidos.py`, `src/painel/pedidos.py`, `docs/pedidos-iniciais.md` | em construção | `test_contratos`, `test_confidencialidade` (rota `/pedidos`; pula) | **Prompt não validado com petições reais** (validar no piloto, com a IA que o usuário escolher) |
-| WS-17 | `src/julgamento.py` | em construção | `test_contratos` (pula) | Teste retroativo (`concordancia`) contra relatórios migrados reais para decidir quando sugerir sem ressalva |
-| WS-18 | `src/ia.py`, `src/painel/ia.py`, `docs/confidencialidade-ia.md` | em construção | `test_contratos`, `test_confidencialidade` (rota `/ia`; pula) | **Chamadas reais** ao provedor externo e ao Ollama: só transporte falso aqui; revisar o texto de confidencialidade com o usuário |
+| WS-1 | `src/taxonomia.py` (extensões), `src/consolidar.py` | **integrado** | `test_contratos`, `test_desempenho` etapa `consolidacao` | Vocabulário e sinônimos a calibrar com relatórios reais no piloto (M5) |
+| WS-2 | `src/leitores/__init__.py` (+ `detectar`, `docx_a`, `xlsx_b`, `lista`, `tabela_livre`) | **integrado** | `test_contratos`, `test_desempenho` etapas `leitura_docx_a`, `leitura_xlsx_b`, `leitura_lista` | `.docx` **exportado de um Google Doc real** e planilhas reais do escritório: só fixtures sintéticas aqui (M5) |
+| WS-3 | `src/fila.py` (+ `ColetorReal` em `coletor.py`/`trt.py`/`rodar.py`) | **integrado** | `test_contratos`, `test_desempenho` etapa `fila` | `ColetorReal` **não é testável aqui** (certificado, jus.br, captcha do TRT): validar no piloto (M5/M6); tempos e cobertura reais a medir |
+| WS-4 | `src/capa.py` (+ `djen.py`) | **integrado** | `test_contratos` | Telas reais do jus.br e do TRT; campos reais do DataJud (spike S3: nota em `docs/fase2/spikes/S3-datajud.md` a conferir) |
+| WS-5 | `src/sintese.py` (+ `resumir.py`) | **integrado** | `test_contratos` | Qualidade do **modelo de IA real** em "momento atual" e narrativa (S5): só provedor falso aqui |
+| WS-6 | `src/escritores/docx_a.py`, `src/modelos/docx_a/`, `docs/fase2/conferencia-docx.md` | **pronto para conferência** | `test_contratos`, `test_desempenho` etapa `escritor_docx_a`, `test_confidencialidade` modelos e saída | Abrir no **Word e no Google Docs**: roteiro `conferencia-docx.md`; só LibreOffice aqui |
+| WS-7 | `src/escritores/xlsx_b.py`, `src/planilha.py`, `src/modelos/xlsx_b/`, `docs/fase2/conferencia-xlsx.md` | **pronto para conferência** | `test_contratos`, `test_desempenho` etapas `escritor_xlsx_b` e `fase1_planilha_e_relatorio` (esta já roda e vigia a regressão da Fase 1) | Fica **pronto para conferência**, não "pronto", até o usuário abrir no **Excel (Windows e Mac) e no Google Sheets** (M5); cache de fórmulas |
+| WS-8 | `src/escritores/dashboard.py`, `src/modelos/dashboard/` | **integrado** | `test_contratos`, `test_desempenho` etapa `dashboard`, `test_confidencialidade` (templates e saídas) | Navegadores reais do cliente; Playwright/Chromium só no ambiente de desenvolvimento |
+| WS-9 | `src/painel/assistente.py`, `src/painel/migracao.py`, `src/painel/entregas.py`, `src/painel/perfil.py` | **integrado** | `test_contratos` (inclui "registrada em `revisao.py`"), `test_confidencialidade` (rotas `/fluxo`, `/migracao`, `/entregas`, `/perfil`; pulam) | Usabilidade com quem nunca usou o painel; `docs/guia-fase2.md` descreve o **desenho aprovado**, a revisar contra as telas reais |
+| WS-10 | `src/triagem.py`, `src/painel/revisao_lote.py`, `src/painel/processo.py` | **integrado** | `test_contratos` | Revisão de 600 eventos com pessoas reais; percentual de amostragem a calibrar |
+| WS-11 | `src/qualidade.py`, `src/historico.py`, `src/quadros.py` | **integrado** | `test_contratos`, `test_desempenho` etapa `qualidade` | Falsos positivos a medir em carteira real |
+| WS-16 | `src/pedidos.py`, `src/painel/pedidos.py`, `docs/pedidos-iniciais.md` | **integrado** | `test_contratos`, `test_confidencialidade` (rota `/pedidos`) | **Prompt não validado com petições reais** (validar no piloto, com a IA que o usuário escolher) |
+| WS-17 | `src/julgamento.py` | **integrado** | `test_contratos` | Teste retroativo (`concordancia`) contra relatórios migrados reais para decidir quando sugerir sem ressalva |
+| WS-18 | `src/ia.py`, `src/painel/ia.py`, `docs/confidencialidade-ia.md` | **integrado** | `test_contratos`, `test_confidencialidade` (rota `/ia`) | **Chamadas reais** ao provedor externo e ao Ollama: só transporte falso aqui; revisar o texto de confidencialidade com o usuário |
 | WS-13 | `tests/test_confidencialidade.py`, `tests/test_desempenho.py`, `tests/test_contratos.py`, `tests/test_empacotamento.py`, `tests/transversal.py`, `tests/confidencialidade_regras.py`, `README.md`, `docs/guia-fase2.md`, `empacotar.sh`, `requirements.txt`, este arquivo | **integrado neste commit** | os próprios | Reler o README e o guia a cada merge (seção 4); guia lido por quem não conhece o projeto (M5) |
-| WS-14/15 | `src/fluxos.py` e teste de carga/regressão (Onda 2) | não iniciado | `test_desempenho` já prova 200 processos por etapa; WS-15 acrescenta 3 ciclos e 5 clientes | Orquestração e interrupção/retomada de ponta a ponta |
+| WS-14 | `src/fluxos.py`, `tests/test_fluxos.py`, `tests/test_fluxos_painel.py`; ligações em `painel/assistente.py` (ganchos `AO_COLETAR`/`AO_CONCLUIR`), `painel/entregas.py` (`gerar` delega a `fluxos.entregar`; seção "Para conferir do último ciclo"), `painel/base.py` (`/fluxo` e `/migracao` abrem sem relatório); `movimentos.json` (tradução do acordo homologado) | **integrado** | `test_fluxos`, `test_fluxos_painel` | `ColetorReal`, IA real e Word/Excel/Google só no piloto; ver a seção 7 |
+| WS-15 | teste de carga e regressão entre ciclos, `docs/fase2/piloto.md` | não iniciado | `test_fluxos` já prova 3 ciclos e 200 processos; o WS-15 acrescenta mudanças injetadas, 1.000 processos e o roteiro | Roteiro do piloto M5/M6 |
 
-## 2. O que cada teste transversal faz (e o que pula hoje)
+## 2. O que cada teste transversal faz
 
-| Arquivo | O que confere | Pulado hoje porque |
+| Arquivo | O que confere | Pulos esperados |
 | --- | --- | --- |
-| `tests/test_confidencialidade.py` | O detector detecta (casos plantados em tempo de execução); nenhum número de processo fora de `0000000`/`9999999`/`1234567-1234570`, nenhum nome de empresa que pareça real (heurística), nenhum CPF/CNPJ/e-mail/telefone real, nenhum segredo, nenhum arquivo proibido (certificado, `config.json`, `projetos/`); `config.exemplo.json` sem quem assina; HTML das telas do painel e do relatório da Fase 1 sem domínio externo; (quando existirem) modelos `.docx`/`.xlsx` lidos por dentro, templates e saídas do dashboard, saída dos escritores só com os números das fichas | Rotas `/fluxo` `/migracao` `/entregas` `/perfil` `/pedidos` `/ia`, `src/modelos/`, `escritores.*` ainda não existem; nomes cadastrados só valem no computador do escritório (sem `projetos/` aqui) |
-| `tests/test_desempenho.py` | 200 processos (ajustável): ficha e carteira, **planilha e relatório da Fase 1 (roda hoje)**, lista bruta, leitura de `.docx`/`.xlsx`/lista, consolidação, qualidade, escritores em 2 ciclos, dashboard nos dois modos, fila com coletor simulado e 10% de falha; limites generosos por etapa e no total; tabela de tempos no stderr | Etapas dos módulos ausentes (10 de 12 hoje); o teste `test_99_pipeline_completo` termina "pulado" listando o que falta |
-| `tests/test_contratos.py` | Cada módulo da tabela existe, tem as funções do `CONTRATOS.md` com a assinatura combinada e, se for tela do painel, está registrada em `revisao.app`; `--matriz` imprime o estado | Módulos ausentes |
-| `tests/test_empacotamento.py` | `empacotar.sh` numa **cópia**: o que entra e o que fica fora, recusa por número de processo (também dentro de `.docx`/`.xlsx`), nome cadastrado, segredo, certificado, HTML externo e erro de sintaxe; todo import de terceiros está em `requirements.txt` com versão mínima; README e guia citam os quatro fluxos e o Windows "não testado"; links relativos e a árvore de arquivos do README existem; este arquivo cita todos os módulos | Links do guia/README e entradas da árvore do README que apontam para arquivos dos outros workstreams (`pedidos-iniciais.md`, `confidencialidade-ia.md`, `conferencia-*.md`, módulos de `src/`) até eles entregarem |
+| `tests/test_confidencialidade.py` | O detector detecta (casos plantados em tempo de execução); nenhum número de processo fora de `0000000`/`9999999`/`1234567-1234570`, nenhum nome de empresa que pareça real (heurística), nenhum CPF/CNPJ/e-mail/telefone real, nenhum segredo, nenhum arquivo proibido (certificado, `config.json`, `projetos/`); `config.exemplo.json` sem quem assina; HTML das telas do painel e do relatório da Fase 1 sem domínio externo; (quando existirem) modelos `.docx`/`.xlsx` lidos por dentro, templates e saídas do dashboard, saída dos escritores só com os números das fichas | Nenhum neste ambiente (o Chromium, o LibreOffice e o python-docx existem aqui); em outra máquina, o que depender deles pula com mensagem |
+| `tests/test_desempenho.py` | 200 processos (ajustável): ficha e carteira, **planilha e relatório da Fase 1 (roda hoje)**, lista bruta, leitura de `.docx`/`.xlsx`/lista, consolidação, qualidade, escritores em 2 ciclos, dashboard nos dois modos, fila com coletor simulado e 10% de falha; limites generosos por etapa e no total; tabela de tempos no stderr | Nenhum neste ambiente (o Chromium, o LibreOffice e o python-docx existem aqui); em outra máquina, o que depender deles pula com mensagem |
+| `tests/test_contratos.py` | Cada módulo da tabela existe, tem as funções do `CONTRATOS.md` com a assinatura combinada e, se for tela do painel, está registrada em `revisao.app`; `--matriz` imprime o estado | Nenhum neste ambiente (o Chromium, o LibreOffice e o python-docx existem aqui); em outra máquina, o que depender deles pula com mensagem |
+| `tests/test_empacotamento.py` | `empacotar.sh` numa **cópia**: o que entra e o que fica fora, recusa por número de processo (também dentro de `.docx`/`.xlsx`), nome cadastrado, segredo, certificado, HTML externo e erro de sintaxe; todo import de terceiros está em `requirements.txt` com versão mínima; README e guia citam os quatro fluxos e o Windows "não testado"; links relativos e a árvore de arquivos do README existem; este arquivo cita todos os módulos | Nenhum neste ambiente (o Chromium, o LibreOffice e o python-docx existem aqui); em outra máquina, o que depender deles pula com mensagem |
 
 ## 3. O que só foi validado com dado fictício e o que depende de ferramenta real
 
@@ -125,3 +127,42 @@ corrigiu:
     testado; programas do cliente não testados).
 
 Ainda **não** feita: leitura por alguém que não conhece o projeto (critério do plano, marco M5).
+
+## 7. Pendências reais para o piloto (levantadas pelo WS-14)
+
+O que os fluxos fazem hoje, de ponta a ponta, está provado com o `ColetorSimulado`; o que falta só existe com o mundo real.
+
+1. **`ColetorReal` (jus.br e TRT)**: nunca rodou dentro dos fluxos. O fluxo grava os movimentos e documentos do resultado como
+   eventos sem duplicar o que o `ColetorReal` já gravou (confere por `chave`, por arquivo e por data+texto), mas a
+   coincidência de formato com o coletor real só se vê no piloto. O fluxo abre e fecha o `ColetorReal` sozinho quando nenhum
+   coletor é passado.
+2. **Tempo real e cobertura**: medir tempo por processo, quantos caem em captcha/segredo e a cobertura por tribunal
+   (`fila.cobertura`); calibrar a janela do modo contínuo e a estimativa mostrada na confirmação.
+3. **IA real**: `resumir_com_provedor` e `sintese.momento_atual` só foram exercitados com provedor falso. Sem Ollama no ar, o
+   resumo do documento sai vazio com alerta e o evento vai à revisão (não trava). Validar prompt, `trecho_origem` e o
+   selo (`ia.selo`) com o modelo local escolhido e, se o usuário quiser, com um provedor externo e consentimento por cliente.
+4. **Momento atual por regra vira `coletado`**: é a escolha para ele substituir o valor `migrado` do relatório antigo a cada
+   ciclo. Se o usuário preferir que o valor do relatório antigo valha até alguém mexer, é preciso decidir (ver
+   `docs/fase2/RFC-fluxos-origem-do-momento.md`).
+5. **Texto editado à mão**: a comparação do texto do arquivo enviado com o último texto gravado ignora espaços, caixa,
+   acento e a frase de fecho. Edição que reescreve frases antigas é só avisada (`texto_editado_a_mao`); o programa nunca
+   reescreve. Falta ver com um `.docx` exportado de um Google Doc real (rótulos, título `[ MOMENTO ]` e fecho continuam
+   suposições do WS-2/WS-6).
+6. **Cliente na planilha**: o modelo B não tem coluna de cliente; ao importar uma planilha o programa avisa
+   (`processo_sem_cliente`) e usa o cliente padrão informado. A planilha também guarda os vinculados só como números (sem o
+   tipo agravo/apenso/recurso); o texto (modelo A) guarda o tipo.
+7. **Painel (tela Atualizar)**: a tela ainda usa a própria conferência do arquivo enviado (`assistente.py`) e não a de
+   `fluxos._ler_enviados`; por isso o aviso `texto_editado_a_mao` só aparece nos fluxos de código (CLI e testes). A
+   entrega (`/entregas/gerar`) já usa o molde mais recente por data de modificação, entre `entrada/` e a última entrega.
+8. **Dashboard**: o fluxo gera o modo `embutido` (abre já preenchido, com o histórico dos retratos). Para o modo `modelo`
+   (arrastar a planilha) há o parâmetro `dashboard_modo`, ainda sem botão na tela.
+9. **Planilha com 200 linhas**: o `soffice` recalcula as fórmulas quando existe (cerca de 3 s); sem ele, a planilha sai com as
+   fórmulas sem valor guardado (o Excel recalcula ao abrir) e o painel embutido fica sem esses indicadores.
+10. **DataJud**: ligado como fonte de capa dentro dos fluxos (`fluxos.processar_resultado`): consulta só os processos a que ainda
+    falta vara, ajuizamento, classe ou município, só com a flag ligada **e** a chave pública do CNJ (`config.json` ou
+    `DATAJUD_CHAVE`); sem chave não há chamada nem aviso por processo, chave recusada vira um aviso só no ciclo
+    (`datajud_chave_recusada`). O DataJud não traz partes nem valor da causa. Com o `ColetorReal`, que devolve a capa vazia, é
+    a fonte de capa do ciclo. Testado só com transporte falso e a fixture da wiki (formato não capturado de chamada real).
+11. **Entregas**: o `.xlsx` de 200 linhas leva cerca de 4 s com o `soffice`; o ciclo completo (coleta simulada, revisão,
+    três arquivos mais o painel) de 200 processos leva cerca de 20 s neste ambiente. O tempo real vem da coleta, não do
+    processamento.

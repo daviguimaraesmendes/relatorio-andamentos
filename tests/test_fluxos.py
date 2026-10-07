@@ -578,6 +578,72 @@ class ArquivoEnviado(Base):
 
 
 
+class DataJud(Base):
+    N, CLIENTES = 12, 2
+
+    def _resposta(self, numero):
+        """Resposta do DataJud no formato da wiki (fixture da WS-4) para o número pedido."""
+        bruto = (Path(__file__).resolve().parent / "fixtures" / "capa" / "datajud_resposta.json").read_text(encoding="utf-8")
+        digitos = "".join(c for c in numero if c.isdigit())
+        return json.dumps(json.loads(bruto.replace("@@DIGITOS@@", digitos))).encode()
+
+    def test_capa_do_datajud_completa_o_que_o_coletor_nao_trouxe_e_so_com_chave(self):
+        import capa
+        self.abrir_projeto()
+        pedidos = []
+
+        def transporte(url, cabecalhos, corpo):
+            pedidos.append(url)
+            numero = next(f["numero"] for f in self.verdade if "".join(c for c in f["numero"] if c.isdigit()) in corpo.decode())
+            return 200, self._resposta(numero)
+        # coletor "real": traz movimentos e documentos, mas capa vazia
+        class SemCapa(ColetorAte):
+            def coletar(self, processo, profundidade, desde):
+                r = super().coletar(processo, profundidade, desde)
+                return dict(r, capa={}) if not r.get("erro") else r
+        self.coletor = SemCapa(self.simulado, DATA_1)
+        capa._ultima_datajud[0] = 0.0
+        with mock.patch.object(fluxos, "TRANSPORTE_DATAJUD", transporte), \
+                mock.patch.object(capa, "DATAJUD_INTERVALO_S", 0), \
+                mock.patch.object(capa, "_config_datajud", lambda: (True, "chave-publica-ficticia")):
+            r = self.inicial()
+        self.assertEqual(r["etapa"], "revisao", r["resumo"])
+        self.assertEqual(len(pedidos), self.N)
+        com_classe = [f for f in self.fichas() if ficha.obter(f, "classe")]
+        self.assertTrue(com_classe)
+        for f in com_classe:
+            self.assertEqual(ficha.origem(f, "classe"), "coletado")
+        # sem chave: nenhuma chamada e nenhum aviso por processo
+        self.abrir_projeto()
+        pedidos.clear()
+        with mock.patch.object(fluxos, "TRANSPORTE_DATAJUD", transporte), \
+                mock.patch.object(capa, "_config_datajud", lambda: (True, "")):
+            r = self.inicial()
+        self.assertEqual(pedidos, [])
+        self.assertNotIn("datajud_sem_chave", self.codigos(r))
+
+    def test_datajud_recusando_a_chave_vira_um_aviso_so_e_nao_trava(self):
+        import capa
+        self.abrir_projeto()
+
+        class SemCapa(ColetorAte):
+            def coletar(self, processo, profundidade, desde):
+                r = super().coletar(processo, profundidade, desde)
+                return dict(r, capa={}) if not r.get("erro") else r
+        self.coletor = SemCapa(self.simulado, DATA_1)
+        capa._ultima_datajud[0] = 0.0
+        with mock.patch.object(fluxos, "TRANSPORTE_DATAJUD", lambda *a: (401, b"{}")), \
+                mock.patch.object(capa, "DATAJUD_INTERVALO_S", 0), \
+                mock.patch.object(capa, "_config_datajud", lambda: (True, "chave-velha")):
+            self.inicial()
+            aprovar_tudo()
+            r = self.inicial()
+        self.assertEqual(r["etapa"], "entregue", r["resumo"])
+        recusas = [a for a in r["avisos"] if a["codigo"] == "datajud_chave_recusada"]
+        self.assertEqual(len(recusas), 1)
+
+
+
 class Interrompe:
     """Coletor que levanta KeyboardInterrupt (Ctrl+C) na chamada de número `quando`."""
 

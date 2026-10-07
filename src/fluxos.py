@@ -82,6 +82,7 @@ import ficha  # noqa: E402
 import taxonomia  # noqa: E402
 
 FABRICA_DE_PROVEDOR = None      # f(perfil, cliente) -> provedor de IA; None = ia.provedor(perfil, cliente, projeto=slug)
+TRANSPORTE_DATAJUD = None       # transporte HTTP do DataJud (testes); None = urllib
 ENTREGAS = ("docx_a", "xlsx_b", "dashboard")
 PROFUNDIDADES = ("rapido", "padrao", "completo")
 EVENTOS_ABERTOS = ("coletado", "extraido", "sem_arquivo")
@@ -563,6 +564,35 @@ def _eventos_do_resultado(numero, f_principal, resultado, profundidade, existent
     return novos
 
 
+def _capa_do_datajud(numero):
+    """(capa extraída do DataJud, avisos). Só consulta com a fonte ligada E com a chave pública do CNJ (config.json,
+    `fontes_externas.datajud`, ou DATAJUD_CHAVE); sem isso não há chamada e não há aviso por processo."""
+    capa = _mod("capa")
+    ativo, chave = capa._config_datajud()
+    if not (ativo and chave):
+        return {}, []
+    dados, avisos = capa.consultar_datajud(numero, transporte=TRANSPORTE_DATAJUD)
+    if dados is None:
+        return {}, avisos
+    campos, outros = capa.extrair_com_avisos("datajud", dados, numero=numero)
+    return campos, avisos + outros
+
+
+def _avisar_no_ciclo(avisos):
+    """Guarda no ciclo aberto (uma vez por código e lugar) os avisos de nível atenção ou erro vindos da coleta."""
+    novos = [a for a in avisos if a.get("nivel") in ("atencao", "erro")]
+    if not novos:
+        return
+    estado = _estado()
+    ciclo = estado.setdefault("ciclo", {"tipo": "avulso", "id": _hoje(), "fase": "coleta", "numeros": []})
+    guardados = ciclo.setdefault("avisos", [])
+    chaves = {(a["codigo"], a["onde"]) for a in guardados}
+    for a in novos:
+        if (a["codigo"], a["onde"]) not in chaves:
+            guardados.append(_aviso_ok(a))
+    _salvar_estado(estado)
+
+
 def processar_resultado(slug, numero, resultado, profundidade=None):
     """Grava no relatório o que a coleta de UM processo trouxe: a capa na ficha (`capa.aplicar`, só no processo
     principal; o tribunal não informa polo nem parte contrária) e os movimentos e documentos como eventos
@@ -584,11 +614,16 @@ def processar_resultado(slug, numero, resultado, profundidade=None):
             comum.salvar_eventos(lista + novos)       # primeiro os eventos: se cair aqui, a repetição não duplica (id)
         mudou_capa = 0
         if f_principal is not None and f_principal["numero"] == numero:
-            if resultado.get("capa"):
-                try:
-                    mudou_capa = len(_mod("capa").aplicar(f_principal, _mod("capa").de_coleta(resultado)))
-                except Exception:  # noqa: BLE001
-                    mudou_capa = 0
+            try:
+                capa = _mod("capa")
+                da_corte = capa.de_coleta(resultado) if resultado.get("capa") else {}
+                falta_capa = any(not ficha.obter(f_principal, c) for c in ("vara", "data_ajuizamento", "classe", "municipio"))
+                do_datajud, avisos_dj = _capa_do_datajud(numero) if falta_capa else ({}, [])      # só onde ainda falta capa
+                _avisar_no_ciclo(avisos_dj)
+                reunida = capa.mesclar(da_corte, do_datajud)      # o tribunal vale mais; o DataJud completa o que faltar
+                mudou_capa = len(capa.aplicar(f_principal, reunida)) if reunida else 0
+            except Exception:  # noqa: BLE001 - a capa é complemento: nunca derruba a gravação dos eventos
+                mudou_capa = 0
             f_principal["ultima_coleta"] = {"em": _agora_iso(), "movimentos": len(resultado.get("movimentos") or []),
                                             "documentos": len(resultado.get("documentos") or []), "profundidade": profundidade}
             ficha.salvar(fichas)
