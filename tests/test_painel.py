@@ -98,6 +98,17 @@ class Painel(unittest.TestCase):
             p.start()
         import revisao
         cls.revisao = revisao
+        # test_pipeline troca comum.config por uma versão fixa e não desfaz: aqui vale a de verdade
+        # (config temporário ou, sem ele, o config.exemplo.json), em cada módulo do painel que a use
+        def config_real():
+            if comum.CONFIG_FILE.exists():
+                return comum.load_json(comum.CONFIG_FILE, {})
+            return comum.load_json(comum.RAIZ / "config.exemplo.json", {})
+        for nome, mod in list(sys.modules.items()):
+            if mod is not None and (nome in ("comum", "revisao") or nome.startswith("painel.")) and hasattr(mod, "config"):
+                p = mock.patch.object(mod, "config", config_real)
+                p.start()
+                cls.patches.append(p)
         cls.TOKEN = revisao.TOKEN
         cls.app = revisao.app
         cls.app.config["TESTING"] = True
