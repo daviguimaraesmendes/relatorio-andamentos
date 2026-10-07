@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="pt-BR" data-modo="{{MODO}}" data-modelo="{{TEMPLATE}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="relatorio-andamentos (dashboard {{TEMPLATE}}, modo {{MODO}})">
+<title>{{TITULO}}</title>
+<style>
+{{CSS}}
+</style>
+</head>
+<body>
+<a class="pular" href="#principal">Ir para o conteúdo</a>
+<div class="wrap">
+
+  <header class="topo">
+    <div>
+      <div class="sobretitulo">{{SOBRETITULO}}</div>
+      <h1>{{TITULO}}</h1>
+      <div class="etiqueta" id="etiqueta">{{ETIQUETA_INICIAL}}</div>
+    </div>
+    <div class="estado" id="estado" role="status" aria-live="polite"><span class="ponto"></span><span id="estado-texto">Sem dados</span></div>
+  </header>
+
+  <main id="principal">
+
+  <section class="carregador" id="carregador" aria-labelledby="carregador-titulo" {{CARREGADOR_OCULTO}}>
+    <h2 class="somente-leitor" id="carregador-titulo">Carregar a planilha</h2>
+    <label class="soltar" id="soltar" for="arquivo">
+      <strong>Arraste a planilha (.xlsx) para cá</strong>
+      ou clique para escolher o arquivo
+      <input type="file" id="arquivo" accept=".xlsx,.xlsm,.xls,.csv">
+    </label>
+    <p class="aviso-local">Tudo é calculado <b>neste computador, dentro do navegador</b>. Nenhum dado é enviado a servidor algum e a página funciona sem internet.</p>
+    <div class="msg" id="msg" role="alert"></div>
+  </section>
+
+  <div id="app" hidden>
+    <div class="abas" role="tablist" aria-label="Seções do painel">
+      <button type="button" role="tab" id="tab-painel" aria-controls="aba-painel" aria-selected="true">Painel</button>
+      <button type="button" role="tab" id="tab-qualidade" aria-controls="aba-qualidade" aria-selected="false" tabindex="-1">Qualidade dos dados <span class="selo" id="selo-qualidade">0</span></button>
+    </div>
+
+    <div id="aba-painel" role="tabpanel" aria-labelledby="tab-painel">
+      <form class="filtros" id="filtros" onsubmit="return false" aria-label="Filtros">
+        <div class="campo" data-filtro="area"><label for="f-area">Área</label><select id="f-area"></select></div>
+        <div class="campo" data-filtro="natureza"><label for="f-natureza">Natureza</label><select id="f-natureza"></select></div>
+        <div class="campo" data-filtro="situacao"><label for="f-situacao">Situação</label><select id="f-situacao"><option value="">Todos</option><option value="ativo">Ativos</option><option value="encerrado">Encerrados</option></select></div>
+        <div class="campo" data-filtro="tribunal"><label for="f-tribunal">Tribunal</label><select id="f-tribunal"></select></div>
+        <div class="campo" data-filtro="prob"><label for="f-prob">Probabilidade</label><select id="f-prob"></select></div>
+        <div class="campo" data-filtro="cliente"><label for="f-cliente">Cliente</label><select id="f-cliente"></select></div>
+        <div class="campo"><label for="f-busca">Buscar</label><input type="search" id="f-busca" placeholder="parte, matéria, nº..." autocomplete="off"></div>
+        <div class="campo"><label for="f-data">Data de referência</label><input type="date" id="f-data"></div>
+        <div class="espaco"></div>
+        <button type="button" class="btn sec" id="b-limpar">Limpar filtros</button>
+        <button type="button" class="btn sec" id="b-imprimir">Imprimir / PDF</button>
+        <button type="button" class="btn sec" id="b-trocar" {{TROCAR_OCULTO}}>Trocar arquivo</button>
+      </form>
+      {{CORPO}}
+    </div>
+
+    <div id="aba-qualidade" role="tabpanel" aria-labelledby="tab-qualidade" hidden>
+      <div class="sec"><span class="n">Q</span><h2>Qualidade dos dados</h2><div class="regua"></div></div>
+      <p class="nota" id="q-intro"></p>
+      <div class="q-resumo" id="q-lista"></div>
+    </div>
+
+    <footer class="rodape">
+      Painel gerado pelo relatorio-andamentos a partir da planilha de acompanhamento processual; cálculos feitos no navegador.<br>
+      <b>Observação metodológica:</b> os indicadores dependem do que está lançado na planilha. Casos que distorcem valores (acordo sem valor, acordo pago por terceiro, exclusão da lide, cliente no polo ativo) ficam <b>fora</b> do indicador de economia e são listados na aba de qualidade. Não substitui a análise jurídica de cada processo. Valores em reais (R$).
+    </footer>
+  </div>
+
+  </main>
+</div>
+
+<script type="application/json" id="cfg">{{CONFIG}}</script>
+{{BIBLIOTECAS}}
+<script>
+{{NUCLEO}}
+</script>
+<script>
+{{TEMPLATE_JS}}
+</script>
+<script>DASH.iniciar();</script>
+</body>
+</html>
