@@ -12,7 +12,7 @@ Código de referência já existente: `src/ficha.py`, `src/taxonomia.py`, `src/c
 - Datas em **ISO** (`AAAA-MM-DD`) dentro de ficha, perfil e retrato; `DD/MM/AAAA` só na tela e nos arquivos entregues. Dinheiro em **texto decimal** (`"1234.56"`); use `ficha.dinheiro()` para somar.
 - Todo texto que sai para o cliente nasce de evento **aprovado** (regra da Fase 1 mantida).
 - Todo teste usa **dados fictícios** e nunca toca em `projetos/` real (`tests/isolamento.py` é importado antes de tudo).
-- Números de processo em arquivos **versionados** só podem ser os permitidos pelo `empacotar.sh` (`0000000-00.0000.0.00.0000`, `9999999-99...`, `1234567` a `1234570`). Fixtures maiores (ex.: 200 processos) são **geradas em tempo de execução**, nunca gravadas como literais no repositório. Use `numero_ficticio(n)` (em `tests/test_ficha.py`; WS-13 o move para `tests/ficticio.py`).
+- Números de processo em arquivos **versionados** só podem ser os permitidos pelo `empacotar.sh` (`0000000-00.0000.0.00.0000`, `9999999-99...`, `1234567` a `1234570`). Fixtures maiores (ex.: 200 processos) são **geradas em tempo de execução**, nunca gravadas como literais no repositório. Use `numero_ficticio(n)` e os geradores de `tests/ficticio.py` e o coletor simulado de `src/simulado.py` (receitas em `docs/fase2/fixtures.md`).
 - Nenhum teste faz chamada de rede nem usa o certificado, o jus.br ou provedor de IA real.
 - Erros esperados (arquivo ilegível, formato desconhecido, campo fora do vocabulário) viram **avisos estruturados**, não exceções soltas; exceção só para erro de programação ou de ambiente.
 
@@ -87,9 +87,10 @@ escritores.dashboard.gravar(xlsx, destino, perfil, **opcoes) -> Resultado
 class Coletor(Protocol):        # real: adaptador sobre coletor.py/trt.py; teste: coletor simulado
     def coletar(self, processo: dict, profundidade: str, desde: str | None) -> ResultadoColeta: ...
 
+# `desde` é ESTRITO (só o que for posterior), como o `_depois` do coletor real; vale para movimentos e documentos; a capa vem sempre.
 ResultadoColeta = {
-  "capa": {campo: valor},        # só campos de ficha.CAMPOS (grupo capa/partes/situacao)
-  "movimentos": [{"data": "AAAA-MM-DD", "texto": str, "grau": str|None, "chave": str}],
+  "capa": {campo: valor},        # só campos de ficha.CAMPOS (grupos capa/partes/situacao); polo_cliente e parte_contraria NUNCA vêm da coleta (o tribunal não os informa)
+  "movimentos": [{"data": "AAAA-MM-DD", "texto": str, "grau": str|None, "chave": str}],   # chave: "DD/MM/AAAA|texto|n", como no coletor real
   "documentos": [{"nome": str, "tipo": str, "data": "AAAA-MM-DD", "caminho": str}],
   "erro": None | {"codigo": "captcha|segredo|nao_encontrado|timeout|sessao_expirada|outro", "mensagem": str},
 }
