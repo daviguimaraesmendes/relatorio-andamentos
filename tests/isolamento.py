@@ -13,10 +13,11 @@ TMP = Path(os.environ["RELATORIO_TESTE_TMP"])
 os.environ["RELATORIO_DATA"] = str(TMP / "data")
 os.environ["RELATORIO_CARTEIRA"] = str(TMP / "carteira.json")
 os.environ["RELATORIO_CLIENTES"] = str(TMP / "clientes.json")
+os.environ["RELATORIO_PROJETOS"] = str(TMP / "projetos")  # comum.criar_projeto nunca toca o projetos/ real
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import comum  # noqa: E402
 
-for caminho in (comum.DATA, comum.CARTEIRA_FILE, comum.CLIENTES_FILE):
+for caminho in (comum.DATA, comum.CARTEIRA_FILE, comum.CLIENTES_FILE, comum.PROJETOS_DIR, comum.ATUAL_FILE):
     if not str(Path(caminho).resolve()).startswith(str(TMP.resolve())):
         raise SystemExit(f"TESTE ABORTADO: {caminho} aponta para fora da pasta temporária.")

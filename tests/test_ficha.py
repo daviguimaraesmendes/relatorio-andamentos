@@ -12,14 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import comum  # noqa: E402
 import ficha  # noqa: E402
 import taxonomia  # noqa: E402
-
-
-
-def numero_ficticio(n=0, ano=2024, j=8, tr=6, origem=1):
-    """Número CNJ sintético com dígito verificador correto: sequenciais 1234567 em diante."""
-    seq = f"{1234567 + n:07d}"
-    dv = 98 - int(f"{seq}{ano}{j}{tr:02d}{origem:04d}00") % 97
-    return f"{seq}-{dv:02d}.{ano}.{j}.{tr:02d}.{origem:04d}"
+from ficticio import numero_ficticio  # noqa: E402
 
 
 NUM, OUTRO = numero_ficticio(0), numero_ficticio(1)
