@@ -225,6 +225,24 @@ def resumo_do_resultado(saida):
 
 # ---------------------------------------------------------------- tela
 
+def _html_do_ultimo_ciclo():
+    """Avisos do último ciclo (fluxos.py): andamento que já constava, edição manual sobrescrita, número repetido, processo
+    novo ou sumido... Nenhum derruba o fluxo; aqui a pessoa decide."""
+    try:
+        dados = modulo("fluxos", "Os fluxos").ultimo_ciclo(comum.PROJETO)
+    except Exception:  # noqa: BLE001 - a tela nunca cai por causa disto
+        return ""
+    avisos = (dados or {}).get("avisos") or []
+    if not avisos:
+        return ""
+    e = html.escape
+    linhas = "".join(f"<tr><td>{e(str(a.get('nivel', '')))}</td><td>{e(str(a.get('codigo', '')))}</td><td>{e(str(a.get('onde', '')))}</td>"
+                     f"<td>{e(str(a.get('mensagem', '')))}</td></tr>" for a in avisos[:200])
+    return ("<h2>Para conferir do último ciclo</h2><p class='dica'>Nada disto impediu a entrega; são pontos que merecem um olhar "
+            "antes de enviar ao cliente.</p><table class='t'><tr><th>Nível</th><th>Aviso</th><th>Onde</th><th>O que houve</th></tr>"
+            + linhas + "</table>" + (f"<p class='dica'>E mais {len(avisos) - 200}.</p>" if len(avisos) > 200 else ""))
+
+
 def _tamanho(bytes_):
     return f"{bytes_ / 1024:.0f} KB" if bytes_ >= 1024 else f"{bytes_} bytes"
 
@@ -282,6 +300,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             h.append("</table>")
         else:
             h.append("<p class='dica'>Nenhum processo para conferir à mão agora.</p>")
+        h.append(_html_do_ultimo_ciclo())
         return "".join(h)
 
     @app.post("/entregas/gerar")

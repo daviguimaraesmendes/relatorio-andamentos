@@ -525,6 +525,59 @@ class Atualizar(Base):
 
 # ------------------------------------------------------------------ interrupção e retomada
 
+class ArquivoEnviado(Base):
+    N, CLIENTES = 30, 3
+
+    def test_processo_novo_sumido_e_campo_humano_do_arquivo(self):
+        self.abrir_projeto(reserva=1)
+        self.inicial()
+        aprovar_tudo()
+        self.assertEqual(self.inicial()["etapa"], "entregue")
+        fichas = [dict(f) for f in self.fichas()]
+        ativas = [f for f in fichas if f.get("ativo", True)]
+        sumido = ativas[0]["numero"]
+        enviadas = [f for f in fichas if f["numero"] != sumido]
+        ficha.definir(enviadas[0], "probabilidade", "Remota", "humano")          # o advogado preencheu na planilha
+        ficha.definir(enviadas[0], "resultado", "Improcedente", "humano")
+        novo = ficticio.anexar_linha_de_base(self.reserva[0], data_base=DATA_1)
+        enviadas.append(novo)
+        arquivo = escrever_xlsx_b(enviadas, TMP / "planilha-enviada.xlsx", "Relatório de Fluxos", DATA_1)
+        self.coletor.ate = DATA_2                                      # um mês depois: há novidades para revisar
+        r = self.atualizar([arquivo], data_base=DATA_2)
+        self.assertEqual(r["etapa"], "revisao", r["resumo"])
+        self.assertEqual(r["novos"], [novo["numero"]])
+        self.assertEqual(r["sumiram"], [sumido])
+        codigos = {a["codigo"] for a in r["avisos"]}
+        self.assertTrue({"processo_novo_no_arquivo", "processo_sumiu_do_arquivo"} <= codigos)
+        por_numero = {f["numero"]: f for f in self.fichas()}
+        self.assertIn(novo["numero"], por_numero)
+        self.assertTrue(por_numero[novo["numero"]]["linha_de_base"]["andamentos_texto"])
+        self.assertFalse(por_numero[novo["numero"]].get("precisa_relatorio_inicial"))
+        self.assertTrue(por_numero[sumido].get("ativo", True) or por_numero[sumido].get("ultima_coleta"))   # segue na carteira
+        alvo = por_numero[enviadas[0]["numero"]]
+        self.assertEqual((ficha.origem(alvo, "probabilidade"), ficha.obter(alvo, "probabilidade")), ("humano", "Remota"))
+        self.assertEqual(ficha.obter(alvo, "resultado"), "Improcedente")
+        # o arquivo enviado foi guardado em entrada/ e é o molde da entrega seguinte; o original não é tocado
+        guardado = list((self.proj["pasta"] / "entrada").glob("*planilha-enviada*.xlsx"))
+        self.assertEqual(len(guardado), 1)
+        antes = arquivo.read_bytes()
+        aprovar_tudo()
+        r = self.atualizar(None, data_base=DATA_2)
+        self.assertEqual(r["etapa"], "entregue", r["resumo"])
+        self.assertEqual(arquivo.read_bytes(), antes)
+        self.assertEqual(sum(str(a).endswith(".xlsx") for a in r["arquivos"]), 1)
+
+    def test_arquivo_que_nao_e_do_programa_e_recusado_sem_travar(self):
+        self.abrir_projeto()
+        lixo = TMP / "nao-e-relatorio.xlsx"
+        lixo.write_bytes(b"x")
+        r = self.atualizar([lixo], data_base=DATA_1)
+        self.assertFalse(r["ok"])
+        self.assertIn("arquivo_nao_aceito", {a["codigo"] for a in r["avisos"]})
+        self.assertEqual(self.eventos(), [])
+
+
+
 class Interrompe:
     """Coletor que levanta KeyboardInterrupt (Ctrl+C) na chamada de número `quando`."""
 

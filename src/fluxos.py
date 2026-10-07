@@ -88,7 +88,10 @@ EVENTOS_ABERTOS = ("coletado", "extraido", "sem_arquivo")
 CODIGOS_PARA_CONFERIR = ("ignorados", "numero_repetido", "numero_em_dois_lugares", "andamento_ja_presente",
                          "edicao_manual_sobrescrita", "edicao_manual", "possivel_duplicata_manual",
                          "andamentos_editados_a_mao", "texto_editado_a_mao", "processo_sumiu_do_arquivo",
-                         "processo_novo_no_arquivo", "texto_acima_do_limite", "valor_divergente", "campo_divergente")
+                         "processo_novo_no_arquivo", "texto_acima_do_limite", "valor_divergente", "campo_divergente",
+                         "numero_dv_invalido", "numero_invalido", "duplicata_provavel", "vinculo_provavel",
+                         "vinculado_em_dois_principais", "grafias_do_mesmo_nome", "materia_dois_rotulos",
+                         "duplicata_exata_fundida", "processo_sem_cliente", "evento_nao_processado")
 
 _TRAVA = threading.RLock()
 
@@ -445,6 +448,7 @@ def migrar(arquivos, projeto=None, *, confirmar=True, cliente_padrao=None, nome=
             for r in serie:
                 comum.save_json(hist.pasta(slug) / f"{r['data_base']}.json", r)
                 gravados.append(r["data_base"])
+            _guardar_ultimo_ciclo(avisos, [], {"origem": "migracao"})
             saida.update(projeto=slug, confirmado=True, adicionadas=adicionadas, atualizadas=atualizadas,
                          copias_em_entrada=copias, retratos_gravados=gravados)
             saida.pop("fichas", None)
@@ -1443,6 +1447,10 @@ def entregar(projeto=None, entregas=None, *, data_base=None, moldes=None, tipo="
                         ultimas[chave] = valor
                 ultimas["data_base"] = base_iso
                 _salvar_estado(estado_fluxo)
+        if not subconjunto:        # o que a pessoa precisa conferir (a tela Entregas mostra)
+            vistos = {(a["codigo"], a["onde"]) for a in avisos}
+            previos = [a for a in (_estado().get("ciclo") or {}).get("avisos", []) if (a["codigo"], a["onde"]) not in vistos]
+            _guardar_ultimo_ciclo(previos + avisos, _conferir_manualmente(slug), {"rodada": str(rodada)})
         erros = [a for a in avisos if a.get("nivel") == "erro"]
         saida["ok"] = bool(saida["arquivos"]) and not [a for a in erros if a["codigo"] in ("escritor_falhou", "escritor_indisponivel", "painel_sem_planilha")]
         n_ignorados = sum(len(r.get("ignorados") or []) for r in saida["resultados"].values())
