@@ -1,6 +1,6 @@
 # Fase 2 — Plano de atuação
 
-Status: **plano aprovado** em 07/10/2026, com os ajustes da seção 7 (decisões fechadas). Execução começa pela Etapa 0 (seção 8.2).
+Status: **plano aprovado** em 07/10/2026, com os ajustes da seção 7 (decisões fechadas). **Etapa 0 concluída (M1, 07/10/2026)**: contratos, fixtures, coletor simulado, painel fatiado e spikes S1/S2 (Go com ressalvas; ver `spikes/`). Onda 1 em andamento (especificação por agente em `WORKSTREAMS.md`).
 
 Os três modelos de referência, citados aqui por letra (os arquivos reais, com dados de clientes, ficam só no Drive do escritório e **não entram no repositório**):
 
