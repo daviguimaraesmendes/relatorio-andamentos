@@ -1590,6 +1590,10 @@ def mapear_cabecalhos(cabecalhos, mapeamento=None):
         campo = forcado.get(chave) or _INDICE_CAB.get(chave)
         if campo:
             achados.setdefault(campo, []).append(col)
+    for campo, cab in (mapeamento or {}).items():       # campo com cabeçalho forçado: só esse cabeçalho vale
+        achados[campo] = [c for c in achados.get(campo, []) if _chave_cab(cabecalhos[c]) == _chave_cab(cab)]
+        if not achados[campo]:
+            del achados[campo]
     mapa = {c: cols[0] for c, cols in achados.items() if len(cols) == 1}
     ambiguos = {c: cols for c, cols in achados.items() if len(cols) > 1}
     return mapa, ambiguos

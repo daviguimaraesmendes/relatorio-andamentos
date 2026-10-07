@@ -1439,6 +1439,614 @@ class TestAtualizarArquivoDoCliente(BaseLO):
         self.assertEqual(codigos(r, "erro"), ["destino_igual_ao_molde"])
         self.assertEqual(sha(self.A.read_bytes()), antes)
 
+def regravar_zip(origem, destino, alterar=None, acrescentar=None):
+    """Copia um .xlsx trocando/acrescentando partes: alterar {parte: função(bytes)->bytes}, acrescentar {parte: bytes}."""
+    with zipfile.ZipFile(origem) as z:
+        itens = [(i, z.read(i.filename)) for i in z.infolist()]
+    with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as out:
+        for info, dados in itens:
+            if alterar and info.filename in alterar:
+                dados = alterar[info.filename](dados)
+            out.writestr(info.filename, dados)
+        for nome, dados in (acrescentar or {}).items():
+            out.writestr(nome, dados)
+    return destino
+
+
+class TestRecusasDoGravar(BaseLO):
+    """Cada limite do formato vira recusa explícita (aviso de erro com código estável), sem arquivo gravado."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.fichas = ficticio.gerar_carteira(6, clientes=1, semente=5)
+        cls.A = cls.tmp / "A.xlsx"
+        x.gravar(None, estado_de(cls.fichas), cls.A)
+
+    def recusa(self, molde, codigo, **kw):
+        dest = self.saida("recusado.xlsx")
+        if dest.exists():
+            dest.unlink()
+        r = x.gravar(molde, estado_de(self.fichas), dest, **kw)
+        self.assertIsNone(r["destino"])
+        self.assertFalse(dest.exists())
+        self.assertEqual([p for p in dest.parent.glob(".recusado*")], [], "sobrou arquivo provisório")
+        erros = [a for a in r["avisos"] if a["nivel"] == "erro"]
+        self.assertEqual([a["codigo"] for a in erros], [codigo], r["avisos"])
+        self.assertEqual(r["processos_novos"], [])
+        self.assertTrue(erros[0]["mensagem"])
+        # mensagem ao usuário em português, sem jargão de código
+        self.assertNotRegex(erros[0]["mensagem"], r"Traceback|Exception|ErroXlsx")
+        return erros[0]
+
+    def test_linha_de_totais(self):
+        m = regravar_zip(self.A, self.saida("tot.xlsx"), {
+            "xl/tables/table1.xml": lambda d: d.replace(b"<table ", b'<table totalsRowCount="1" ', 1)})
+        a = self.recusa(m, "tabela_com_totais")
+        self.assertIn("linha de totais", a["mensagem"])
+
+    def test_conteudo_abaixo_da_tabela(self):
+        com_nota = self.saida("nota.xlsx")
+        x.escrever_celulas(self.A, com_nota, "Processos", {(len(self.fichas) + 2, "A"): "nota do usuário"})
+        # a nota fica na primeira linha livre da tabela de 6 processos? aqui a tabela tem 6 linhas (2..7)
+        # e a nota está na linha 8: gravar processo novo precisa dessa linha
+        novas = ficticio.gerar_carteira(8, clientes=1, semente=5)
+        dest = self.saida("abaixo-out.xlsx")
+        r = x.gravar(com_nota, estado_de(novas), dest)
+        self.assertIsNone(r["destino"])
+        self.assertEqual([a["codigo"] for a in r["avisos"] if a["nivel"] == "erro"], ["conteudo_abaixo_da_tabela"])
+        self.assertFalse(dest.exists())
+
+    def test_celula_mesclada_na_faixa_nova(self):
+        com = regravar_zip(self.A, self.saida("merge.xlsx"), {
+            "xl/worksheets/sheet1.xml": lambda d: d.replace(
+                b"</sheetData>", b'</sheetData><mergeCells count="1"><mergeCell ref="A8:B8"/></mergeCells>', 1)})
+        novas = ficticio.gerar_carteira(8, clientes=1, semente=5)
+        r = x.gravar(com, estado_de(novas), self.saida("merge-out.xlsx"))
+        self.assertEqual([a["codigo"] for a in r["avisos"] if a["nivel"] == "erro"], ["celula_mesclada_na_faixa"])
+
+    def test_macros(self):
+        m = regravar_zip(self.A, self.saida("macro.xlsx"), {
+            "[Content_Types].xml": lambda d: d.replace(b"spreadsheetml.sheet.main+xml",
+                                                        b"spreadsheetml.sheet.macroEnabled.main+xml")})
+        self.recusa(m, "xlsm")
+
+    def test_modelo_do_excel_xltx(self):
+        m = regravar_zip(self.A, self.saida("modelo.xlsx"), {
+            "[Content_Types].xml": lambda d: d.replace(b"spreadsheetml.sheet.main+xml",
+                                                        b"spreadsheetml.template.main+xml")})
+        self.recusa(m, "formato_diferente")
+
+    def test_arquivo_com_senha_ou_xls_antigo(self):
+        m = self.saida("senha.xlsx")
+        m.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\0" * 600)
+        a = self.recusa(m, "arquivo_com_senha")
+        self.assertIn("senha", a["mensagem"])
+
+    def test_arquivo_que_nao_e_planilha(self):
+        m = self.saida("texto.xlsx")
+        m.write_bytes(b"isto nao e um zip")
+        self.recusa(m, "arquivo_nao_xlsx")
+
+    def test_arquivo_inexistente(self):
+        self.recusa(self.saida("nao-existe.xlsx"), "arquivo_nao_encontrado")
+
+    def test_aba_protegida(self):
+        m = regravar_zip(self.A, self.saida("prot.xlsx"), {
+            "xl/worksheets/sheet1.xml": lambda d: d.replace(
+                b"</sheetData>", b'</sheetData><sheetProtection sheet="1" objects="1" scenarios="1"/>', 1)})
+        a = self.recusa(m, "aba_protegida")
+        self.assertIn("protegida", a["mensagem"])
+
+    def test_segmentacao_de_dados(self):
+        m = regravar_zip(self.A, self.saida("slicer.xlsx"), acrescentar={
+            "xl/slicers/slicer1.xml": b'<slicers xmlns="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"/>'})
+        self.recusa(m, "segmentacao_de_dados")
+
+    def test_consulta_externa(self):
+        m = regravar_zip(self.A, self.saida("query.xlsx"), acrescentar={
+            "xl/queryTables/queryTable1.xml": b'<queryTable xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>'})
+        self.recusa(m, "consulta_externa")
+
+    def test_aba_de_processos_nao_encontrada(self):
+        m = construir_cliente(self.saida("sem-processos.xlsx"), {"Notas": []}, campos=["vara", "municipio"])
+        self.recusa(m, "aba_de_processos_nao_encontrada")
+        self.recusa(self.A, "aba_de_processos_nao_encontrada", aba="Indicadores")
+
+    def test_dinamica_com_cache_e_coluna_nova_vira_aviso_nao_erro(self):
+        """A recusa do motor (acrescentar coluna com tabela dinâmica de cache salvo) não derruba o gravar:
+        a coluna fica de fora, com aviso, e o resto (processo novo) é gravado."""
+        base = ficticio.gerar_carteira(4, clientes=1, semente=5)
+        cli = construir_cliente(self.saida("cli-cache.xlsx"), {"Processos": base[:3]})
+        cache = regravar_zip(cli, self.saida("cli-cache2.xlsx"), acrescentar={
+            "xl/pivotCache/pivotCacheDefinition1.xml": (
+                b'<pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                b'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1">'
+                b'<cacheSource type="worksheet"><worksheetSource name="tbl0"/></cacheSource>'
+                b'<cacheFields count="1"><cacheField name="x" numFmtId="0"><sharedItems/></cacheField></cacheFields>'
+                b'</pivotCacheDefinition>'),
+            "xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels": (
+                b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                b'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/'
+                b'pivotCacheRecords" Target="pivotCacheRecords1.xml"/></Relationships>'),
+            "xl/pivotCache/pivotCacheRecords1.xml":
+                b'<pivotCacheRecords xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0"/>'})
+        perfil = {"colunas_ativas": list(x.COLUNAS_PADRAO) + ["momento_atual"]}
+        dest = self.saida("cli-cache-out.xlsx")
+        r = x.gravar(cache, estado_de(base, perfil=perfil), dest, acrescentar_colunas=True)
+        self.assertEqual([a for a in r["avisos"] if a["nivel"] == "erro"], [])
+        self.assertEqual(r["processos_novos"], [base[3]["numero"]])
+        av = [a for a in r["avisos"] if a["codigo"] == "coluna_ausente"]
+        self.assertEqual(len(av), 1)
+        self.assertIn("tabela dinâmica", av[0]["mensagem"])
+        self.assertEqual(openpyxl.load_workbook(dest)["Processos"].max_column, 29)
+
+    def test_validacao_pos_escrita_barra_arquivo_ruim(self):
+        """Se o verificador achar problema NOVO no arquivo gerado, nada é entregue e o destino anterior fica intacto."""
+        dest = self.saida("ja-existe.xlsx")
+        dest.write_bytes(b"conteudo anterior")
+        original = x.validar
+        chamadas = []
+
+        def falso(caminho):
+            chamadas.append(str(caminho))
+            return [] if len(chamadas) == 1 else ["tabela tblProcessos: ref incoerente (problema inventado)"]
+        x.validar = falso
+        try:
+            r = x.gravar(self.A, estado_de(self.fichas), dest)
+        finally:
+            x.validar = original
+        self.assertIsNone(r["destino"])
+        self.assertEqual([a["codigo"] for a in r["avisos"] if a["nivel"] == "erro"], ["validacao_pos_escrita"])
+        self.assertEqual(dest.read_bytes(), b"conteudo anterior")
+        self.assertEqual(list(dest.parent.glob(".ja-existe*")), [])
+        self.assertIn("problema inventado", r["avisos"][-1]["candidatos"][0])
+
+    def test_problema_ja_existente_no_molde_nao_bloqueia(self):
+        m = regravar_zip(self.A, self.saida("suja.xlsx"), {
+            "xl/workbook.xml": lambda d: d.replace(b'sheetId="2"', b'sheetId="1"', 1)})
+        self.assertTrue(x.validar(m))                   # o validador reclama do molde...
+        dest = self.saida("suja-out.xlsx")
+        r = x.gravar(m, estado_de(self.fichas), dest)
+        self.assertIsNotNone(r["destino"])               # ...mas não bloqueia: o problema não foi criado agora
+        self.assertIn("molde_com_problemas", [a["codigo"] for a in r["avisos"]])
+
+    def test_erro_de_programacao_nao_vira_aviso(self):
+        with self.assertRaises(TypeError):
+            x.gravar(self.A, None, self.saida("x.xlsx"), aba=3)
+
+
+class TestClientesDiversos(BaseLO):
+    """Planilhas de cliente feitas com openpyxl: várias abas, sinônimos de cabeçalho, coluna faltando etc."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.todas = enriquecer(ficticio.gerar_carteira(14, clientes=1, semente=9))
+
+    def erros(self, r):
+        return [a for a in r["avisos"] if a["nivel"] == "erro"]
+
+    def test_duas_abas_ativos_e_arquivados(self):
+        ativas = [f for f in self.todas if f["ativo"]]
+        encerradas = [f for f in self.todas if not f["ativo"]]
+        base_a, base_e = ativas[:3], encerradas[:3]
+        cli = construir_cliente(self.saida("duas.xlsx"), {"Processos Ativos": base_a, "Arquivados": base_e})
+        nova_ativa, nova_enc = ativas[3], encerradas[3]
+        dest = self.saida("duas-out.xlsx")
+        r = x.gravar(cli, estado_de(base_a + base_e + [nova_ativa, nova_enc]), dest)
+        self.assertEqual(self.erros(r), [])
+        self.assertEqual(sorted(r["processos_novos"]), sorted([nova_ativa["numero"], nova_enc["numero"]]))
+        wb = openpyxl.load_workbook(dest)
+        nums = lambda aba: [str(wb[aba].cell(i, 1).value) for i in range(2, wb[aba].max_row + 1)]   # noqa: E731
+        self.assertEqual(len(nums("Processos Ativos")), 4)
+        self.assertEqual(len(nums("Arquivados")), 4)
+        self.assertEqual(nums("Processos Ativos")[-1], nova_ativa["numero"])
+        self.assertEqual(nums("Arquivados")[-1], nova_enc["numero"])
+        self.assertEqual(x.validar(dest), [])
+        # idempotente
+        r2 = x.gravar(dest, estado_de(base_a + base_e + [nova_ativa, nova_enc]), self.saida("duas-out2.xlsx"))
+        self.assertEqual(r2["processos_novos"], [])
+        self.assertEqual(r2["processos_atualizados"], [])
+        # a aba de destino pode ser escolhida
+        r3 = x.gravar(cli, estado_de(base_a + [nova_ativa]), self.saida("so-ativos.xlsx"), aba="Processos Ativos")
+        self.assertEqual(self.erros(r3), [])
+
+    def test_sinonimos_de_cabecalho(self):
+        campos = ["numero", "autores", "reus", "vara", "andamentos", "valor_causa"]
+        cab = {"numero": "Processo", "autores": "Reclamante", "reus": "Reclamada", "vara": "Juízo",
+               "andamentos": "Andamento", "valor_causa": "Valor da causa (R$)"}
+        base = self.todas[:3]
+        cli = construir_cliente(self.saida("sinonimos.xlsx"), {"Processos": base}, campos=campos, cabecalhos=cab)
+        novo = self.todas[5]
+        ev = evento(base[0]["numero"], "05/10/2026", "Foi proferida decisão", "determinando a citação do réu")
+        dest = self.saida("sinonimos-out.xlsx")
+        r = x.gravar(cli, estado_de(base + [novo], eventos=[ev]), dest)
+        self.assertEqual(self.erros(r), [])
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        self.assertEqual(ws["A5"].value, "; ".join(fi.todos_os_numeros(novo)))
+        self.assertEqual(ws["C5"].value, fi.obter(novo, "reus"))
+        self.assertEqual(ws["D5"].value, fi.obter(novo, "vara"))
+        self.assertTrue(ws["E2"].value.startswith("Em 05/10/2026"))
+        self.assertEqual(ws["E5"].value, "Até 07/10/2026 sem atualizações.")
+
+    def test_cabecalho_ambiguo_nao_grava_a_coluna_e_avisa(self):
+        campos = ["numero", "autores", "reus", "andamentos", "valor_causa"]
+        base = self.todas[:2]
+        cli = construir_cliente(self.saida("ambiguo.xlsx"), {"Processos": base}, campos=campos,
+                                extra_colunas=["Reclamada"])
+        novo = self.todas[6]
+        dest = self.saida("ambiguo-out.xlsx")
+        r = x.gravar(cli, estado_de(base + [novo]), dest)
+        self.assertEqual(self.erros(r), [])
+        av = [a for a in r["avisos"] if a["codigo"] == "cabecalho_ambiguo"]
+        self.assertEqual(len(av), 1)
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        self.assertIsNone(ws["C4"].value)                     # Réu(s) não foi escrito na linha nova
+        self.assertEqual(ws["E4"].value, float(fi.obter(novo, "valor_causa")))
+        # o mapeamento explícito resolve
+        dest2 = self.saida("ambiguo-out2.xlsx")
+        r2 = x.gravar(cli, estado_de(base + [novo]), dest2, mapeamento={"reus": "Réu(s)"})
+        self.assertEqual([a for a in r2["avisos"] if a["codigo"] == "cabecalho_ambiguo"], [])
+        self.assertEqual(openpyxl.load_workbook(dest2)["Processos"]["C4"].value, fi.obter(novo, "reus"))
+
+    def test_coluna_do_perfil_ausente_avisa_ou_acrescenta(self):
+        base = self.todas[:3]
+        cli = construir_cliente(self.saida("sem-momento.xlsx"), {"Processos": base})
+        perfil = {"colunas_ativas": list(x.COLUNAS_PADRAO) + ["momento_atual"]}
+        dest = self.saida("sem-momento-out.xlsx")
+        r = x.gravar(cli, estado_de(base, perfil=perfil), dest)
+        self.assertEqual(self.erros(r), [])
+        self.assertIn("coluna_ausente", [a["codigo"] for a in r["avisos"]])
+        self.assertEqual(openpyxl.load_workbook(dest)["Processos"].max_column, 29)
+        dest2 = self.saida("sem-momento-out2.xlsx")
+        r2 = x.gravar(cli, estado_de(base, perfil=perfil), dest2, acrescentar_colunas=True)
+        self.assertEqual(self.erros(r2), [])
+        wb = openpyxl.load_workbook(dest2)
+        ws = wb["Processos"]
+        self.assertEqual(ws.max_column, 30)
+        self.assertEqual(ws.cell(1, 30).value, "Momento Atual")
+        self.assertEqual(ws.cell(2, 30).value, fi.obter(base[0], "momento_atual"))
+        self.assertEqual(ws.tables["tbl0"].ref, "A1:AD4")
+        self.assertEqual(x.validar(dest2), [])
+
+    def test_aba_sem_tabela_do_excel(self):
+        base = self.todas[:3]
+        cli = construir_cliente(self.saida("sem-tabela.xlsx"), {"Processos": base}, tabela=False)
+        novo = self.todas[7]
+        ev = evento(base[1]["numero"], "05/10/2026", "Foi proferida decisão", "determinando a citação do réu")
+        dest = self.saida("sem-tabela-out.xlsx")
+        r = x.gravar(cli, estado_de(base + [novo], eventos=[ev]), dest)
+        self.assertEqual(self.erros(r), [])
+        self.assertIn("aba_sem_tabela", [a["codigo"] for a in r["avisos"]])
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        self.assertEqual(ws["A5"].value, "; ".join(fi.todos_os_numeros(novo)))
+        self.assertTrue(ws["L3"].value.startswith("Em 05/10/2026"))
+        self.assertEqual(x.validar(dest), [])
+
+    def test_coluna_oculta_do_cliente_nao_recebe_dados(self):
+        base = self.todas[:2]
+        cli = construir_cliente(self.saida("oculta.xlsx"), {"Processos": base}, ocultas=["objeto", "outras_partes"])
+        novo = self.todas[8]
+        dest = self.saida("oculta-out.xlsx")
+        r = x.gravar(cli, estado_de(base + [novo]), dest)
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        cab = {c.value: c.column for c in ws[1]}
+        self.assertIsNone(ws.cell(4, cab["Objeto"]).value)
+        self.assertEqual(ws.cell(4, cab["Vara"]).value, fi.obter(novo, "vara"))
+        # com o campo listado no perfil, a coluna oculta recebe
+        r2 = x.gravar(cli, estado_de(base + [novo], perfil={"colunas_ativas": ["numero", "objeto"]}), self.saida("oculta-out2.xlsx"))
+        self.assertEqual(openpyxl.load_workbook(self.saida("oculta-out2.xlsx"))["Processos"].cell(4, cab["Objeto"]).value,
+                         fi.obter(novo, "objeto"))
+
+    def test_duas_tabelas_na_mesma_aba(self):
+        from openpyxl.worksheet.table import Table, TableStyleInfo
+        base = self.todas[:3]
+        cli = construir_cliente(self.saida("tab2.xlsx"), {"Processos": base})
+        wb = openpyxl.load_workbook(cli)
+        ws = wb["Processos"]
+        ws["AH1"], ws["AI1"] = "Nota", "Valor da nota"
+        ws["AH2"], ws["AI2"] = "n1", 1
+        ws.add_table(Table(displayName="tblNotas", ref="AH1:AI2",
+                           tableStyleInfo=TableStyleInfo(name="TableStyleLight9")))
+        wb.save(cli)
+        novo = self.todas[9]
+        dest = self.saida("tab2-out.xlsx")
+        r = x.gravar(cli, estado_de(base + [novo]), dest)
+        self.assertEqual(self.erros(r), [])
+        wb = openpyxl.load_workbook(dest)
+        self.assertEqual(wb["Processos"].tables["tbl0"].ref, "A1:AC5")
+        self.assertEqual(wb["Processos"].tables["tblNotas"].ref, "AH1:AI2")       # a outra tabela não foi tocada
+        self.assertEqual(wb["Processos"]["A5"].value, novo["numero"])
+
+
+@requer_spike
+class TestGravarNoModeloDoSpike(Base):
+    """O gravar contra as planilhas 'de cliente' do spike S1 (tabela, gráficos, dinâmica, planilha suja, re-salva)."""
+
+    def numeros_novos(self, n, a=40):
+        return [f for f in ficticio.gerar_carteira(a + n, clientes=1, semente=11)[a:]]
+
+    def test_completo_100_processos_novos(self):
+        novos = enriquecer(self.numeros_novos(100))
+        dest = self.saida("gs-completo.xlsx")
+        r = x.gravar(self.completo, estado_de(novos), dest)
+        self.assertEqual([a for a in r["avisos"] if a["nivel"] == "erro"], [])
+        self.assertEqual(len(r["processos_novos"]), 100)
+        self.assertEqual(x.validar(dest), [])
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AC111")
+        a, d = partes(self.completo), partes(dest)
+        for n in ("xl/styles.xml", "xl/sharedStrings.xml", "xl/charts/chart1.xml", "xl/pivotTables/pivotTable1.xml",
+                  "xl/pivotCache/pivotCacheDefinition1.xml"):
+            if n in a:
+                self.assertEqual(a[n], d[n], n)
+
+    @unittest.skipUnless(TEM_LO, "LibreOffice ausente")
+    def test_completo_libreoffice_recalcula(self):
+        novos = self.numeros_novos(30)
+        dest = self.saida("gs-completo-lo.xlsx")
+        r = x.gravar(self.completo, estado_de(novos), dest)
+        self.assertEqual(len(r["processos_novos"]), 30)
+        wb = self.lo_valores(dest)
+        self.assertEqual(wb["Indicadores"]["B2"].value, 40)          # 10 do modelo + 30 novos
+
+    def test_sujo(self):
+        novos = self.numeros_novos(20)
+        dest = self.saida("gs-sujo.xlsx")
+        r = x.gravar(self.sujo, estado_de(novos), dest)
+        self.assertEqual([a for a in r["avisos"] if a["nivel"] == "erro"], [])
+        self.assertEqual(x.validar(dest), [])
+        a, d = partes(self.sujo), partes(dest)
+        self.assertEqual(a["xl/sharedStrings.xml"], d["xl/sharedStrings.xml"])
+
+    @unittest.skipUnless(TEM_LO, "LibreOffice ausente")
+    def test_arquivo_ressalvo_pelo_libreoffice_e_dinamica_com_cache(self):
+        pasta = self.saida("estr")
+        pasta.mkdir()
+        subprocess.run([SOFFICE, f"-env:UserInstallation=file://{self.perfil_lo}", "--headless", "--convert-to", "xlsx",
+                        "--outdir", str(pasta), str(self.completo)], capture_output=True, timeout=240)
+        estr = pasta / "completo.xlsx"
+        novos = self.numeros_novos(10)
+        perfil = {"colunas_ativas": list(x.COLUNAS_PADRAO) + ["momento_atual"]}
+        dest = self.saida("gs-estr.xlsx")
+        r = x.gravar(estr, estado_de(novos, perfil=perfil), dest, acrescentar_colunas=True)
+        self.assertEqual([a for a in r["avisos"] if a["nivel"] == "erro"], [])
+        cods = [a["codigo"] for a in r["avisos"]]
+        self.assertIn("coluna_ausente", cods)               # tabela dinâmica com cache: a coluna não foi acrescentada
+        self.assertNotIn("coluna_acrescentada", cods)
+        self.assertEqual(openpyxl.load_workbook(dest)["Processos"].max_column, 29)
+        self.assertEqual(x.validar(dest), [])
+
+
+class TestCacheDeFormulas(BaseLO):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.fichas = enriquecer(ficticio.gerar_carteira(40, clientes=2, semente=4))
+
+    @unittest.skipUnless(TEM_LO, "LibreOffice ausente")
+    def test_soffice_grava_os_valores_como_cache(self):
+        dest = self.saida("cache-lo.xlsx")
+        r = x.gravar(None, estado_de(self.fichas, parametros={"headcount": 100}), dest, recalcular_com_soffice=True)
+        self.assertEqual([a for a in r["avisos"] if a["nivel"] == "erro"], [])
+        self.assertEqual(r["cache_formulas"], "recalculado")
+        self.assertNotIn("cache_de_formulas_invalidado", [a["codigo"] for a in r["avisos"]])
+        self.assertEqual(x.validar(dest), [])
+        # lido SEM calcular (openpyxl data_only), como pandas ou a prévia do celular leriam
+        wb = openpyxl.load_workbook(dest, data_only=True)
+        obtido = indicadores_da_planilha(wb)
+        previsto = esperado(self.fichas, DATA_BASE, 100)
+        for rotulo, valor in previsto.items():
+            if valor == "":
+                self.assertIn(obtido[rotulo], (None, ""), rotulo)
+            else:
+                self.assertAlmostEqual(float(obtido[rotulo]), float(valor), 4, rotulo)
+        self.assertEqual(wb["Dashboard"]["A4"].value, 40)
+        # a recalculada continua com fórmulas e com recálculo ao abrir
+        wb2 = openpyxl.load_workbook(dest)
+        self.assertTrue(str(wb2["Indicadores"]["B3"].value).startswith("="))
+        self.assertIn('fullCalcOnLoad="1"', partes(dest)["xl/workbook.xml"].decode())
+        # nenhum provisório do LibreOffice sobrou
+        self.assertEqual(list(dest.parent.glob(".cache-lo*")), [])
+
+    def test_sem_soffice_cai_no_padrao_e_avisa(self):
+        original = x.localizar_soffice
+        x.localizar_soffice = lambda: None
+        try:
+            dest = self.saida("cache-sem-lo.xlsx")
+            r = x.gravar(None, estado_de(self.fichas), dest, recalcular_com_soffice=True)
+        finally:
+            x.localizar_soffice = original
+        self.assertEqual([a for a in r["avisos"] if a["nivel"] == "erro"], [])
+        self.assertEqual(r["cache_formulas"], "invalidado")
+        cods = [a["codigo"] for a in r["avisos"]]
+        self.assertIn("soffice_indisponivel", cods)
+        self.assertIn("cache_de_formulas_invalidado", cods)
+        wb = openpyxl.load_workbook(dest, data_only=True)
+        self.assertIsNone(wb["Indicadores"]["B3"].value)          # sem cache: vazio até abrir no Excel
+
+    def test_cache_invalidado_e_o_padrao_e_pode_ser_mantido(self):
+        dest = self.saida("cache-padrao.xlsx")
+        r = x.gravar(None, estado_de(self.fichas), dest)
+        self.assertEqual(r["cache_formulas"], "invalidado")
+        dest2 = self.saida("cache-mantido.xlsx")
+        r2 = x.gravar(None, estado_de(self.fichas), dest2, invalidar_cache=False)
+        self.assertEqual(r2["cache_formulas"], "mantido")
+        self.assertNotIn("cache_de_formulas_invalidado", [a["codigo"] for a in r2["avisos"]])
+
+    @unittest.skipUnless(TEM_LO, "LibreOffice ausente")
+    def test_soffice_quebrado_cai_no_padrao(self):
+        original = x.localizar_soffice
+        falso = self.saida("falso-soffice.sh")
+        falso.write_text("#!/bin/sh\nexit 3\n")
+        falso.chmod(0o755)
+        x.localizar_soffice = lambda: str(falso)
+        try:
+            r = x.gravar(None, estado_de(self.fichas), self.saida("cache-quebrado.xlsx"), recalcular_com_soffice=True)
+        finally:
+            x.localizar_soffice = original
+        self.assertEqual(r["cache_formulas"], "invalidado")
+        self.assertIn("soffice_indisponivel", [a["codigo"] for a in r["avisos"]])
+        self.assertIsNotNone(r["destino"])
+
+
+class TestTextoDeAndamentos(unittest.TestCase):
+    """Regras do módulo de texto (planilha.py): só acrescenta, fecho, não repetir."""
+
+    def setUp(self):
+        import planilha
+        self.p = planilha
+
+    def ev(self, data, frase="Foi proferida decisão", conteudo="determinando a citação do réu"):
+        return evento("1", data, frase, conteudo)
+
+    def test_fecho_renovado_sem_novidade(self):
+        r = self.p.montar_texto("Em 01/09/2026 distribuído. Até 29/09/2026 sem atualizações.", [], "31/10/2026")
+        self.assertEqual(r["texto"], "Em 01/09/2026 distribuído. Até 31/10/2026 sem atualizações.")
+        self.assertEqual(r["fecho_antigo"], "Até 29/09/2026 sem atualizações.")
+        self.assertFalse(r["teve_novidade"])
+        r = self.p.montar_texto("Em 01/09/2026 distribuído. Até 29/09/2026 sem andamentos.", [], "31/10/2026")
+        self.assertTrue(r["texto"].endswith("Até 31/10/2026 sem andamentos."))      # mantém a expressão do cliente
+        self.assertEqual(self.p.montar_texto("", [], "31/10/2026")["texto"], "Até 31/10/2026 sem atualizações.")
+
+    def test_com_novidade_o_fecho_sai_e_nao_volta(self):
+        ev = self.ev("05/10/2026")
+        r = self.p.montar_texto("Em 01/09/2026 distribuído. Até 29/09/2026 sem atualizações.", [ev], "31/10/2026")
+        self.assertEqual(r["texto"], "Em 01/09/2026 distribuído. " + self.p.frase_planilha(ev))
+        r = self.p.montar_texto("Em 01/09/2026 distribuído.", [ev], "31/10/2026", fecho_apos_novidade=True)
+        self.assertTrue(r["texto"].endswith("citação do réu. Até 31/10/2026 sem atualizações."))
+
+    def test_igual_nao_repete_mesmo_com_acento_caixa_e_pontuacao_diferentes(self):
+        ev = self.ev("05/10/2026")
+        frase = self.p.frase_planilha(ev)
+        texto = "Anotação. " + frase.upper().replace("Ç", "C").replace("Ã", "A").rstrip(".")
+        self.assertTrue(self.p.ja_consta(texto, frase))
+        r = self.p.montar_texto(texto, [ev], "31/10/2026")
+        self.assertEqual(r["texto"], texto)
+        self.assertEqual(len(r["ignorados"]), 1)
+        self.assertTrue(r["teve_novidade"])
+
+    def test_reescrito_a_mao_com_a_mesma_data_nao_repete(self):
+        ev = self.ev("05/10/2026", "Foi proferida decisão", "determinando a citação do réu para contestar em 15 dias")
+        a_mao = "Em 05/10/2026 foi proferida decisão que determinou a citação do réu, para contestar em 15 dias."
+        self.assertTrue(self.p.ja_consta(a_mao, self.p.frase_planilha(ev)))
+        # outro dia: não é a mesma coisa
+        self.assertFalse(self.p.ja_consta(a_mao.replace("05/10/2026", "06/10/2026"), self.p.frase_planilha(ev)))
+        # mesma data, assunto outro: entra
+        outro = self.ev("05/10/2026", "Foi homologado acordo", "no valor de R$ 1.000,00")
+        self.assertFalse(self.p.ja_consta(a_mao, self.p.frase_planilha(outro)))
+
+    def test_dois_eventos_do_mesmo_dia_no_mesmo_ciclo_entram_os_dois(self):
+        a = self.ev("05/10/2026", "Foi proferida decisão", "determinando a citação do réu")
+        b = self.ev("05/10/2026", "Foi proferida decisão", "determinando a perícia contábil")
+        r = self.p.montar_texto("", [a, b], "31/10/2026")
+        self.assertEqual(len(r["gravados"]), 2)
+        self.assertEqual(r["ignorados"], [])
+
+    def test_so_acrescenta_nunca_apaga_texto_do_advogado(self):
+        base = "Anotação importante do advogado.\nSegunda linha com Em 01/01/2020 qualquer coisa."
+        r = self.p.montar_texto(base, [self.ev("05/10/2026")], "31/10/2026")
+        self.assertTrue(r["texto"].startswith(base))
+
+    def test_chave_texto(self):
+        self.assertEqual(self.p.chave_texto("  Sentença: PROCEDENTE! em 05/10/2026. "), "sentenca procedente em 05/10/2026")
+
+
+class TestPlanilhaFase1(BaseLO):
+    """planilha.gerar (fluxo da Fase 1, tela 'Planilha do mês') continua igual depois da refatoração."""
+
+    def setUp(self):
+        import planilha
+        from unittest import mock
+        self.planilha = planilha
+        self.numeros = [ficticio.numero_ficticio(i) for i in range(10, 14)]
+        self.eventos = [evento(self.numeros[0], "01/10/2026", "Foi proferida decisão", "determinando a citação"),
+                        evento(self.numeros[1], "02/10/2026", "Foi juntada petição"),
+                        evento(ficticio.numero_ficticio(99), "02/10/2026", "Foi proferida decisão")]   # sem linha
+        self.salvos = []
+        self.patches = [
+            mock.patch.object(planilha, "eventos", lambda: self.eventos),
+            mock.patch.object(planilha, "salvar_eventos", lambda lista: self.salvos.append(lista)),
+            mock.patch.object(planilha, "carteira", lambda: {n: {} for n in self.numeros})]
+        for p in self.patches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in self.patches])
+
+    def modelo_fase1(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Processos"
+        ws["A1"], ws["P1"] = "Número", "Andamentos"
+        ws["A2"], ws["P2"] = self.numeros[0], "Até 29/09/2026 sem atualizações."
+        ws["A3"], ws["P3"] = self.numeros[1], "Em 01/09/2026 distribuído."
+        ws["A4"] = self.numeros[2]                      # sem célula de andamentos
+        ws["A5"], ws["P5"] = "outro texto", "intocado"
+        ws["B2"] = "=1+1"
+        caminho = self.saida("fase1.xlsx")
+        wb.save(caminho)
+        return caminho
+
+    def test_comportamento_da_fase_1(self):
+        modelo = self.modelo_fase1()
+        dest = self.saida("fase1-out.xlsx")
+        feitos, fora = self.planilha.gerar(modelo, dest, hoje=datetime.date(2026, 10, 3))
+        self.assertEqual(feitos, sorted(self.numeros[:3]))
+        self.assertEqual(fora, [ficticio.numero_ficticio(99)])
+        ws = openpyxl.load_workbook(dest)["Processos"]
+        self.assertEqual(ws["P2"].value, "Em 01/10/2026 foi proferida decisão determinando a citação.")
+        self.assertEqual(ws["P3"].value, "Em 01/09/2026 distribuído. Em 02/10/2026 foi juntada petição")
+        self.assertEqual(ws["P4"].value, "Até 03/10/2026 sem atualizações.")
+        self.assertEqual(ws["P5"].value, "intocado")
+        self.assertEqual(ws["B2"].value, "=1+1")
+        # eventos aprovados com linha viram relatados; o sem linha continua aprovado
+        status = {e["numero"]: e["status"] for e in self.eventos}
+        self.assertEqual(status[self.numeros[0]], "relatado")
+        self.assertEqual(status[ficticio.numero_ficticio(99)], "aprovado")
+        # sem_novidade=False: quem não tem andamento aprovado não ganha fecho
+        for e in self.eventos:
+            e["status"] = "aprovado"
+        dest2 = self.saida("fase1-out2.xlsx")
+        feitos2, _ = self.planilha.gerar(modelo, dest2, sem_novidade=False, hoje=datetime.date(2026, 10, 3))
+        self.assertEqual(feitos2, sorted(self.numeros[:2]))
+        self.assertIsNone(openpyxl.load_workbook(dest2)["Processos"]["P4"].value)
+
+    def test_so_a_aba_muda_e_o_resto_fica_igual(self):
+        modelo = self.saida("modelo-b.xlsx")
+        x.gravar(None, estado_de(ficticio.gerar_carteira(5, semente=6)), modelo, invalidar_cache=False)
+        f = ficticio.gerar_carteira(5, semente=6)[0]
+        self.eventos[:] = [evento(f["numero"], "01/10/2026", "Foi proferida decisão", "determinando a citação")]
+        dest = self.saida("modelo-b-out.xlsx")
+        feitos, fora = self.planilha.gerar(modelo, dest, sem_novidade=False)
+        self.assertEqual(feitos, [f["numero"]])
+        a, d = partes(modelo), partes(dest)
+        self.assertEqual({n for n in d if a[n] != d[n]}, {"xl/worksheets/sheet1.xml"})
+        # a coluna Andamentos (L neste modelo, não P) foi achada pelo cabeçalho
+        self.assertTrue(openpyxl.load_workbook(dest)["Processos"]["L2"].value.startswith("Em 01/10/2026"))
+
+    def test_gerar_sobre_o_proprio_arquivo_continua_permitido(self):
+        modelo = self.modelo_fase1()
+        self.planilha.gerar(modelo, modelo, hoje=datetime.date(2026, 10, 3))      # como a tela "Planilha do mês" faz
+        self.assertEqual(openpyxl.load_workbook(modelo)["Processos"]["P4"].value, "Até 03/10/2026 sem atualizações.")
+        self.assertEqual(list(modelo.parent.glob("*.novo")), [])
+
+    def test_linhas_da_aba(self):
+        modelo = self.modelo_fase1()
+        self.assertEqual(self.planilha.linhas_da_aba(modelo),
+                         {self.numeros[0]: 2, self.numeros[1]: 3, self.numeros[2]: 4})
+
+    def test_sem_cabecalho_cai_nas_colunas_a_e_p(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Processos"
+        ws["A3"], ws["P3"] = self.numeros[0], "texto antigo."
+        caminho = self.saida("sem-cab.xlsx")
+        wb.save(caminho)
+        feitos, _ = self.planilha.gerar(caminho, self.saida("sem-cab-out.xlsx"), hoje=datetime.date(2026, 10, 3))
+        self.assertEqual(feitos, [self.numeros[0]])
+        self.assertEqual(openpyxl.load_workbook(self.saida("sem-cab-out.xlsx"))["Processos"]["P3"].value,
+                         "texto antigo. Em 01/10/2026 foi proferida decisão determinando a citação.")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
