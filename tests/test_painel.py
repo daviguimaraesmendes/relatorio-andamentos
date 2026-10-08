@@ -178,7 +178,7 @@ class Painel(unittest.TestCase):
         regras = sorted(f"{r.rule} {','.join(sorted(r.methods - {'HEAD', 'OPTIONS'}))} -> {r.endpoint}"
                         for r in self.app.url_map.iter_rules() if r.endpoint != "static")
         REGISTRO["rotas"] = regras
-        self.assertEqual(len([r for r in regras if r.startswith("/cadastro")]), 7)
+        self.assertEqual(len([r for r in regras if r.startswith("/cadastro")]), 8)
 
     def test_02_sem_token_e_rotas_inexistentes(self):
         for caminho in ("/evento", "/tarefa", "/interromper", "/mostrar", "/novo", "/planilha", "/config", "/acesso",

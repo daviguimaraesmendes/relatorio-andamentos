@@ -1,6 +1,13 @@
-# Relatório de Andamentos — versão 2.0.0-beta1
+# Relatório de Andamentos — versão 2.0.0-beta2
 
 Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você já usa, a montagem e a atualização de relatórios completos (texto, planilha e dashboard). O acesso ao jus.br e aos TRTs é o mesmo que já funciona; a aba **Atualizar** da versão anterior continua no painel, como plano B.
+
+## 0. Novo no beta2: clientes em lote
+
+Importar um relatório de dezenas de processos não pede mais o cliente processo a processo.
+- Na **conferência da importação** há o bloco **"Quem é o cliente?"**: o programa lista as partes que mais se repetem (a empresa, ou várias empresas do mesmo grupo, já agrupando as grafias) e deixa **marcado** o candidato óbvio. Um clique em "Confirmar" define, em todos os processos, o **cliente**, o **polo** (autor ou réu) e a **parte contrária**. Há também um campo de **cliente padrão** para o que sobrar.
+- Em **Clientes e processos**, quando houver processos sem cliente, aparecem dois botões: **"Identificar os clientes pelas partes dos processos"** (usa os clientes que você cadastrou, com as variações de nome) e **"Aplicar a todos os sem cliente"**.
+- Correção: o cliente, o polo e a parte contrária editados à mão em **Clientes e processos** agora valem para os relatórios novos (antes, a edição podia ficar escondida atrás do valor importado).
 
 ## 1. O que há de novo
 

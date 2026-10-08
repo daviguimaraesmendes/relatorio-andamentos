@@ -3,6 +3,7 @@ verificação do token, proteção de caminhos e a escolha do relatório ativo.
 Cada tela (os outros módulos de painel/) recebe `cabecalho` e `token_ok` daqui
 pelo `registrar(app, TOKEN, cabecalho, token_ok)`, como em cadastro.py."""
 import html
+import os
 import sys
 from pathlib import Path
 
@@ -95,7 +96,10 @@ def _dentro(base, caminho):
 
 
 def versao():
-    """Texto do arquivo VERSAO (ex.: '2.0.0-beta1'); vazio se não existir."""
+    """Texto do arquivo VERSAO (ex.: '2.0.0-beta2'); vazio se não existir. A variável RELATORIO_VERSAO a sobrepõe
+    (os testes fixam um valor para o cabeçalho não mudar a cada versão)."""
+    if "RELATORIO_VERSAO" in os.environ:
+        return os.environ["RELATORIO_VERSAO"]
     try:
         return (comum.RAIZ / "VERSAO").read_text(encoding="utf-8").strip()
     except OSError:

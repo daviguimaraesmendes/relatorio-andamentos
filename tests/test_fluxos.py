@@ -987,12 +987,19 @@ class Migrar(Base):
         self.assertEqual(perfil["entregas"], ["docx_a", "xlsx_b", "dashboard"])
         self.assertEqual(perfil["molde_planilha"], "cliente")
         # segunda importação: nada muda e nada humano se perde
+        # (a segunda passada pode completar polo e parte contrária, porque agora os clientes estão cadastrados com as
+        # variações de nome; a partir daí a importação é idempotente)
         r2 = fluxos.migrar(arquivos, projeto=r["projeto"])
-        self.assertEqual((r2["adicionadas"], r2["atualizadas"]), (0, 0))
+        self.assertEqual(r2["adicionadas"], 0)
+        r3 = fluxos.migrar(arquivos, projeto=r["projeto"])
+        self.assertEqual((r3["adicionadas"], r3["atualizadas"]), (0, 0))
         with fluxos._em(r["projeto"]):
             outra = {f["numero"]: f for f in ficha.carregar(todas=True)}
         for n, f in por_numero.items():
-            self.assertEqual(f["campos"], outra[n]["campos"], n)
+            for campo, c in f["campos"].items():     # nada humano se perde, e nada que já estava gravado muda de valor
+                self.assertEqual(outra[n]["campos"][campo]["valor"], c["valor"], (n, campo))
+                if c["origem"] == "humano":
+                    self.assertEqual(outra[n]["campos"][campo]["origem"], "humano", (n, campo))
 
     def test_numero_em_dois_arquivos_vale_o_mais_recente_e_avisa(self):
         c1 = next(iter(self.por_cliente.values()))

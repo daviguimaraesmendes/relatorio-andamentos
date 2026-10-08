@@ -307,6 +307,31 @@ def _tabela_de_avisos(itens):
     return f"<table class='t'><tr><th>Nível</th><th>Onde</th><th>O que houve</th></tr>{linhas}</table>"
 
 
+def bloco_de_clientes(fichas, nome_sugerido):
+    """Identificação dos clientes em lote: candidatos tirados das partes (marque quem é cliente) e um cliente padrão
+    para o que sobrar. Só aparece se algum processo ainda estiver sem cliente."""
+    sem_cliente = sum(1 for f in fichas if not ficha.obter(f, "cliente"))
+    if not sem_cliente:
+        return ""
+    import clientes as cli
+    cands = cli.candidatos(fichas)
+    auto = cli.escolher_automatico(cands)
+    linhas = []
+    for i, c in enumerate(cands):
+        marcado = "checked" if (auto is c or (auto is None and not linhas and c["cobertura"] >= 0.4)) else ""
+        tipo = "várias empresas com esse nome" if c["tipo"] == "grupo" else "empresa"
+        linhas.append(f"<tr><td><input type='checkbox' name='cli' value='{i}' {marcado}></td><td>{_e(c['nome'])}"
+                      f"<br><span class='dica'>{tipo}</span></td><td>{c['processos']} ({round(100 * c['cobertura'])}%)</td>"
+                      f"<td>{c['autor']}</td><td>{c['reu']}</td></tr>")
+    tabela = ("<table class='t'><tr><th>Cliente?</th><th>Parte mais frequente</th><th>Processos</th><th>Como autor</th><th>Como réu</th></tr>"
+              + "".join(linhas) + "</table>") if linhas else "<p class='dica'>Não achei uma parte que se repita nos processos.</p>"
+    return (f"<h3>Quem é o cliente? ({sem_cliente} processo(s) sem cliente)</h3>"
+            "<p class='dica'>Marque quem é cliente: o programa define, de uma vez, o cliente, o polo (autor ou réu) e a parte contrária "
+            "em todos os processos em que a parte aparece. Nada de preencher processo por processo.</p>" + tabela +
+            "<p><label>Cliente padrão para os processos que ficarem sem cliente (deixe em branco para não aplicar)<br>"
+            f"<input type='text' name='cliente_padrao' size='50' value='{_e(nome_sugerido)}'></label></p>")
+
+
 def html_da_conferencia(resumos, rejeitados, fichas, avisos, oculto, lote, nome_sugerido, ha_projeto):
     """A tela de conferência da migração (corpo, sem o cabeçalho)."""
     h = []
@@ -373,6 +398,7 @@ def html_da_conferencia(resumos, rejeitados, fichas, avisos, oculto, lote, nome_
              + "</table>")
     h.append(f"<form class='caixa' method='post' action='/fluxo/importar/confirmar'>{oculto}<input type='hidden' name='lote' value='{_e(lote)}'>"
              f"<label>Nome do relatório<br><input type='text' name='nome' size='50' value='{_e(nome_sugerido)}' required></label>")
+    h.append(bloco_de_clientes(fichas, nome_sugerido))
     if ha_projeto:
         h.append("<p><label><input type='radio' name='destino' value='novo' checked> criar um relatório novo</label><br>"
                  f"<label><input type='radio' name='destino' value='atual'> acrescentar ao relatório atual ({_e(comum.projeto().get('nome', ''))})</label></p>")
@@ -383,6 +409,32 @@ def html_da_conferencia(resumos, rejeitados, fichas, avisos, oculto, lote, nome_
              f"<button class='principal' {'disabled' if not total else ''}>Confirmar e criar o relatório</button> "
              "<a href='/fluxo'>Cancelar</a></form>")
     return "".join(h)
+
+
+def identificar_clientes_do_formulario(fichas, form):
+    """Aplica a escolha da conferência (caixas `cli` + `cliente_padrao`): cliente, polo e parte contrária em lote.
+    Devolve um texto-resumo (ou "" se nada foi pedido). Cliente já definido nunca é trocado."""
+    import clientes as cli
+    cands = cli.candidatos(fichas)
+    marcados = []
+    for v in form.getlist("cli"):
+        if v.isdigit() and int(v) < len(cands):
+            c = cands[int(v)]
+            marcados.append({"nome": c["nome"], "variacoes": c["variacoes"]})
+    padrao = (form.get("cliente_padrao") or "").strip() or None
+    if not marcados and not padrao:
+        return ""
+    rel = cli.identificar(fichas, cli.especs_do_projeto() + marcados if comum.PROJETO else marcados, padrao=padrao)
+    cli.registrar([e for e in marcados if rel["aplicados"].get(e["nome"])] + ([{"nome": padrao, "variacoes": []}] if padrao and rel["padrao"] else []))
+    partes = [f"{q} em «{c}»" for c, q in sorted(rel["aplicados"].items())]
+    if rel["padrao"]:
+        partes.append(f"{rel['padrao']} no cliente padrão «{padrao}»")
+    texto = "Clientes definidos em lote: " + "; ".join(partes) + "." if partes else ""
+    if rel["ambiguos"]:
+        texto += f" {len(rel['ambiguos'])} processo(s) têm o cliente nos dois lados: confira o polo em Clientes e processos."
+    if rel["sem_correspondencia"]:
+        texto += f" {len(rel['sem_correspondencia'])} processo(s) continuam sem cliente."
+    return texto.strip()
 
 
 def aplicar_grafias(fichas, avisos, form):
@@ -830,6 +882,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         if not nome:
             return _ir(f"/fluxo/importar/conferir?lote={pasta.name}", "Dê um nome ao relatório.")
         trocas = aplicar_grafias(fichas, avisos, request.form)
+        identificacao = identificar_clientes_do_formulario(fichas, request.form)
         if request.form.get("destino") == "atual" and comum.PROJETO:
             adicionadas, atualizadas = mesclar_no_atual(fichas)
             for a in dados["arquivos"]:
@@ -842,6 +895,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             msg = f"Relatório criado: {nome}. {len(fichas)} processo(s) importado(s)."
         if trocas:
             msg += f"\n{trocas} nome(s) padronizado(s) conforme a sua escolha."
+        if identificacao:
+            msg += "\n" + identificacao
         novos = sum(1 for f in fichas if not f.get("linha_de_base"))
         if novos:
             msg += f"\n{novos} processo(s) novos, sem relatório anterior: precisam do relatório inicial."

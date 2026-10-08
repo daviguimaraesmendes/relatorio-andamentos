@@ -118,6 +118,18 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         if not carteira:
             h.append("<tr><td colspan='7' class='dica'>Carteira vazia.</td></tr>")
         h.append("</table>")
+        sem_cli = sum(1 for p in carteira if not p.get("cliente"))
+        if carteira and sem_cli:
+            opcoes_lote = "".join(f"<option value='{_e(n)}'></option>" for n in nomes)
+            h.append(f"<div class='caixa'><b>{sem_cli} processo(s) sem cliente: resolva de uma vez.</b>"
+                     f"<form method='post' action='/cadastro/lote' style='margin:8px 0'>{oculto}"
+                     "<button name='acao' value='identificar'>Identificar os clientes pelas partes dos processos</button> "
+                     "<span class='dica'>usa os clientes cadastrados acima (nome e variações) e define também o polo e a parte contrária.</span></form>"
+                     f"<form method='post' action='/cadastro/lote'>{oculto}"
+                     "<label>Ou coloque o mesmo cliente em todos os que estão sem cliente: "
+                     f"<input type='text' name='cliente' list='clientes-lote' size='40' placeholder='nome do cliente' required></label>"
+                     f"<datalist id='clientes-lote'>{opcoes_lote}</datalist> "
+                     "<button name='acao' value='todos_sem_cliente'>Aplicar a todos os sem cliente</button></form></div>")
         faltando = sum(1 for p in carteira if p.get("cliente") and not (p.get("polo_cliente") and p.get("parte_contraria")))
         sem_cliente = sum(1 for p in carteira if not p.get("cliente"))
         if carteira:
@@ -171,8 +183,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             if antigo != novo["nome"]:  # renomeado: acompanha nos processos
                 carteira = load_json(comum.CARTEIRA_FILE, [])
                 for p in carteira:
-                    if p.get("cliente") == antigo:
-                        p["cliente"] = novo["nome"]
+                    if p.get("cliente") == antigo or (p.get("campos", {}).get("cliente") or {}).get("valor") == antigo:
+                        cart.gravar_plano(p, "cliente", novo["nome"])
                 save_json(comum.CARTEIRA_FILE, carteira)
         save_json(comum.CLIENTES_FILE, dados)
         return _ir(f"Cliente salvo: {novo['nome']}")
@@ -222,11 +234,45 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             return _ir(f"Processo removido da carteira: {f['numero']}")
         for p in carteira:
             if p["numero"] == f["numero"]:
-                p.update(cliente=f.get("cliente", ""), polo_cliente=f.get("polo", ""),
-                         parte_contraria=f.get("parte_contraria", "").strip(),
-                         responsavel=f.get("responsavel", "").strip(), ativo=bool(f.get("ativo")))
+                for campo, valor in (("cliente", f.get("cliente", "")), ("polo_cliente", f.get("polo", "")),
+                                     ("parte_contraria", f.get("parte_contraria", "").strip()),
+                                     ("responsavel", f.get("responsavel", "").strip())):
+                    if valor != (p.get(campo) or ""):
+                        cart.gravar_plano(p, campo, valor)
+                p["ativo"] = bool(f.get("ativo"))
         save_json(comum.CARTEIRA_FILE, carteira)
         return _ir(f"Processo salvo: {f['numero']}")
+
+    @app.post("/cadastro/lote")
+    def lote():
+        """Cliente em lote: identificar pelas partes, ou o mesmo cliente para todos os processos sem cliente."""
+        token_ok()
+        import clientes as cli
+        import ficha as fch
+        f = request.form
+        fichas = fch.carregar(todas=True)
+        if f.get("acao") == "identificar":
+            especs = cli.especs_do_projeto()
+            if not especs:
+                return _ir("Cadastre primeiro o cliente (razão social e variações), ou use \"Aplicar a todos os sem cliente\".")
+            rel = cli.identificar(fichas, especs)
+            fch.salvar(fichas)
+            msg = ", ".join(f"{q} em {c}" for c, q in sorted(rel["aplicados"].items())) or "nenhum processo casou"
+            texto = f"Clientes identificados pelas partes: {msg}."
+            if rel["ambiguos"]:
+                texto += f" {len(rel['ambiguos'])} com o cliente nos dois lados (confira o polo)."
+            if rel["sem_correspondencia"]:
+                texto += f" {len(rel['sem_correspondencia'])} continuam sem cliente."
+            return _ir(texto)
+        if f.get("acao") == "todos_sem_cliente":
+            nome = f.get("cliente", "").strip()
+            if not nome:
+                return _ir("Informe o nome do cliente.")
+            n = cli.aplicar_em_lote(fichas, nome, so_sem_cliente=True)
+            fch.salvar(fichas)
+            cli.registrar([{"nome": nome, "variacoes": []}])
+            return _ir(f"{n} processo(s) agora são do cliente {nome}.")
+        return _ir("Ação desconhecida.")
 
     @app.post("/cadastro/completar")
     def completar():

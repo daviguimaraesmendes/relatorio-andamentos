@@ -10,6 +10,7 @@ from pathlib import Path
 if "RELATORIO_TESTE_TMP" not in os.environ:
     os.environ["RELATORIO_TESTE_TMP"] = tempfile.mkdtemp(prefix="relatorio-teste-")
 TMP = Path(os.environ["RELATORIO_TESTE_TMP"])
+os.environ["RELATORIO_VERSAO"] = "teste"   # o cabeçalho do painel não muda a cada versão
 os.environ["RELATORIO_DATA"] = str(TMP / "data")
 os.environ["RELATORIO_CARTEIRA"] = str(TMP / "carteira.json")
 os.environ["RELATORIO_CLIENTES"] = str(TMP / "clientes.json")

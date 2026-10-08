@@ -378,3 +378,7 @@ usa ainda não foram testados**. Antes do primeiro envio de cada tipo de arquivo
 - Não promete resultado: o texto "o que mudou neste ciclo" informa fatos.
 - Não foi testada no Windows nem nos programas do cliente (Word, Excel, Google
   Docs e Sheets). O estado real de cada parte está em `fase2/STATUS.md`.
+
+## Clientes em lote (beta2)
+
+Ao importar um relatório, o programa propõe o cliente a partir das partes dos processos e o aplica a todos de uma vez, junto com o polo e a parte contrária. Na tela "Clientes e processos" há os botões "Identificar os clientes pelas partes dos processos" e "Aplicar a todos os sem cliente". Cliente que você definiu à mão nunca é trocado pela identificação automática. Se a mesma empresa aparecer dos dois lados do processo, o polo fica em branco para você conferir.

@@ -48,6 +48,19 @@ SINONIMOS = {
 }
 
 
+def gravar_plano(p, campo, valor, origem="humano"):
+    """Grava um campo "plano" (cliente, polo_cliente, parte_contraria, responsavel...) num item da carteira mantendo em
+    sincronia a chave plana (usada pelo código da Fase 1) e o registro v2 (`campos`, que a ficha lê primeiro).
+    Sem isso, uma edição na tela de cadastro ficaria escondida atrás do valor antigo de `campos`."""
+    p[campo] = valor
+    campos = p.get("campos")
+    if isinstance(campos, dict):
+        if valor in (None, ""):
+            campos.pop(campo, None)
+        else:
+            campos[campo] = {"valor": valor, "origem": origem, "em": datetime.datetime.now().isoformat(timespec="seconds")}
+
+
 def mascara(m):
     return f"{m[0]}-{m[1]}.{m[2]}.{m[3]}.{m[4]}.{m[5]}"
 
@@ -193,9 +206,9 @@ def completar_com_djen(apenas=None):
         polo = do_cliente.pop()
         contrarios = sorted({nome for nome, pl in polos if pl and pl != polo})
         if not p.get("polo_cliente"):
-            p["polo_cliente"] = {"A": "ativo", "P": "passivo"}.get(polo, "")
+            gravar_plano(p, "polo_cliente", {"A": "ativo", "P": "passivo"}.get(polo, ""), "coletado")
         if not p.get("parte_contraria") and contrarios:
-            p["parte_contraria"] = "; ".join(contrarios)
+            gravar_plano(p, "parte_contraria", "; ".join(contrarios), "coletado")
         feitos += 1
     save_json(comum.CARTEIRA_FILE, carteira)
     print(f"{feitos} processo(s) completado(s) com dados do DJEN.")

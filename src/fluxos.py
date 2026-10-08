@@ -338,7 +338,47 @@ def _grupos_de_aviso(avisos):
 
 # ================================================================ 1. migrar (importar relatórios existentes)
 
-def migrar(arquivos, projeto=None, *, confirmar=True, cliente_padrao=None, nome=None, mapeamento=None, ao_progresso=None):
+def _identificar_clientes(fichas, lidos, cliente_padrao, nome):
+    """Atribui o cliente em lote (sem pedir processo a processo): clientes já cadastrados, empresas do grupo da planilha
+    e, se nada disso existir, o candidato óbvio das partes (cobre a maior parte dos processos, sempre do mesmo lado).
+    O que sobrar recebe o cliente padrão. Devolve {"texto", "relatorio", "clientes"} ou None se não havia o que fazer."""
+    clientes = _mod("clientes")
+    especs = list(clientes.especs_do_projeto())
+    # clientes que os próprios arquivos já trouxeram (título do .docx, coluna da planilha): servem para deduzir polo e
+    # parte contrária pelas partes, igual aos cadastrados
+    cadastrados = {comum.normalizar(e["nome"]) for e in especs}
+    for nome_cli in sorted({ficha.obter(f, "cliente") for f in fichas} - {None, ""}):
+        if comum.normalizar(nome_cli) not in cadastrados:
+            especs.append({"nome": nome_cli, "variacoes": []})
+    titulo = next((l["rel"].get("cliente") for l in lidos if l["rel"].get("cliente")), None)   # só nomeia o grupo da planilha
+    grupo = next((l["rel"].get("parametros", {}).get("empresas_do_grupo") for l in lidos
+                  if l["rel"].get("parametros", {}).get("empresas_do_grupo")), None)
+    if grupo:
+        especs.append({"nome": cliente_padrao or titulo or nome or "Grupo", "variacoes": list(grupo)})
+    elif not cliente_padrao and not any(ficha.obter(f, "cliente") for f in fichas):
+        auto = clientes.escolher_automatico(clientes.candidatos(fichas))
+        if auto:
+            especs.append({"nome": auto["nome"], "variacoes": auto["variacoes"]})
+    padrao = cliente_padrao   # o título de um arquivo vale só para os processos dele (já aplicado na leitura), nunca para os demais
+    if not especs and not padrao:
+        return None
+    rel = clientes.identificar(fichas, especs, padrao=padrao)
+    usados = [e for e in especs if rel["aplicados"].get(e["nome"])]
+    if padrao and rel["padrao"]:
+        usados.append({"nome": padrao, "variacoes": []})
+    if usados:
+        clientes.registrar(usados)
+    partes = [f"{q} em «{c}»" for c, q in sorted(rel["aplicados"].items())]
+    if rel["padrao"]:
+        partes.append(f"{rel['padrao']} no cliente padrão «{padrao}»")
+    texto = "Clientes identificados pelas partes: " + ("; ".join(partes) or "nenhum") + "."
+    if rel["ambiguos"]:
+        texto += f" {len(rel['ambiguos'])} processo(s) têm o cliente nos dois lados (polo a conferir)."
+    return {"texto": texto, "relatorio": rel, "clientes": [e["nome"] for e in usados]}
+
+
+def migrar(arquivos, projeto=None, *, confirmar=True, cliente_padrao=None, nome=None, mapeamento=None, ao_progresso=None,
+           identificar_clientes=True):
     """Importa relatórios existentes (.docx modelo A, .xlsx modelo B, listas de números, tabelas livres).
 
     Lê cada arquivo, reconhece o formato, junta e consolida (vinculados e duplicatas; grafias de nome só como
@@ -373,10 +413,13 @@ def migrar(arquivos, projeto=None, *, confirmar=True, cliente_padrao=None, nome=
     avisos += av
     fichas, av = _consolidar(fichas)
     avisos += av
-    if cliente_padrao:
+    identificacao = _identificar_clientes(fichas, lidos, cliente_padrao, nome) if identificar_clientes else None
+    if identificacao is None and cliente_padrao:
         for f in fichas:
             if not ficha.obter(f, "cliente"):
                 ficha.definir(f, "cliente", cliente_padrao, "migrado")
+    if identificacao:
+        avisos.append(_aviso("info", "clientes_identificados", "clientes", identificacao["texto"]))
     sem_cliente = [f["numero"] for f in fichas if not ficha.obter(f, "cliente")]
     if sem_cliente:
         avisos.append(_aviso("atencao", "processo_sem_cliente", "clientes",
