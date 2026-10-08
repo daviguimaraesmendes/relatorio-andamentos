@@ -21,7 +21,7 @@ from flask import Response, request, send_file
 
 import ficha as fch
 import pedidos
-from painel.base import _ir, _msg
+from painel.base import _ir, _msg, ajuda
 
 ESTILO = """<style>
 .pedidos table{border-collapse:collapse;width:100%;margin:8px 0}
@@ -53,7 +53,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
     def lista_de_processos():
         linhas = pedidos.situacao()
         if not linhas:
-            return "<p class='dica'>Nenhum processo na carteira deste relatório. Cadastre em \"Clientes e processos\".</p>"
+            return ("<div class='vazio'>Nenhum processo na carteira deste relatório. Cadastre em "
+                    "<a href='/cadastro'>Clientes e processos</a>.</div>")
         corpo = []
         for s in linhas:
             if s["ja_extraido"]:
@@ -80,10 +81,21 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                           f"<button type='button' disabled title='{_e(motivo)}'>Enviar pelo provedor (indisponível)</button>")
         return (f"<form method='post' action='/pedidos/pacote'>{oculto}" + lista_de_processos() +
                 "<p><label>Dividir em lotes de <input type='number' name='por_lote' value='5' min='0' max='50' style='width:60px'> "
-                "PDFs (0 = um lote só)</label></p>"
-                "<button class='principal'>Baixar pacote (.zip com PDFs e prompt)</button> "
-                f"{botao_provedor} <button formaction='/pedidos/planilha'>Baixar planilha dos pedidos já gravados</button>"
-                f"<p class='dica'>{_e(pedidos.MENSAGEM_INDISPONIVEL) if not disponivel else ''}</p>"
+                "PDFs (0 = um lote só)</label>"
+                + ajuda("Quantas petições iniciais vão em cada lote do pacote. IAs na internet costumam aceitar poucos anexos por vez; "
+                        "5 é um bom começo. Com 0, todas vão num lote só.") + "</p>"
+                "<button class='principal'>Baixar pacote (.zip com PDFs e prompt)</button>"
+                + ajuda("Cria no seu computador um arquivo .zip com as petições iniciais dos processos marcados (PDF) e o prompt, "
+                        "o texto de instruções para a IA. O programa não envia nada: você leva o pacote a uma IA de sua escolha. "
+                        "Atenção: anexar os PDFs numa IA na internet faz o conteúdo sair do seu computador.")
+                + f" {botao_provedor}"
+                + ajuda("Mandaria as petições direto a um provedor de IA externo cadastrado e autorizado, sem você baixar o pacote. "
+                        "Está indisponível enquanto nenhum provedor estiver ligado a esta função; hoje, use o pacote e cole o "
+                        "resultado na etapa 2.")
+                + " <button formaction='/pedidos/planilha'>Baixar planilha dos pedidos já gravados</button>"
+                + ajuda("Gera uma planilha (.xlsx) com todos os pedidos que você já conferiu e gravou neste relatório. "
+                        "Só lê o que está gravado; não grava nada e não envia nada.")
+                + f"<p class='dica'>{_e(pedidos.MENSAGEM_INDISPONIVEL) if not disponivel else ''}</p>"
                 f"<p class='dica'>Inicial não localizada? Coloque o PDF na pasta <code>{_e(pasta)}</code> com o número do "
                 "processo no nome do arquivo.</p></form>")
 
@@ -91,7 +103,12 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         dados = res["dados"] or {"processos": []}
         cartoes = [("processos aceitos", len(dados["processos"])), ("recusados", len(res["recusados"])),
                    ("erros", len(res["erros"])), ("avisos", len([a for a in res["avisos"] if a["nivel"] == "atencao"]))]
-        return ("<div class='cartoes'>" + "".join(f"<div class='cartao'><b>{n}</b>{_e(r)}</div>" for r, n in cartoes) + "</div>")
+        dicas = {"processos aceitos": "Processos que passaram na conferência e podem ser gravados.",
+                 "recusados": "Processos que a conferência recusou por erro; não serão gravados.",
+                 "erros": "Problemas que impedem a gravação do processo afetado. Veja a lista logo abaixo.",
+                 "avisos": "Pontos de atenção que não impedem a gravação, mas pedem conferência sua."}
+        return ("<div class='cartoes'>" + "".join(f"<div class='cartao'><b>{n}</b>{_e(r)}{ajuda(dicas[r])}</div>"
+                                                   for r, n in cartoes) + "</div>")
 
     def lista_de_avisos(res):
         partes = []
@@ -155,14 +172,23 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 f"<form class='caixa' method='post' action='/pedidos/gravar'>{oculto}"
                 f"<textarea name='texto' style='display:none'>{_e(texto)}</textarea>"
                 "<p><label><input type='checkbox' name='confirmo' value='1'> <b>Li os achados e avisos acima e confirmo a gravação.</b>"
-                "</label></p>"
+                "</label>"
+                + ajuda("Sem esta marca, o botão Gravar não grava nada. É a sua confirmação de que conferiu o que a IA devolveu.") + "</p>"
                 "<p><label><input type='checkbox' name='atualizar_fichas' value='1'> Preencher também a ficha de cada processo "
-                "com o cadastro da inicial (só campos vazios; fica marcado como confirmado por você).</label></p>"
+                "com o cadastro da inicial (só campos vazios; fica marcado como confirmado por você).</label>"
+                + ajuda("Além de guardar os pedidos, copia dados do cadastro da inicial (partes, vara, valor da causa etc.) para a ficha "
+                        "do processo, mas só nos campos que estão vazios. A tabela \"Fichas dos processos\" acima mostra o que mudaria.")
+                + "</p>"
                 "<p><label><input type='checkbox' name='sobrescrever' value='1'> Substituir também os valores diferentes que "
-                "já estão na ficha (use com cuidado).</label></p>"
+                "já estão na ficha (use com cuidado).</label>"
+                + ajuda("Só tem efeito junto com a opção anterior. Troca valores que já estão na ficha pelos da petição. O valor antigo "
+                        "é perdido e não há botão para desfazer; deixe desmarcado se tiver dúvida.") + "</p>"
                 + (f"<p class='dica'>{len(res['recusados'])} processo(s) com erro ficam de fora e não serão gravados.</p>"
                    if res["recusados"] else "")
-                + f"<button class='principal'>Gravar {len(dados['processos'])} processo(s)</button></form>")
+                + f"<button class='principal'>Gravar {len(dados['processos'])} processo(s)</button>"
+                + ajuda("Guarda os pedidos conferidos no arquivo de pedidos deste relatório, no seu computador. Se o processo já tinha "
+                        "pedidos gravados, eles são substituídos pelos novos. Nada sai do computador.")
+                + "</form>")
         else:
             blocos.append("<div class='erro'>Nada a gravar: corrija os erros acima (por exemplo, peça à IA para refazer) "
                           "e cole de novo.</div>")
@@ -171,23 +197,44 @@ def registrar(app, TOKEN, cabecalho, token_ok):
     def pagina(texto="", res=None, aviso_local=""):
         ok_prompt = pedidos.prompt_validado()
         selo = ("" if ok_prompt else
-                " <span class='selo'>NÃO VALIDADO com petições reais (validação no piloto)</span>")
+                " <span class='selo'>NÃO VALIDADO com petições reais (validação no piloto)</span>"
+                 + ajuda("O prompt (as instruções dadas à IA) ainda não foi testado com petições reais do escritório. Por isso, "
+                         "confira com cuidado tudo o que a IA devolver antes de gravar."))
         corpo = (cabecalho("pedidos") + f"<div class='pedidos'>{ESTILO}<h1>Pedidos das petições iniciais</h1>" + _msg() +
                  "<div class='aviso-conf'><b>Confidencialidade.</b> Ao anexar as petições numa IA na internet, o conteúdo "
                  "(nomes, números de processo, valores) sai do seu computador. Use somente uma IA autorizada pelo escritório e "
                  "pelo cliente. Este programa não envia nada sozinho.</div>"
                  f"<p class='meta'>Prompt versão {_e(pedidos.prompt_versao())}.{selo} "
-                 "<a href='/pedidos/prompt'>Baixar o prompt</a> · o passo a passo está em <code>docs/pedidos-iniciais.md</code>.</p>"
-                 "<h2>1. Escolha os processos e baixe o pacote</h2>" + formulario_do_pacote() +
-                 "<h2>2. Cole o resultado da IA</h2>")
+                 "<a href='/pedidos/prompt'>Baixar o prompt</a>"
+                 + ajuda("Baixa o arquivo de texto com as instruções que a IA deve seguir para ler as petições (já vai também dentro "
+                         "do pacote). Serve se você preferir montar o envio à mão. Não envia nada.")
+                 + " · o passo a passo está em <code>docs/pedidos-iniciais.md</code>.</p>"
+                 "<div class='caixa'><b>O que fazer agora</b><ol>"
+                 "<li>Marque os processos e <b>baixe o pacote</b> (petições iniciais em PDF mais o prompt).</li>"
+                 "<li>Leve o pacote a uma IA que o escritório e o cliente autorizem e <b>cole aqui a resposta</b> dela.</li>"
+                 "<li><b>Confira</b> o que o programa achou e só então grave. Nada é gravado antes da sua confirmação.</li></ol>"
+                 "<p class='dica'>Os \"pedidos\" são as matérias pedidas em cada petição inicial, com os valores atribuídos, que "
+                 "alimentam a ficha e a planilha dos processos.</p></div>"
+                 "<h2>1. Escolha os processos e baixe o pacote"
+                 + ajuda("Escolha quais petições iniciais irão no pacote. Vêm marcados os processos com inicial localizada e ainda "
+                         "sem pedidos extraídos. As petições vêm da pasta de iniciais do relatório.") + "</h2>"
+                 + formulario_do_pacote() +
+                 "<h2>2. Cole o resultado da IA"
+                 + ajuda("Depois que a IA ler as petições, ela devolve um texto em formato JSON. Cole aqui a resposta inteira; o programa "
+                         "só confere o formato, as matérias e as somas, sem gravar nada ainda.") + "</h2>")
         if aviso_local:
             corpo += f"<div class='erro'>{_e(aviso_local)}</div>"
         corpo += (f"<form class='caixa' method='post' action='/pedidos/validar'>{oculto}"
                   "<p><label>Cole aqui a resposta inteira da IA (só o JSON)<br>"
                   f"<textarea class='colar' name='texto' placeholder='{{ \"processos\": [ ... ] }}'>{_e(texto)}</textarea></label></p>"
-                  "<button class='principal'>Conferir</button></form>")
+                  "<button class='principal'>Conferir</button>"
+                  + ajuda("Analisa o texto colado e mostra, na etapa 3, o que foi entendido e os problemas encontrados (formato, matéria "
+                          "desconhecida, soma diferente do valor da causa, processo desconhecido ou repetido). Não grava nada.")
+                  + "</form>")
         if res is not None:
-            corpo += "<h2>3. Confira antes de gravar</h2>" + conferencia(texto, res)
+            corpo += ("<h2>3. Confira antes de gravar"
+                      + ajuda("Leia os erros, os avisos e os achados da IA de cada processo. Só depois marque a confirmação e grave. "
+                              "Processos com erro ficam de fora da gravação.") + "</h2>" + conferencia(texto, res))
         return corpo + "</div>"
 
     # ------------------------------------------------------------ rotas

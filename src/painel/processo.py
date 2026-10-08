@@ -32,8 +32,9 @@ import ficha as fch
 import triagem
 from comum import eventos, salvar_eventos
 from painel import revisao_eventos
-from painel.base import _msg
-from painel.revisao_lote import ESTILO_TRIAGEM, data_do_evento, selo
+from painel.base import _msg, ajuda
+from painel.revisao_eventos import CONFIRMA_DESCARTE, DICAS, DICAS_ACOES
+from painel.revisao_lote import ESTILO_TRIAGEM, data_do_evento, legenda_dos_niveis, selo
 
 CAMPOS_DERIVADOS = ("situacao", "momento_atual", "fase", "resultado", "probabilidade", "valor_arbitrado",
                     "valor_acordo", "valor_estimado", "valor_economizado")
@@ -211,14 +212,24 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                      + (f" · momento atual: <b>{html.escape(momento)}</b>" if momento else "")
                      + (f"<br>Vinculados: {vinc}" if vinc else "") + "</p>")
         h.append("<p><a href='/triagem'>← Triagem</a> · <a href='/'>Revisar linha a linha</a></p>")
+        h.append("<div class='caixa'><b>O que fazer agora</b><p>Decida primeiro os <b>campos derivados</b> (se houver), depois "
+                 "percorra a <b>linha do tempo</b>: para cada andamento em revisão, compare o resumo com o print e o trecho do documento "
+                 "e clique em <b>Aprovar</b>. Nada vale para os relatórios antes da sua decisão.</p>"
+                 "<p class='dica'>Atalhos (fora dos campos de texto): J e K trocam de andamento, A aprova, D descarta, E edita a frase.</p></div>"
+                 + legenda_dos_niveis())
 
         # ---- campos derivados
         for a in avisos:
             h.append(f"<div class='alerta'>{html.escape(a)}</div>")
         if propostas:
-            h.append("<h2>Campos derivados: antes → depois</h2><p class='dica'>Nada aqui vale até você aprovar. "
+            h.append("<h2>Campos derivados: antes → depois"
+                     + ajuda("Campos da ficha do processo (fase, resultado, probabilidade, valores...) que o programa propõe preencher "
+                             "ou mudar a partir dos andamentos aprovados. É só uma proposta: nada vale até você aprovar, corrigir "
+                             "ou recusar. Valores em dinheiro só mudam por decisão sua.")
+                     + "</h2><p class='dica'>Nada aqui vale até você aprovar. "
                      "Aprovar grava como lançado por você.</p><table class='derivados'><tr><th>Campo</th><th>Antes</th>"
-                     "<th>Depois (proposta)</th><th>Por quê</th><th>Decisão</th></tr>")
+                     "<th>Depois (proposta)</th><th>Por quê" + ajuda("A regra ou a evidência (trecho de documento) em que a proposta se "
+                     "apoia, e ressalvas quando houver. Confira antes de aprovar.") + "</th><th>Decisão</th></tr>")
             for p in propostas:
                 pc = html.escape(p["campo"])
                 h.append(
@@ -231,15 +242,26 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                     f"<td><form method='post' action='/processo/campo'>{oculto}"
                     f"<input type='hidden' name='numero' value='{html.escape(principal)}'><input type='hidden' name='campo' value='{pc}'>"
                     "<button name='acao' value='aprovar' class='principal'>Aprovar</button>"
-                    "<button name='acao' value='recusar'>Recusar</button><br>"
-                    "<input type='text' name='valor' size='16' placeholder='valor corrigido'> "
-                    "<button name='acao' value='corrigir'>Corrigir</button></form></td></tr>")
+                    + ajuda("Aceita o valor proposto e o grava na ficha do processo como lançado por você. Passa a valer nos relatórios e "
+                            "o programa não o muda mais sozinho.")
+                    + "<button name='acao' value='recusar'>Recusar</button>"
+                    + ajuda("Rejeita a proposta: nada muda na ficha e o programa não volta a propor o mesmo valor. Se surgir "
+                            "um valor diferente, ele aparece de novo.")
+                    + "<br><input type='text' name='valor' size='16' placeholder='valor corrigido'> "
+                    "<button name='acao' value='corrigir'>Corrigir</button>"
+                    + ajuda("Grava na ficha o valor que você digitou no campo ao lado, como lançado por você. Datas como 31/12/2026, "
+                            "dinheiro como R$ 1.500,00; nos campos de lista, uma das opções que o programa conhece. Se o formato "
+                            "não for aceito, nada muda e a tela diz o porquê.")
+                    + "</form></td></tr>")
             h.append("</table>")
 
         # ---- linha do tempo
-        h.append(f"<h2>Linha do tempo ({len(evs)})</h2>")
+        h.append(f"<h2>Linha do tempo ({len(evs)})"
+                 + ajuda("Todos os andamentos deste processo (e dos vinculados a ele) que o programa já coletou, do mais recente ao "
+                         "mais antigo. Os que esperam revisão têm botões; os já decididos aparecem apagados, só para consulta.")
+                 + "</h2>")
         if not evs:
-            h.append("<p>Nenhum evento deste processo.</p>")
+            h.append("<div class='vazio'>Nenhum andamento coletado deste processo ainda. Use <a href='/atualizar'>Atualizar</a>.</div>")
         indice = triagem.indice_de_fichas(fichas)
         for ev in reversed(evs):                      # mais recente primeiro
             n = triagem.classificar_detalhado(ev, indice.get(ev.get("numero")), exigir_ficha=True)
@@ -262,18 +284,29 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 origem += f"<a href='/documento?id={quote(ev['id'])}' target='_blank'>abrir documento</a>"
             tela = (f"<img src='/print?id={quote(ev['id'])}' alt='Print do andamento nos autos'>" if ev.get("print")
                     else "<span class='dica'>Sem print.</span>")
-            h.append(f"<div class='lado'><div><b>Print</b><br>{tela}</div>"
-                     f"<div><b>Trecho de origem</b><br>{origem or '<span class=dica>Sem trecho de origem.</span>'}</div></div>")
+            h.append("<div class='lado'><div><b>Print</b>"
+                     + ajuda("Foto da tela do tribunal no momento da coleta, guardada só neste computador. Serve para você conferir "
+                             "o andamento com os próprios olhos.")
+                     + f"<br>{tela}</div>"
+                     "<div><b>Trecho de origem</b>"
+                     + ajuda("O pedaço do documento de onde o resumo foi tirado, e o link para abrir o documento inteiro. "
+                             "Se o trecho não estiver mesmo no documento, desconfie do resumo.")
+                     + f"<br>{origem or '<span class=dica>Sem trecho de origem.</span>'}</div></div>")
             if aberto:
                 h.append(f"<form class='acoes' method='post' action='/processo/evento'>{oculto}"
                          f"<input type='hidden' name='id' value='{esc('id')}'><input type='hidden' name='numero' value='{html.escape(principal)}'>"
-                         f"<label>O que aconteceu<textarea name='frase' rows='2'>{esc('frase')}</textarea></label>"
-                         f"<label>Conteúdo (opcional)<textarea name='conteudo' rows='2'>{esc('conteudo')}</textarea></label>"
-                         f"<label>Prazo<textarea name='prazo' rows='1'>{esc('prazo')}</textarea></label>"
-                         f"<label>Audiência<textarea name='audiencia' rows='1'>{esc('audiencia')}</textarea></label>"
+                         f"<label>O que aconteceu{ajuda(DICAS['frase'])}<textarea name='frase' rows='2' required "
+                         "oninvalid=\"this.setCustomValidity('Escreva a frase do relatório antes de aprovar, ou use Salvar correção.')\" "
+                         f"oninput=\"this.setCustomValidity('')\">{esc('frase')}</textarea></label>"
+                         f"<label>Conteúdo (opcional){ajuda(DICAS['conteudo'])}<textarea name='conteudo' rows='2'>{esc('conteudo')}</textarea></label>"
+                         f"<label>Prazo{ajuda(DICAS['prazo'])}<textarea name='prazo' rows='1'>{esc('prazo')}</textarea></label>"
+                         f"<label>Audiência{ajuda(DICAS['audiencia'])}<textarea name='audiencia' rows='1'>{esc('audiencia')}</textarea></label>"
                          "<button name='acao' value='aprovar' class='principal'>Aprovar (A)</button>"
-                         "<button name='acao' value='salvar'>Salvar correção</button>"
-                         "<button name='acao' value='descartar'>Descartar (D)</button></form>")
+                         + ajuda(DICAS_ACOES["aprovar"].replace("e some desta lista", "e passa a aparecer aqui só para consulta"))
+                         + "<button name='acao' value='salvar' formnovalidate>Salvar correção</button>"
+                         + ajuda(DICAS_ACOES["salvar"])
+                         + f"<button name='acao' value='descartar' formnovalidate onclick=\"return confirm('{CONFIRMA_DESCARTE}')\">Descartar (D)</button>"
+                         + ajuda(DICAS_ACOES["descartar"]) + "</form>")
             else:
                 h.append(f"<p>{esc('frase')} {esc('conteudo')}</p>")
             h.append("</div>")
@@ -288,7 +321,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                  "var k=e.key.toLowerCase();if(k==='j')f(i+1);else if(k==='k')f(i-1);else if(i>=0){"
                  "var fm=c[i].querySelector('form.acoes');if(!fm)return;"
                  "if(k==='a'){fm.querySelector('button[value=aprovar]').click()}"
-                 "else if(k==='d'){if(confirm('Descartar esta linha?'))fm.querySelector('button[value=descartar]').click()}"
+                 "else if(k==='d'){fm.querySelector('button[value=descartar]').click()}"
                  "else if(k==='e'){e.preventDefault();fm.querySelector('textarea[name=frase]').focus()}}})})();</script>")
         return "".join(h)
 
