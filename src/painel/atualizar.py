@@ -12,7 +12,7 @@ from pathlib import Path
 from flask import abort, redirect, request
 
 import comum
-from painel.base import TAREFA, WINDOWS, _ir, _msg, _tarefa_rodando
+from painel.base import TAREFA, WINDOWS, _ir, _msg, _tarefa_rodando, ajuda
 
 
 def registrar(app, TOKEN, cabecalho, token_ok):
@@ -24,19 +24,35 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         ultimo = proj.get("ultimo_relatorio", "")
         primeira = not comum.load_json(comum.ESTADO_FILE, {})
         h = [cabecalho("atualizar"), "<h1>Atualizar andamentos</h1>", _msg(),
-             "<div class='caixa'><b>Tem um relatório pronto (Word ou planilha)?</b> Use o "
-             "<a href='/fluxo/atualizar'>fluxo de atualização por arquivo</a>: ele lê o relatório, pergunta a data-base, "
-             "mostra o que mudou e faz a coleta. Para passar um relatório atual para os modelos novos (texto simplificado, "
-             "planilha ou painel), use <a href='/migracao'>Migrar de modelo</a>.</div>"]
+             "<div class='caixa'><b>O que fazer agora</b>"
+             + ajuda("Esta tela faz a busca simples: lê o jus.br e os TRTs só para consultar. A ferramenta nunca protocola, assina "
+                     "nem envia nada aos tribunais. Nada entra no relatório sem a sua aprovação em Revisar.")
+             + "<ol style='margin:6px 0'><li>Clique em <b>Atualizar</b> abaixo para buscar os andamentos novos.</li>"
+               "<li>Quando a tarefa terminar, vá a <a href='/'>Revisar</a> e aprove o que estiver certo.</li>"
+               "<li>No fim do mês, gere a <a href='/planilha'>Planilha</a>.</li></ol>"
+             "<p class='dica'>Tem um relatório pronto (Word ou planilha) e quer que o programa o leia e confira com a carteira? Use o "
+             "<a href='/fluxo/atualizar'>fluxo guiado de atualização por arquivo</a> "
+             + ajuda("O fluxo guiado lê o seu relatório (.docx ou .xlsx), pergunta a data-base, mostra o que mudou e só então faz a coleta. "
+                     "O arquivo que você enviar nunca é sobrescrito.")
+             + ". Para passar um relatório antigo para os modelos novos, use <a href='/migracao'>Migrar de modelo</a>"
+             + ajuda("Converte um relatório de outro formato para os modelos do programa (texto, planilha, painel). Trabalha em cópias: "
+                     "o arquivo original não é alterado.") + ".</p></div>"]
         if TAREFA:
             rodando = _tarefa_rodando()
             log = Path(TAREFA["log"]).read_text(encoding="utf-8", errors="replace")[-12000:] if Path(TAREFA["log"]).exists() else ""
             estado = "em andamento" if rodando else f"concluída (código {TAREFA['proc'].returncode})"
             h.append(f"<div class='caixa'><b>{html.escape(TAREFA['descricao'])}</b> · relatório "
                      f"{html.escape(TAREFA['nome'])} · {estado} · início {TAREFA['inicio']}"
-                     f"<pre class='log' id='log'>{html.escape(log)}</pre>")
+                     + ajuda("Aqui está o que o programa vai escrevendo enquanto trabalha. Se pedir captcha ou código, uma faixa vermelha "
+                             "aparece no alto da tela: resolva na janela do navegador que se abriu.")
+                     + f"<pre class='log' id='log'>{html.escape(log)}</pre>")
             if rodando:
-                h.append(f"<form method='post' action='/interromper'>{oculto}<button>Interromper</button></form>"
+                h.append(f"<form method='post' action='/interromper' onsubmit=\"return confirm('Parar esta tarefa agora? "
+                         "O que já foi coletado fica salvo; o restante não será buscado.')\">"
+                         f"{oculto}<button>Interromper</button>"
+                         + ajuda("Encerra a tarefa e o navegador que ela abriu. O que já foi baixado e gravado continua salvo. "
+                                 "A tarefa não continua de onde parou: para o resto, é preciso começar de novo.")
+                         + "</form>"
                          "<script>setTimeout(()=>location.reload(),3000);"
                          "const l=document.getElementById('log');l.scrollTop=l.scrollHeight;</script>")
             else:
@@ -44,22 +60,39 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                          "<a href='/'>Ir para a revisão</a>")
             h.append("</div>")
         bloqueado = "disabled" if _tarefa_rodando() else ""
-        h.append(f"<form class='caixa' method='post' action='/tarefa'>{oculto}<input type='hidden' name='tipo' value='rodada'>"
-                 "<b>Buscar andamentos no jus.br</b><p class='dica'>Entra com o certificado (janela minimizada no canto), "
-                 "lê andamentos e documentos novos de cada processo, tira print e resume com a IA local. "
-                 "Ao terminar, os rascunhos aparecem em Revisar.</p>"
+        h.append(f"<form class='caixa' method='post' action='/tarefa' onsubmit=\"return confirm('Começar a buscar andamentos agora? "
+                 "O programa vai entrar no jus.br com o seu certificado e pode levar vários minutos. O PJe Office precisa estar aberto.')\">"
+                 f"{oculto}<input type='hidden' name='tipo' value='rodada'>"
+                 "<b>1. Buscar andamentos no jus.br</b>"
+                 + ajuda("Entra no jus.br com o certificado e o autenticador, consulta os processos do relatório (também nos TRTs, quando "
+                         "for processo trabalhista) e baixa os andamentos e documentos novos. Tira print e resume com a IA do seu "
+                         "computador. Só lê: não protocola nem assina nada. Para fora do computador vai só o login e as consultas aos tribunais.")
+                 + "<p class='dica'>Uma janela de navegador abre minimizada no canto da tela e fecha sozinha. Deixe o PJe Office aberto. "
+                   "Ao terminar, os rascunhos aparecem em Revisar; nada vira relatório sem a sua aprovação.</p>"
                  + (f"<p>Primeira atualização deste relatório: considerar como novo o que veio depois de "
-                    f"<input type='date' name='desde' value='{html.escape(ultimo)}'> (data do último relatório enviado). "
-                    "Sem data, o programa lê e baixa os "
+                    f"<input type='date' name='desde' value='{html.escape(ultimo)}'> (data do último relatório enviado)"
+                    + ajuda("O programa só traz andamentos posteriores a esta data. Se deixar em branco, ele usa a quantidade ao lado. "
+                            "Costuma ser a data do último relatório que você mandou ao cliente.") +
+                    ". Sem data, o programa lê e baixa os "
                     "<input type='number' name='historico' value='5' min='0' max='200' style='width:4em'> andamentos e "
-                    "documentos mais recentes de cada processo (0 = só registrar o que já existe, sem baixar nada).</p>"
+                    "documentos mais recentes de cada processo (0 = só registrar o que já existe, sem baixar nada)"
+                    + ajuda("Serve para quem não tem data de corte. Cinco costuma bastar para começar; números grandes deixam a busca "
+                            "bem mais demorada. Com 0, o programa só anota o que já existe e baixa nada.") + ".</p>"
                     if primeira else "")
-                 + f"<button class='principal' {bloqueado}>Atualizar</button></form>")
+                 + f"<button class='principal' {bloqueado}>Atualizar</button>"
+                 + ajuda("Começa a busca agora. Pede uma confirmação antes. Só uma tarefa roda por vez, porque todas usam o mesmo certificado.")
+                 + "</form>")
         h.append(f"<form class='caixa' method='post' action='/tarefa'>{oculto}<input type='hidden' name='tipo' value='conferencia'>"
-                 "<b>Conferência</b><p class='dica'>Sem IA. Separa, por responsável, os andamentos e documentos dos últimos "
-                 "<input type='text' name='dias' value='7' size='3'> dias que ainda não entraram em relatório aprovado, "
+                 "<b>2. Conferência semanal (opcional)</b>"
+                 + ajuda("Rede de segurança: entra no jus.br, olha o que entrou nos autos nos últimos dias e separa o que ainda não foi para "
+                         "um relatório aprovado, com os PDFs e os prints, para você conferir à mão. Não usa IA. Não altera relatório nenhum.")
+                 + "<p class='dica'>Separa, por responsável, os andamentos e documentos dos últimos "
+                 "<input type='text' name='dias' value='7' size='3' inputmode='numeric'> dias que ainda não entraram em relatório aprovado, "
                  "com PDFs e prints, para revisão manual.</p>"
-                 f"<button {bloqueado}>Conferir</button></form>")
+                 f"<button {bloqueado}>Conferir</button>"
+                 + ajuda("Começa a conferência. Os arquivos ficam numa pasta deste computador (data/conferencia). Para os processos "
+                         "do TRT a conferência ainda não funciona: eles ficam como \"conferir manualmente\".")
+                 + "</form>")
         return "".join(h)
 
     @app.post("/tarefa")

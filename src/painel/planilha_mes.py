@@ -10,7 +10,7 @@ from flask import abort, redirect, request
 
 import comum
 from comum import eventos
-from painel.base import WINDOWS, _dentro, _ir, _msg
+from painel.base import WINDOWS, _dentro, _ir, _msg, ajuda
 
 
 def registrar(app, TOKEN, cabecalho, token_ok):
@@ -36,7 +36,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                     modelo = Path(proj["planilha_modelo"])
                     nome_base = modelo.stem
                 else:
-                    return _ir("/planilha", "Envie a planilha do relatório anterior (ou indique-a em Configuração).")
+                    return _ir("/planilha", "Envie a planilha do relatório anterior (ou indique-a em Configuração). "
+                                            "Ela é a base da planilha nova.")
                 nome_base = re.sub(r"\s*-\s*atualizada$", "", re.sub(r"^\d{4}-\d{2}-\d{2} - ", "", nome_base))
                 nome = re.sub(r"[^\w .-]", "", nome_base)[:80] or "relatorio"
                 destino = comum.RELATORIOS_DIR / "planilhas" / f"{datetime.date.today():%Y-%m-%d} - {nome}.xlsx"
@@ -55,23 +56,53 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         arquivos = sorted((comum.RELATORIOS_DIR / "planilhas").glob("*.xlsx"), reverse=True) \
             if (comum.RELATORIOS_DIR / "planilhas").exists() else []
         modelo = proj.get("planilha_modelo", "")
+        if not aprovados:
+            agora = ("Ainda não há andamento aprovado. Vá primeiro a <a href='/atualizar'>Atualizar</a> (para buscar) e a "
+                     "<a href='/'>Revisar</a> (para aprovar). Você pode gerar a planilha assim mesmo, mas ela só renova a data "
+                     "de \"sem atualizações\".")
+        elif not modelo:
+            agora = ("Escolha abaixo a planilha do relatório anterior (ou indique-a em <a href='/config'>Configuração</a>) e "
+                     "clique em <b>Gerar planilha</b>.")
+        else:
+            agora = "Confira a quantidade de andamentos aprovados e clique em <b>Gerar planilha</b>. Depois abra o arquivo e confira antes de enviar."
+        gerador = "Finder" if not WINDOWS else "Explorador de Arquivos"
         h = [cabecalho("planilha"), "<h1>Planilha do mês</h1>", _msg(),
-             f"<form class='caixa' method='post' enctype='multipart/form-data'>{oculto}"
-             f"<p><b>{aprovados}</b> andamento(s) aprovado(s) para entrar na planilha.</p>"
+             "<div class='caixa'><b>O que fazer agora</b>"
+             + ajuda("A planilha do mês é feita no seu computador, a partir da planilha do mês passado e dos andamentos que você aprovou. "
+                     "Nada é enviado à internet e a planilha antiga não é alterada.")
+             + f"<p>{agora}</p></div>",
+             f"<form class='caixa' method='post' enctype='multipart/form-data' "
+             "onsubmit=\"return confirm('Gerar a planilha agora? A nova planilha vira a referência do próximo mês e a data do "
+             "último relatório passa a ser a de hoje.')\">"
+             f"{oculto}"
+             f"<p><b>{aprovados}</b> andamento(s) aprovado(s) para entrar na planilha."
+             + ajuda("Só entram andamentos que você aprovou em Revisar. Os rascunhos e os descartados ficam de fora.") + "</p>"
              f"<p class='dica'>Referência atual: {html.escape(Path(modelo).name) if modelo else 'nenhuma'}"
-             f"{'' if not modelo or Path(modelo).exists() else ' (arquivo não encontrado)'}. "
-             "A planilha nova é uma cópia dela com os andamentos aprovados acrescentados na coluna Andamentos da aba "
+             f"{'' if not modelo or Path(modelo).exists() else ' (arquivo não encontrado)'}"
+             + ajuda("É a planilha que serve de base. Vem da tela Configuração, ou da última planilha gerada aqui. Para trocá-la, "
+                     "envie outra no campo abaixo.") +
+             ". A planilha nova é uma cópia dela com os andamentos aprovados acrescentados na coluna Andamentos da aba "
              "Processos; gráficos, tabelas dinâmicas e o resto ficam iguais.</p>"
-             "<p>Usar outra planilha como referência: <input type='file' name='modelo' accept='.xlsx'></p>"
+             "<p>Usar outra planilha como referência: <input type='file' name='modelo' accept='.xlsx'>"
+             + ajuda("Opcional. Se escolher um arquivo, ele é usado como base só desta vez (e a planilha gerada vira a nova referência). "
+                     "Tem de ser .xlsx com a aba \"Processos\" no modelo do escritório; se não for, o programa avisa e nada é gerado.") + "</p>"
              "<p><label><input type='checkbox' name='sem_novidade' value='1' checked> renovar \"Até DD/MM/AAAA sem atualizações\" "
-             "nos processos sem andamento aprovado</label></p><button class='principal'>Gerar planilha</button></form>",
-             "<h2>Planilhas geradas</h2><ul>"]
+             "nos processos sem andamento aprovado</label>"
+             + ajuda("Nos processos acompanhados que não tiveram andamento aprovado, troca a data da frase \"Até ... sem atualizações\" pela "
+                     "de hoje. Desmarque se quiser que esses processos fiquem exatamente como estavam.") + "</p>"
+             "<button class='principal'>Gerar planilha</button>"
+             + ajuda("Cria um arquivo novo (a antiga não muda) na pasta de relatórios deste relatório. Ele passa a ser a referência do próximo "
+                     "mês e a data do último relatório vira a de hoje. Isso não se desfaz sozinho, mas a planilha antiga continua intacta.")
+             + "</form>",
+             "<h2>Planilhas geradas</h2>", "<ul>"]
         for a in arquivos:
             rel = html.escape(str(a.relative_to(comum.RELATORIOS_DIR)))
             h.append(f"<li><a href='/relatorio?p={rel}'>{html.escape(a.name)}</a> "
                      f"<form style='display:inline' method='post' action='/mostrar'>{oculto}<input type='hidden' name='p' value='{rel}'>"
-                     "<button>Mostrar no Finder</button></form></li>")
-        h.append("</ul>" if arquivos else "<li class='dica'>Nenhuma ainda.</li></ul>")
+                     f"<button>Mostrar no {gerador}</button>"
+                     + ajuda("Abre a pasta do computador com o arquivo já selecionado. Não envia nada para fora.")
+                     + "</form></li>")
+        h.append("</ul>" if arquivos else "<li class='vazio'>Nenhuma ainda. Quando você gerar a primeira, ela aparece aqui para baixar.</li></ul>")
         return "".join(h)
 
     @app.post("/mostrar")
