@@ -37,6 +37,29 @@ class TestEstado(unittest.TestCase):
                 self.assertEqual(ap.estado_do_painel(5072), esperado, args)
 
 
+class TestServidorSemVersaoJson(unittest.TestCase):
+    def _get(self, estado_coleta, pagina="<html></html>"):
+        def get(url, timeout=3):
+            if url.endswith("/versao.json"):
+                raise OSError("404")
+            if url.endswith("/fluxo/progresso.json"):
+                return 200, json.dumps({"estado": estado_coleta})
+            if url.endswith("/atualizar"):
+                return 200, pagina
+            return 200, "{}"
+        return mock.patch.object(ap, "_get", side_effect=get)
+
+    def test_sem_versao_json_e_coletando_nao_reinicia(self):
+        with self._get("rodando"):
+            self.assertEqual(ap.estado_do_painel(5072), "ocupado_velho")
+        with self._get("parado", "<b>tarefa em andamento</b>"):
+            self.assertEqual(ap.estado_do_painel(5072), "ocupado_velho")
+
+    def test_sem_versao_json_e_parado_reinicia(self):
+        with self._get("parado"):
+            self.assertEqual(ap.estado_do_painel(5072), "velho")
+
+
 class TestPrincipal(unittest.TestCase):
     def rodar(self, estado, encerra=True):
         with mock.patch.object(ap, "porta", return_value=5072), mock.patch.object(ap, "estado_do_painel", return_value=estado), \

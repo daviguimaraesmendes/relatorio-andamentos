@@ -50,7 +50,17 @@ def estado_do_painel(porta_):
         _, corpo = _get(base + "/versao.json")
         d = json.loads(corpo)
     except Exception:
-        return "velho"                 # servidor tão antigo que nem tem /versao.json
+        # servidor tão antigo que nem tem /versao.json: vale ver se está coletando antes de decidir reiniciar
+        try:
+            _, corpo = _get(base + "/fluxo/progresso.json")
+            if json.loads(corpo).get("estado") in ("rodando", "pausada", "pausado"):
+                return "ocupado_velho"
+            _, pagina = _get(base + "/atualizar")
+            if "tarefa em andamento" in pagina or "Interromper" in pagina:
+                return "ocupado_velho"
+        except Exception:
+            pass
+        return "velho"
     velho = d.get("carregada") != d.get("arquivo")
     if d.get("coleta") or d.get("tarefa"):
         return "ocupado_velho" if velho else "ocupado"
