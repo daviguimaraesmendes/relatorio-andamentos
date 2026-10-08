@@ -741,7 +741,13 @@ def alias_datajud(numero):
 
 
 def _config_datajud():
+    """(ligado, chave). Vale o config.json; sem a seção `fontes_externas.datajud` nele (instalação antiga),
+    vale o config.exemplo.json (fonte ligada). A chave pública do CNJ não vai no repositório: vem de
+    `config.json` (`chave`) ou da variável DATAJUD_CHAVE; sem ela não há consulta."""
+    padrao = ((comum.load_json(comum.RAIZ / "config.exemplo.json", {}).get("fontes_externas") or {}).get("datajud")) or {}
     cfg = (comum.config().get("fontes_externas") or {}).get("datajud")
+    if cfg is None:
+        cfg = padrao
     if isinstance(cfg, dict):
         return bool(cfg.get("ativo")), cfg.get("chave") or os.environ.get("DATAJUD_CHAVE")
     return bool(cfg), os.environ.get("DATAJUD_CHAVE")

@@ -62,7 +62,7 @@ def cabecalho(ativa, titulo="Relatório de Andamentos"):
              "código do autenticador). <a href='/acesso'>Configurar agora</a></div>")
     return (f"<!doctype html><html lang='pt-BR'><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'><title>{html.escape(titulo)}</title>{ESTILO}<body>"
-            f"<div class='barra'><div class='marca'>Relatório de Andamentos<span class='meta'>{rodando}</span>"
+            f"<div class='barra'><div class='marca'>Relatório de Andamentos<span class='meta'>{(' · versão ' + html.escape(versao())) if versao() else ''}{rodando}</span>"
             f"<a href='/acesso' style='float:right;font-weight:normal;font-size:14px' "
             f"class='{'ativa' if ativa == 'acesso' else ''}'>Acesso e escritório {'✓' if pronto else '(configurar)'}</a></div>"
             f"<div class='abas'>{abas}<a href='/novo' class='novo'>+ Novo relatório</a></div></div>"
@@ -92,6 +92,14 @@ def _dentro(base, caminho):
         return True
     except ValueError:
         return False
+
+
+def versao():
+    """Texto do arquivo VERSAO (ex.: '2.0.0-beta1'); vazio se não existir."""
+    try:
+        return (comum.RAIZ / "VERSAO").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def _tarefa_rodando():

@@ -32,6 +32,12 @@ Prompt do WS-14 (copiar para a ferramenta de agentes, com `isolation: worktree`)
 
 Prompt do WS-15 (depois do WS-14): idem, trocando a seção por "WS-15" e acrescentando "O WS-14 já está integrado em `src/fluxos.py`".
 
+## Beta 2.0.0-beta1 (08/10/2026)
+
+Pacote gerado com `./empacotar.sh` (`dist/relatorio-andamentos.zip`, ~1,4 MB, sem dados de cliente; confidencialidade verificada). Instruções de instalação por cima da versão anterior e roteiro curto de teste em `BETA-LEIAME.md`; roteiro completo em `piloto.md`. A versão aparece no topo do painel (arquivo `VERSAO`). DataJud vem ligado no exemplo de configuração, mas a chave pública do CNJ **não** vai no repositório (o sistema bloqueou a gravação por ser credencial): o usuário a cola em `config.json` ou em `DATAJUD_CHAVE`. Validei hoje, de fora do repositório, que o endpoint público responde com a chave publicada na wiki e que o formato bate com o que `capa.py` espera.
+
+**Aguardando o usuário**: teste prático do beta no Mac (nada mais a construir antes disso). O que ele devolver (planilha de registro anonimizada) define a calibração e o beta2.
+
 ## Próximos passos sugeridos (foco: relatórios mais completos)
 
 Em ordem de valor, **um agente por vez** (ou direto pelo coordenador quando for pequeno):

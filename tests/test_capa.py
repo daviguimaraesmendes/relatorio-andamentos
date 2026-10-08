@@ -318,9 +318,18 @@ class TestClienteDataJud(Base):
         self.assertEqual(avisos[0]["codigo"], "datajud_desativado")
         self.assertEqual(self.chamadas, [])
 
-    def test_flag_vem_da_configuracao_e_padrao_e_desligado(self):
-        with mock.patch.object(comum, "config", return_value={}):
-            self.assertEqual(self.consultar(ativo=None, transporte=self.transporte())[1][0]["codigo"], "datajud_desativado")
+    def test_flag_vem_da_configuracao_e_padrao_e_o_do_exemplo(self):
+        # sem a seção no config.json (instalação antiga) vale o config.exemplo.json: fonte ligada, mas sem chave
+        # (a chave pública do CNJ não vai no repositório), então não há chamada e o aviso pede a chave
+        with mock.patch.object(comum, "config", return_value={}), mock.patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("DATAJUD_CHAVE", None)
+            avisos = self.consultar(ativo=None, chave=None, transporte=self.transporte())[1]
+        self.assertEqual(avisos[0]["codigo"], "datajud_sem_chave")
+        self.assertEqual(self.chamadas, [])
+        cfg_desligada = {"fontes_externas": {"datajud": {"ativo": False, "chave": "K"}}}
+        with mock.patch.object(comum, "config", return_value=cfg_desligada):
+            self.assertEqual(self.consultar(ativo=None, chave=None, transporte=self.transporte())[1][0]["codigo"], "datajud_desativado")
         cfg = {"fontes_externas": {"datajud": {"ativo": True, "chave": "K"}}}
         with mock.patch.object(comum, "config", return_value=cfg):
             resp, avisos = self.consultar(ativo=None, chave=None, transporte=self.transporte())
