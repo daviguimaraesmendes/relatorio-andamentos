@@ -101,18 +101,34 @@ def segredo_totp_valido(segredo):
 
 # --- diálogo do PJe Office ---------------------------------------------------
 
+_PROCURA_JANELA = f'''repeat with w in windows
+                    if (name of w) contains "{TITULO_DIALOGO.split()[-1]}" then {{RETORNO}}
+                end repeat'''
+
+
+def _osascript(script, timeout=15):
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0 and re.search(r"assistive|1002|not allowed|n[ãa]o (est[áa] )?autorizad", r.stderr or "", re.I):
+        ULTIMO["acessibilidade"] = False  # o Mac barrou o controle do System Events
+    return r
+
+
 def _dialogo_aberto():
+    """O diálogo da senha do PJe Office (janela do processo `java` cujo título contém "senha"). Procura por parte do
+    título, e não pelo título exato, para não depender de pequenas diferenças entre versões do PJe Office."""
     if MAC:
         script = f'''tell application "System Events"
             if exists process "java" then
-                tell process "java" to return exists window "{TITULO_DIALOGO}"
+                tell process "java"
+                    {_PROCURA_JANELA.format(RETORNO="return true")}
+                end tell
             end if
             return false
         end tell'''
-        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-        if r.returncode != 0 and re.search(r"assistive|1002|not allowed|n[ãa]o (est[áa] )?autorizad", r.stderr or "", re.I):
-            ULTIMO["acessibilidade"] = False  # o Mac barrou o controle do System Events
-        return r.stdout.strip() == "true"
+        try:
+            return _osascript(script).stdout.strip() == "true"
+        except Exception:
+            return False
     if WINDOWS:
         try:
             from pywinauto import Desktop
@@ -122,16 +138,77 @@ def _dialogo_aberto():
     return False
 
 
+def janelas_do_pje_office():
+    """Títulos das janelas abertas do PJe Office (processo `java`), para o diagnóstico quando o diálogo não aparece:
+    mostram se o título é outro ou se há outra janela (aviso, atualização) na frente. Só títulos, nada pessoal."""
+    if not MAC:
+        return []
+    script = '''tell application "System Events"
+        if not (exists process "java") then return ""
+        set nomes to {}
+        tell process "java"
+            repeat with w in windows
+                set end of nomes to (name of w)
+            end repeat
+        end tell
+        set AppleScript's text item delimiters to "|"
+        return nomes as text
+    end tell'''
+    try:
+        return [t.strip() for t in _osascript(script).stdout.strip().split("|") if t.strip()][:10]
+    except Exception:
+        return []
+
+
+def liberar_permissao_do_navegador():
+    """O Chrome mostra, ao clicar em "Seu certificado digital", um aviso NATIVO ("Acessar outros apps e serviços neste
+    dispositivo") com o botão "Permitir". Enquanto ele está aberto o PJe Office nunca é chamado e o diálogo da senha
+    não aparece: foi a causa do login automático que "não funcionava" (a ferramenta antiga jusbr-autologin já clicava
+    nele). Clica em Permitir nas janelas do navegador da automação (Chrome for Testing / Chromium), nunca no Chrome
+    pessoal da pessoa. True se clicou."""
+    if not MAC:
+        return False
+    script = '''tell application "System Events"
+        repeat with proc in (every process whose name is "Google Chrome for Testing" or name is "Chromium")
+            repeat with wIdx from 1 to (count of windows of proc)
+                try
+                    set todos to entire contents of window wIdx of proc
+                    repeat with el in todos
+                        try
+                            if role of el is "AXButton" and (description of el is "Permitir" or description of el is "Allow") then
+                                click el
+                                return "OK"
+                            end if
+                        end try
+                    end repeat
+                end try
+            end repeat
+        end repeat
+    end tell
+    return "NAO"'''
+    try:
+        return _osascript(script, timeout=12).stdout.strip() == "OK"
+    except Exception:
+        return False
+
+
 def _preencher_dialogo(senha):
     if MAC:
         script = f'''tell application "System Events"
             tell process "java"
                 set frontmost to true
                 delay 0.2
-                set w to window "{TITULO_DIALOGO}"
-                click text field 1 of w
+                set alvo to missing value
+                repeat with w in windows
+                    if (name of w) contains "{TITULO_DIALOGO.split()[-1]}" then
+                        set alvo to w
+                        exit repeat
+                    end if
+                end repeat
+                if alvo is missing value then error "diálogo da senha não encontrado"
+                click text field 1 of alvo
                 keystroke (system attribute "PJE_CERT_SENHA")
-                click button "OK" of w
+                click button "OK" of alvo
             end tell
         end tell'''
         env = dict(os.environ, PJE_CERT_SENHA=senha)  # a senha não aparece na linha de comando
@@ -187,11 +264,18 @@ def login_automatico(page, limite_dialogo=90):
         return False
     print(f"Aguardando o diálogo do PJe Office (até {limite_dialogo}s)...", flush=True)
     fim = time.time() + limite_dialogo
+    rodada = 0
     while time.time() < fim and not _dialogo_aberto():
+        if rodada % 2 == 0 and liberar_permissao_do_navegador():
+            print("Permissão do navegador para abrir o PJe Office concedida.", flush=True)
+        rodada += 1
         time.sleep(1)
     if not _dialogo_aberto():
         print("O diálogo do PJe Office não apareceu. Confira se o PJe Office está aberto.", flush=True)
         extra = {"acessibilidade": False} if ULTIMO.get("acessibilidade") is False else {}
+        janelas = janelas_do_pje_office()
+        if janelas:
+            extra["janelas_do_pje"] = janelas
         registrar_falha("preencher" if extra else "dialogo",
                         "O Mac barrou o acesso ao PJe Office (Acessibilidade)." if extra
                         else f"O diálogo \"{TITULO_DIALOGO}\" do PJe Office não apareceu em {limite_dialogo} s.", **extra)

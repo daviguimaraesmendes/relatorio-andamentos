@@ -180,6 +180,47 @@ class TestLogin(unittest.TestCase):
         self.assertEqual((acesso.ULTIMO["passo"], acesso.ULTIMO["pje_office_aberto"]), ("dialogo", False))
         self.assertIn("PJe Office", acesso.ULTIMO["o_que_fazer"])
 
+    def test_login_clica_em_permitir_do_navegador_enquanto_espera_o_dialogo(self):
+        # sem esse clique o PJe Office nunca é chamado e o diálogo da senha não aparece (login manual, 08/10/2026)
+        page = mock.Mock()
+        page.inner_text.return_value = "Sair do portal"
+        estados = iter([False, False, True, True])
+        with mock.patch.object(acesso, "obter", return_value="x"), mock.patch.object(acesso, "_clicar_certificado", return_value=True), \
+                mock.patch.object(acesso, "_dialogo_aberto", side_effect=lambda: next(estados)), mock.patch.object(acesso.time, "sleep"), \
+                mock.patch.object(acesso, "liberar_permissao_do_navegador", return_value=True) as liberar, \
+                mock.patch.object(acesso, "_preencher_dialogo", return_value=True):
+            self.assertTrue(acesso.login_automatico(page))
+        liberar.assert_called()
+
+    def test_falha_do_dialogo_registra_os_titulos_das_janelas_do_pje(self):
+        page = mock.Mock()
+        with mock.patch.object(acesso, "obter", return_value="x"), mock.patch.object(acesso, "_clicar_certificado", return_value=True), \
+                mock.patch.object(acesso, "_dialogo_aberto", return_value=False), mock.patch.object(acesso.time, "sleep"), \
+                mock.patch.object(acesso, "liberar_permissao_do_navegador", return_value=False), \
+                mock.patch.object(acesso, "janelas_do_pje_office", return_value=["Atualização disponível"]), \
+                mock.patch.object(acesso, "pje_office_aberto", return_value=True):
+            self.assertFalse(acesso.login_automatico(page, limite_dialogo=0))
+        self.assertEqual(acesso.ULTIMO["janelas_do_pje"], ["Atualização disponível"])
+
+    def test_permissao_do_navegador_so_toca_no_navegador_da_automacao(self):
+        class R:
+            returncode, stdout, stderr = 0, "OK\n", ""
+        with mock.patch.object(acesso, "MAC", True), mock.patch.object(acesso.subprocess, "run", return_value=R()) as run:
+            self.assertTrue(acesso.liberar_permissao_do_navegador())
+        script = run.call_args[0][0][2]
+        self.assertIn("Google Chrome for Testing", script)
+        self.assertIn('"Permitir"', script)
+        self.assertNotIn('contains "Chrom"', script, "nunca o Chrome pessoal")
+        with mock.patch.object(acesso, "MAC", False):
+            self.assertFalse(acesso.liberar_permissao_do_navegador())
+
+    def test_dialogo_da_senha_e_achado_por_parte_do_titulo(self):
+        class R:
+            returncode, stdout, stderr = 0, "true\n", ""
+        with mock.patch.object(acesso, "MAC", True), mock.patch.object(acesso.subprocess, "run", return_value=R()) as run:
+            self.assertTrue(acesso._dialogo_aberto())
+        self.assertIn('contains "senha"', run.call_args[0][0][2])
+
     def test_pje_office_aberto_consulta_o_sistema(self):
         class R:
             returncode = 0
@@ -206,7 +247,7 @@ class TestLogin(unittest.TestCase):
         self.assertEqual(len([d for d in diagnosticos if d.startswith("login_jusbr_t")]), 4, diagnosticos)   # 2 tentativas: .txt e .json
         motivo = json.loads(next(p for p in comum.DIAG_DIR.iterdir() if p.suffix == ".json").read_text(encoding="utf-8"))
         self.assertEqual(motivo["passo"], "dialogo")
-        self.assertLessEqual(set(motivo), {"passo", "mensagem", "o_que_fazer", "pje_office_aberto", "acessibilidade", "tentativa",
+        self.assertLessEqual(set(motivo), {"passo", "mensagem", "o_que_fazer", "pje_office_aberto", "acessibilidade", "janelas_do_pje", "tentativa",
                                            "plataforma", "quando"}, "o diagnóstico guarda só o motivo, nunca segredo")
         self.assertIsNone(atencao.atual(), "concluído: a faixa vermelha sai")
         janela.mostrar.assert_called()           # a janela apareceu para a pessoa
