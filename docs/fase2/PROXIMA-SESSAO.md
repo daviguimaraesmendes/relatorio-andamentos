@@ -32,6 +32,15 @@ Prompt do WS-14 (copiar para a ferramenta de agentes, com `isolation: worktree`)
 
 Prompt do WS-15 (depois do WS-14): idem, trocando a seção por "WS-15" e acrescentando "O WS-14 já está integrado em `src/fluxos.py`".
 
+## Observações do teste prático (usuário, beta2)
+
+Anotadas em 08/10/2026 enquanto a análise de um relatório real roda. **Sem ação por enquanto** (esperar a análise terminar e ver o que mais aparece).
+
+1. **Login automático do jus.br falhou.** Faltam detalhes para diagnosticar: mensagem exata na tela do navegador de automação ou no Terminal, se o PJe Office estava aberto, se foi na primeira consulta ou depois de um tempo, e se a aba Atualizar da versão anterior (caminho já validado) faz o login normalmente na mesma máquina. Hipótese a checar: o caminho novo (`fila.ColetorReal`, chamado pelo painel em outra thread) chama `coletor.logar` fora da mesma ordem/estado da aba Atualizar. O login está em `coletor.logar` → `acesso.login_automatico` (diálogo do PJe Office).
+2. **Captcha do TRT não chama a atenção.** A janela é trazida de volta por `janela.mostrar` (restaura, posiciona 1100×800 e `page.bring_to_front()`) e há um aviso sonoro, mas no Mac isso pode não passar por cima do Terminal/painel. Ideias, da mais simples à mais forte: (a) `osascript` com notificação do sistema ("Captcha do TRT: precisa de você") e `activate` do navegador de automação; (b) maximizar/tela cheia em vez de 1100×800; (c) faixa vermelha fixa no painel ("Precisa de você: captcha do TRT 7 aguardando") com atualização automática; (d) repetir o aviso a cada 60 s até ser resolvido; (e) enquanto espera, **pular o processo** e seguir com os demais, voltando ao captcha no fim (a fila já agrupa por TRT). Código: `trt.esperar_captcha_humano`, `janela.mostrar`.
+
+Ao retomar: pedir ao usuário os detalhes do item 1 (sem nomes de cliente) e decidir quais ideias do item 2 implementar. É trabalho pequeno (coordenador, sem agente).
+
 ## Beta 2.0.0-beta2 (08/10/2026): clientes em lote
 
 O primeiro teste do usuário (relatório de 92 processos) mostrou que o cliente tinha de ser informado processo a processo. Corrigido em `src/clientes.py` (candidatos a partir das partes, identificação em lote com polo e parte contrária, aplicação em lote), no bloco "Quem é o cliente?" da conferência da importação (`painel/assistente.py`), no `fluxos.migrar` (automático: clientes cadastrados, empresas do grupo da planilha, candidato óbvio, cliente padrão), e nos botões de lote em `cadastro.py`. Também corrigido: edição de cliente/polo/parte contrária no cadastro ficava escondida atrás de `campos` (`carteira.gravar_plano`). Testes em `tests/test_clientes.py`.
