@@ -63,6 +63,8 @@ GENERICAS = {
     "matriz", "cada", "uma", "um", "outra", "outro", "qualquer", "nova", "novo", "sem", "numero", "ltda", "sa",
     "eireli", "x", "y", "z", "primeiro", "segunda", "terceira",
     "chacara", "tomadora", "aparece", "que", "nao",
+    # tipos de pessoa jurídica: a 1ª palavra do nome do cliente pode ser só isto (falso positivo em 08/10/2026)
+    "cooperativa", "condominio", "edificio", "residencial", "fundacao", "instituto", "sindicato", "municipio", "estado",
 }
 # Nomes já presentes no repositório antes deste teste existir, a confirmar com quem é dono do arquivo.
 # Chave: (arquivo, sha1 do nome normalizado) para este arquivo não repetir o nome. Quando o nome for trocado por

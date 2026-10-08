@@ -1,6 +1,6 @@
 # Como retomar a Fase 2 na próxima sessão
 
-Atualizado em 08/10/2026, ao fim do **beta 3** (seção "Beta 2.0.0-beta3" abaixo). **Nenhum agente está rodando.** Tudo está commitado e enviado ao branch `claude/gallant-pasteur-etzpu5`.
+Atualizado em 08/10/2026, ao fim do **beta 5** (seção abaixo; o beta 3 vem depois) (seção "Beta 2.0.0-beta3" abaixo). **Nenhum agente está rodando.** Tudo está commitado e enviado ao branch `claude/gallant-pasteur-etzpu5`.
 
 ## Onde estamos
 
@@ -46,6 +46,21 @@ Anotadas em 08/10/2026 enquanto a análise de um relatório real roda. **Tratada
 4. **Instâncias nos tribunais trabalhistas: 1º grau, 2º grau e TST** (pedido do usuário). **Leitura do código (`trt.coletar_processo`)**: o 1º grau é lido pela pesquisa da consulta do TRT; o **2º grau é tentado** em seguida pela mesma consulta, trocando o grau na URL (`/detalhe-processo/<número>/2`), e só entra se o `id` dos autos for diferente do 1º; se a pesquisa já abrir direto o 2º grau, os autos ficam sob o grau 2. **O TST não é consultado em lugar nenhum**: não há tratamento de host do TST (`consultaprocessual.tst.jus.br` ou equivalente); o único contato é o alias `tst` do DataJud em `capa.py`, só para metadados. Dois pontos fracos na parte do 2º grau: (a) `except Exception: pass` engole qualquer falha (captcha, tempo esgotado, sessão) na tentativa do 2º grau, então um recurso que existe pode ficar sem leitura **sem nenhum aviso**; (b) essa tentativa faz **mais um `page.goto`** por processo, o que pode contribuir para os captchas repetidos do item 3. Proposta: (1) registrar no evento/estado qual grau foi lido e qual falhou, com aviso `grau_nao_lido`; (2) só tentar o 2º grau quando houver indício de recurso (movimento de remessa/distribuição ao 2º grau, ou o DataJud indicar processo no grau 2) e reutilizar a mesma página; (3) detectar o **TST** de forma barata e sem captcha pelo **DataJud** (índice `tst`, mesmo número CNJ): se existir, trazer os movimentos do TST e marcar o processo "no TST"; (4) se o usuário quiser os **documentos** do TST (acórdãos, decisões), implementar o coletor da consulta do TST num segundo momento, depois de ver o acesso real (captcha/login). Os eventos já têm o campo `grau` ("1º grau", "2º grau"); acrescentar "TST" e o momento atual "AGUARDANDO JULGAMENTO DO RECURSO DE REVISTA" (ou similar) ao vocabulário. A matéria dos graus superiores também importa para o relatório (momento atual, último andamento, resultado e probabilidade usam a decisão mais recente e de instância mais alta).
 
 Ao retomar: rodar `src/diagnostico_rodada.py` no Mac (ver `diagnostico-rodada1.md`), conferir as hipóteses e validar o beta 3 (lista acima).
+
+## Beta 2.0.0-beta5 (08/10/2026): diagnóstico com os logs reais, feito numa sessão LOCAL (Mac do usuário)
+
+Primeira análise com os dados reais. Descoberta de contexto: a rodada do usuário rodou o código **v1.0.0** (a pasta instalada era o clone na `main`), nunca o beta3/4; a pasta passou ao branch em 08/10/2026. Correções (todas com testes em `tests/test_beta3.py`, só com doubles; **o tribunal e o Mac reais ainda não as validaram**):
+
+| Achado nos logs | Correção |
+| --- | --- |
+| TRT 7 e 22: busca devolve `pje-lista-processo` com botões `.selecao-processo` (1º grau/2º grau/TST) que ninguém clicava ("Os autos não chegaram") | `trt.botoes_de_grau/escolher_grau`; 2º grau lido quando a lista o oferece (nova pesquisa + clique); TST marcado em `no_tst` (`relato["graus_disponiveis"]`) |
+| Login: diálogo do PJe Office não aparecia (a ferramenta antiga dispensava o aviso nativo do Chrome "Acessar outros apps", o novo não) | `acesso.liberar_permissao_do_navegador` (só Chrome for Testing/Chromium), detecção do diálogo por parte do título, `janelas_do_pje` no diagnóstico |
+| Documentos: 1ª leitura marcava tudo como conhecido (cota); falha de download nunca retentada; aba Atualizar sem data = `--historico 0` | `trt`/`coletor`: pendentes voltam, `falhas_documentos` (3 rodadas), campo `historico` (padrão 5) na aba Atualizar |
+| jus.br: "Internal Server Error", erro de autenticação passageiros; processo no STJ ("tramitação não abriu") | `coletor.erro_transitorio_do_portal` (3 tentativas), `em_tribunal_superior` → `nao_encontrado` (manual, sem repetir) |
+| Captcha sem aviso | bipe `beep 2` independente da permissão de notificações; `trazer_navegador_para_frente` só no navegador da automação |
+| `/planilha` com planilha de contingências → 500 | mensagem e atalho para `/fluxo/atualizar` e `/migracao`; aba "Migrar de modelo" na navegação |
+
+Pendências: validar tudo isso numa rodada real; reescrever o histórico do git para tirar o nome de cliente do commit `eccac26` **não foi feito** (exige push forçado; decisão do usuário); o tempo por etapa (`tempo:`) só existe a partir de uma rodada com o beta5; o coletor de documentos do TST continua não escrito (a consulta do TRT já lista o TST: ver o acesso real antes).
 
 ## Beta 2.0.0-beta4 (08/10/2026): planilha de contingências, data-base e painel desatualizado
 

@@ -1,6 +1,19 @@
-# Relatório de Andamentos — versão 2.0.0-beta4
+# Relatório de Andamentos — versão 2.0.0-beta5
 
 Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você já usa, a montagem e a atualização de relatórios completos (texto, planilha e dashboard). O acesso ao jus.br e aos TRTs é o mesmo que já funciona; a aba **Atualizar** da versão anterior continua no painel, como plano B.
+
+## 0000. Novo no beta5 (a partir dos logs reais da sua rodada de 08/10/2026)
+
+Desta vez li os logs e os arquivos de `diagnosticos/` da sua rodada. **Ela rodou o programa da versão inicial (1.0.0), não o beta3 nem o beta4**: por isso nenhuma melhoria anterior apareceu. A pasta instalada agora está no beta5. **Feche o painel e abra de novo.** O que os logs mostraram, e o que foi corrigido:
+
+1. **TRT 7 e TRT 22: "Os autos não chegaram" em todo processo com 2º grau ou TST.** A consulta do TRT devolve uma tela "N processos encontrados: 1º Grau / 2º Grau / TST" e o programa esperava os autos sem clicar em nenhum botão. Agora ele clica no 1º grau, lê o 2º quando a lista o oferece (sem depender de adivinhar recurso pelos andamentos) e marca "no TST" quando o TST está na lista.
+2. **Login automático.** A ferramenta antiga (jusbr-autologin) clicava em **Permitir** no aviso nativo do Chrome "Acessar outros apps e serviços neste dispositivo"; o programa novo não, e sem esse clique o PJe Office nunca é chamado (o diálogo da senha não aparece). Agora ele clica, só no navegador da automação (nunca no seu Chrome). O diálogo da senha também é achado por parte do título, e, se não aparecer, o `login_jusbr_t*.json` lista os títulos das janelas do PJe Office.
+3. **Documentos que "não foram baixados".** Três causas: (a) a aba **Atualizar** antiga, sem data, só registrava o que existia e baixava zero; agora ela baixa os 5 mais recentes de cada processo (campo ajustável; 0 = só registrar); (b) na primeira leitura, o que passava da cota por processo era marcado como "já conhecido" e nunca vinha; agora volta na rodada seguinte; (c) documento cujo arquivo não veio ficava só com print para sempre; agora é tentado de novo (até 3 rodadas) e o mesmo registro é atualizado.
+4. **Aviso de captcha.** Além da notificação, há um bipe do sistema que não depende da permissão de notificações do Mac, e a janela que vem para a frente é a do navegador da automação (antes podia ser o seu Chrome).
+5. **Erros passageiros do jus.br** ("Internal Server Error", "Erro inesperado ao manusear pedido de autenticação"): o programa espera e tenta de novo até 3 vezes em vez de desistir do processo. **Processo que já está no STJ/STF** (Recurso Especial) vai direto para "conferir manualmente", com a explicação, sem repetir.
+6. **Planilha do mês** com uma planilha fora do modelo (como a de contingências) dava erro 500; agora explica e aponta para **Atualizar por arquivo** ou **Migrar de modelo**. A navegação ganhou a aba **Migrar de modelo** (converte relatórios atuais para texto simplificado, planilha e painel).
+
+**Ainda depende do seu Mac** (nunca testado com o tribunal real): o clique em "Permitir", o clique no botão do grau no TRT 7 e 22, o bipe e o navegador à frente. Se algum falhar, o `*-assistente.log` e `diagnosticos/` dizem onde parou.
 
 ## 000. Novo no beta4 (a partir do teste com a planilha de contingências)
 
