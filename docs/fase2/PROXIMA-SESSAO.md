@@ -63,6 +63,8 @@ Feito numa sessão em nuvem **sem acesso aos logs reais** (ficam no Mac do usuá
 
 **Gancho do TST (não implementado, a pedido do usuário)**: o coletor de **documentos** do TST (acórdãos, decisões) só será escrito depois que o usuário abrir a consulta do TST e descrever o acesso (captcha? login?). Hoje só há os movimentos do TST pelo DataJud e a marca `no_tst`. O lugar natural é um `tst.py` no estilo de `trt.py` (uma página de consulta por rodada, `coletar_processo(context, proc, estado, lista, historico, cota, desde, relato)`), chamado por `fila._acrescentar_tst` quando `no_tst`.
 
+**Estilo dos andamentos (colhido do relatório modelo, 08/10/2026)**: parâmetros em `estilo-andamentos.md` e `src/estilo_andamentos.py` (`PARAMETROS`, `avaliar`, `colher`); o pedido à IA local foi alinhado (voz do escritório na 1ª pessoa do plural, valores, prazos, norma só quando decide). A régua `avaliar` ainda **não está ligada à revisão/triagem**. O relatório modelo real foi lido pelo leitor `docx_a` (24 processos): vocabulário ampliado com "AGUARDANDO CITAÇÃO DO EXECUTADO" e "AGUARDANDO PAGAMENTO DO SALDO DEVEDOR"; **pendente de decisão do usuário**: o rótulo "DECISÃO" (hoje lido como "CONCLUSOS PARA DECISÃO") e o tipo dos vínculos escritos como "PROCESSO Nº A, B, C" (marcados "apenso").
+
 ### Validar no Mac (o que o usuário vai ver)
 
 1. **PJe Office fechado + iniciar a coleta**: faixa vermelha com o motivo, coleta em pausa, `diagnosticos/login_jusbr_t1.json` com `"passo": "dialogo"`; abrir o PJe Office, clicar **Retomar**.

@@ -153,6 +153,8 @@ MOMENTO_ATUAL = {
     "AGUARDANDO CITAÇÃO": ("conhecimento", True),
     "AGUARDANDO CITAÇÃO DO RÉU": ("conhecimento", True),
     "AGUARDANDO CITAÇÃO DOS EXECUTADOS": ("execução", True),
+    "AGUARDANDO CITAÇÃO DO EXECUTADO": ("execução", True),
+    "AGUARDANDO PAGAMENTO DO SALDO DEVEDOR": ("execução", True),
     "AGUARDANDO CITAÇÃO POR EDITAL": ("conhecimento", True),
     "AGUARDANDO INTIMAÇÃO DO RÉU": ("conhecimento", True),
     "AGUARDANDO CONTESTAÇÃO": ("conhecimento", True),
@@ -193,6 +195,10 @@ MOMENTO_ATUAL = {
     "REMETIDO AO JUÍZO COMPETENTE": ("encerrado", False),
 }
 MOMENTO_SINONIMOS = {
+    "AGUARDANDO CITAÇÃO DO EXECUTADO": ("aguarda citacao do executado", "aguardando a citacao do executado",
+                                        "citacao do executado pendente"),
+    "AGUARDANDO PAGAMENTO DO SALDO DEVEDOR": ("aguarda pagamento do saldo", "aguardando pagamento do saldo remanescente",
+                                              "saldo devedor pendente"),
     "AGUARDANDO CITAÇÃO": ("aguarda citacao", "aguardando a citacao", "citacao pendente", "pendente de citacao"),
     "AGUARDANDO CITAÇÃO DO RÉU": ("aguarda citacao do reu", "aguardando citacao da re", "aguardando citacao da parte re"),
     "AGUARDANDO CITAÇÃO POR EDITAL": ("citacao por edital", "aguardando edital de citacao"),

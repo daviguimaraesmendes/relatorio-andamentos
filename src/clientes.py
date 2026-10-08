@@ -38,7 +38,7 @@ def partes(texto):
 
 def nucleo(nome):
     """Palavras que identificam a parte: sem acento, sem sufixo societário (Ltda, S.A....), sem ligações nem termos
-    genéricos ("Condomínio", "Edifício"). 'Condomínio do Edifício Blue Ocean' -> ['blue', 'ocean']."""
+    genéricos ("Condomínio", "Edifício"). 'Condomínio do Edifício Mar Azul' -> ['mar', 'azul']."""
     palavras = [p for p in cart._sem_sufixo(nome) if p not in LIGACOES]
     sem_genericas = [p for p in palavras if p not in GENERICAS]
     return sem_genericas or palavras

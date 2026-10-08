@@ -179,6 +179,7 @@ Correções a partir do teste real de 92 processos; detalhes e o que validar no 
 | `src/acesso.py`, `src/coletor.py` | motivo do login por passo, diagnóstico em `diagnosticos/`, `LoginFalhou` | `tests/test_beta3.py` |
 | `src/capa.py`, `src/taxonomia.py`, `src/julgamento.py`, `src/fluxos.py` | TST pelo DataJud, grau "TST", momento de recurso de revista, avisos e graus na ficha | `tests/test_beta3.py` |
 | `src/resumir.py` | resumo mais completo, estilo do escritório, alerta de resumo curto | `tests/test_beta3.py`, `tests/test_sintese.py` |
+| `src/estilo_andamentos.py` (novo) | parâmetros de redação colhidos do relatório modelo, `avaliar` e `colher`; ver `estilo-andamentos.md` | `tests/test_beta3.py` |
 | `src/diagnostico_rodada.py` (novo) | diagnóstico anonimizado dos logs | `tests/test_beta3.py` |
 | `src/painel/base.py`, `assistente.py`, `entregas.py` | faixa de atenção, físicos e taxa de sucesso, retomar após falha de login, fechar o navegador no fim | `tests/test_beta3.py`, `tests/test_painel.py` (instantâneo regravado: só o cabeçalho mudou) |
 

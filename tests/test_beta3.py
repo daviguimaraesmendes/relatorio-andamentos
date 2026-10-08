@@ -1047,5 +1047,65 @@ class TestDiagnostico(unittest.TestCase):
         self.assertEqual(m, "Juntada de petição de <NOME> no processo <proc> valor R$ # em ##/##/####")
 
 
+# ================================================================== estilo dos andamentos (parâmetros do relatório modelo)
+
+class TestEstiloDosAndamentos(unittest.TestCase):
+    PADRAO = ("Execução de cotas condominiais ajuizada contra o proprietário da unidade 000 pelo não pagamento de R$ 3.000,00 "
+              "(janeiro a março/2026). Rejeitada a exceção de pré-executividade em 10/05/2026, com determinação de prosseguimento. "
+              "O executado depositou R$ 1.000,00 como pagamento parcial, o que impugnamos por insuficiência, requerendo o "
+              "prosseguimento pelo saldo de R$ 2.000,00; em 15/07/2026, o Juízo autorizou o levantamento do valor incontroverso. "
+              "Em 02/09/2026, apresentamos nova memória de cálculo. Em 18/09/2026, sem atualizações.")
+
+    def codigos(self, texto, base=None):
+        import estilo_andamentos as ea
+        return [a["codigo"] for a in ea.avaliar(texto, base)]
+
+    def test_texto_no_padrao_nao_tem_aviso(self):
+        self.assertEqual(self.codigos(self.PADRAO, "18/09/2026"), [])
+
+    def test_metricas(self):
+        import estilo_andamentos as ea
+        m = ea.metricas(self.PADRAO)
+        self.assertTrue(m["abertura_sem_data"])
+        self.assertEqual((m["valores"], m["datas"]), (3, 3))
+        self.assertGreaterEqual(m["primeira_pessoa_plural"], 2)
+        self.assertEqual(m["atos_datados"], 1, "só os atos que abrem a oração com 'Em DD/MM/AAAA,' (o fecho não conta)")
+
+    def test_cada_desvio_gera_o_seu_aviso(self):
+        self.assertIn("estilo_curto", self.codigos("Deferida a tutela em 10/05/2026."))
+        self.assertIn("estilo_longo", self.codigos(("Em 10/05/2026, deferida a tutela. " * 60)))
+        self.assertIn("estilo_data_por_extenso", self.codigos(self.PADRAO.replace("10/05/2026", "10 de maio de 2026")))
+        self.assertIn("estilo_sem_data", self.codigos("Ação de cobrança com tutela deferida e depósito parcial do valor devido pela parte contrária, "
+                                                      "seguida de contestação, réplica e pedido de prova pericial, ainda sem decisão sobre o objeto da perícia."))
+        self.assertIn("estilo_fora_de_ordem", self.codigos("Ação de cobrança ajuizada pelo condomínio contra o proprietário, com pedido de tutela "
+                                                           "deferido em seguida pelo Juízo e depois contestado. Em 05/09/2026, requeremos prazo. "
+                                                           "Em 02/03/2026, apresentamos réplica e documentos novos sobre os pagamentos alegados."))
+        self.assertIn("estilo_voz_do_escritorio", self.codigos(self.PADRAO.replace("apresentamos", "o escritório apresentou")))
+        self.assertIn("estilo_frase_vaga", self.codigos(self.PADRAO.replace("Rejeitada a exceção", "Analisando o pedido, rejeitada a exceção")))
+        self.assertIn("estilo_fecho_data_base", self.codigos(self.PADRAO, "25/09/2026"))
+        self.assertEqual(self.codigos(""), ["estilo_vazio"])
+
+    def test_colher_agrega_sem_dado_identificavel(self):
+        import estilo_andamentos as ea
+        lido = {"processos": [{"andamentos_texto": self.PADRAO.replace(" Em 18/09/2026, sem atualizações.", ""), "fecho": "x"},
+                              {"andamentos_texto": "Deferida a tutela em 10/05/2026.", "fecho": None}]}
+        with mock.patch("leitores.ler", return_value=lido):
+            r = ea.colher("qualquer.docx")
+        self.assertEqual((r["textos"], r["com_fecho"], r["abertura_participial"]), (2, 1, 1))
+        self.assertIn(("estilo_curto", 1), [tuple(x) for x in r["fora_do_padrao"]])
+        self.assertNotIn("unidade 000", json.dumps(r, ensure_ascii=False))
+
+    def test_momentos_do_relatorio_modelo_no_vocabulario(self):
+        for momento in ("AGUARDANDO CITAÇÃO DO EXECUTADO", "AGUARDANDO PAGAMENTO DO SALDO DEVEDOR"):
+            self.assertIn(momento, taxonomia.MOMENTO_ATUAL)
+            self.assertEqual(taxonomia.normalizar_momento(momento)[0], momento)
+
+    def test_pedido_a_ia_traz_o_padrao_do_escritorio(self):
+        import resumir
+        for trecho in ("DD/MM/AAAA", "primeira pessoa do plural", "R$ 1.979,91", "nunca cite jurisprudência"):
+            self.assertIn(trecho, resumir.SISTEMA_BASE)
+        self.assertNotIn("Não cite número de lei", resumir.SISTEMA_BASE)
+
+
 if __name__ == "__main__":
     unittest.main()

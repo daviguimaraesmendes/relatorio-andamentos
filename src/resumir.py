@@ -64,7 +64,12 @@ SISTEMA_BASE = (
     "Nunca escreva frases vagas como 'analisando o pedido', 'dando andamento ao processo' ou 'apreciando a questão': "
     "se o texto só permitir isso, escreva exatamente: 'Não foi possível identificar o conteúdo.' "
     "Use só o que está escrito no texto; nunca complete com suposição. "
-    "Não cite número de lei, artigo nem jurisprudência. "
+    "Padrão de redação do escritório: datas sempre como DD/MM/AAAA; os atos do juízo e das partes na forma passiva ou no "
+    "particípio ('deferida a tutela', 'foi extinto o processo', 'a parte contrária apelou'); os atos do nosso escritório na "
+    "primeira pessoa do plural ('apresentamos', 'requeremos', 'informamos'); o nosso cliente na terceira pessoa, pelo nome "
+    "curto. Quando o texto trouxer, inclua valores em reais exatamente como escritos (R$ 1.979,91), percentuais, números de "
+    "unidades, prazos ('em 15 dias, sob pena de multa') e o número do processo relacionado. "
+    "Cite lei, portaria ou artigo só quando o próprio texto o fizer e for o fundamento da decisão; nunca cite jurisprudência. "
     "Responda apenas com o JSON pedido."
 )
 
@@ -175,7 +180,8 @@ def montar_pedido(texto, tipo, quem, frase, ctx):
         "R$ 4.200,00 em dobro, com correção desde o pagamento, e a pagar 10% de honorários; os demais pedidos, de indenização por dano moral, foram negados'; "
         "'intimando a parte contrária a se manifestar, em 15 dias, sobre os documentos juntados pelo nosso cliente, o que permite ao juiz decidir sem nova audiência'; "
         "'negando o pedido de urgência da parte contrária de bloquear R$ 30.000,00 da conta do nosso cliente, por falta de prova do risco alegado, mantendo o processo no ritmo normal'. "
-        "Não comece com 'O documento'. Sem termos técnicos quando houver palavra comum. Se o texto não trouxer valor, prazo ou data, não invente.\n"
+        "Não comece com 'O documento'. Sem termos técnicos quando houver palavra comum. Se o texto não trouxer valor, prazo ou data, não invente. "
+        "Se a frase inicial estiver na primeira pessoa do plural ('Apresentamos...'), continue na mesma voz.\n"
         "- trecho_origem: copie LITERALMENTE do texto a frase que sustenta o conteúdo (até 300 caracteres).\n"
         "- prazo: prazo ou data fixada para alguém cumprir algo (ex.: '15 dias para o autor se manifestar'); null se não houver.\n"
         "- audiencia: data e hora de audiência marcada; null se não houver.\n"
