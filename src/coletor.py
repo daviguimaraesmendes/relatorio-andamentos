@@ -237,16 +237,35 @@ def grau(rotulo):
     return f"{m.group(1)}º grau" if m else None
 
 
-def _abrir_url(context, numero, url):
-    autos = janela.nova_pagina(context)
-    try:
-        autos.goto(url, timeout=30000, wait_until="domcontentloaded")
-        fechar_popups(autos, tentativas=2)
-        if _autos_carregados(autos, numero):
-            return autos
-    except Exception:
-        pass
-    autos.close()
+ERROS_TRANSITORIOS = ("Internal Server Error", "Erro inesperado ao manusear pedido de autenticação", "Bad Gateway",
+                      "Service Unavailable", "Gateway Time-out")
+
+
+def erro_transitorio_do_portal(page):
+    """O portal jus.br às vezes devolve uma página de erro que passa sozinha (visto em 08/10/2026: "Internal Server
+    Error" ao abrir os autos e "Erro inesperado ao manusear pedido de autenticação" na busca). Vale esperar e tentar de
+    novo, em vez de desistir do processo."""
+    texto = _texto(page)
+    return any(e.lower() in texto.lower() for e in ERROS_TRANSITORIOS)
+
+
+def _abrir_url(context, numero, url, tentativas=2):
+    for tentativa in range(1, tentativas + 1):
+        autos = janela.nova_pagina(context)
+        transitorio = False
+        try:
+            autos.goto(url, timeout=30000, wait_until="domcontentloaded")
+            fechar_popups(autos, tentativas=2)
+            if _autos_carregados(autos, numero):
+                return autos
+            transitorio = erro_transitorio_do_portal(autos)
+        except Exception:
+            pass
+        autos.close()
+        if not transitorio or tentativa == tentativas:
+            break
+        print("  O portal devolveu um erro passageiro ao abrir os autos; tentando de novo em instantes.", flush=True)
+        time.sleep(6 * tentativa)
     return None
 
 
@@ -307,14 +326,18 @@ def _buscar(context, numero, respostas=None):
 
 
 def _buscar_tentativas(context, numero):
-    for tentativa in (1, 2):
+    for tentativa in (1, 2, 3):
         consulta = janela.nova_pagina(context)
+        transitorio = False
         try:
             try:
                 consulta.goto(URL_CONSULTA, timeout=30000, wait_until="domcontentloaded")
             except Exception:
                 consulta.wait_for_timeout(5000)
             consulta.wait_for_timeout(3000 * tentativa)
+            if erro_transitorio_do_portal(consulta):
+                transitorio = True
+                raise RuntimeError("o portal devolveu uma página de erro passageira")
             fechar_popups(consulta)
             campo = consulta.get_by_placeholder("0000000-00.0000.0.00.0000")
             campo.wait_for(state="visible", timeout=30000)
@@ -333,7 +356,16 @@ def _buscar_tentativas(context, numero):
         except Exception:
             salvar_diagnostico(consulta, f"busca_falhou_{slug(numero)}_t{tentativa}")
             consulta.close()
+            if transitorio and tentativa < 3:
+                time.sleep(8 * tentativa)  # o erro de autenticação/servidor do portal costuma passar em segundos
     return None
+
+
+def em_tribunal_superior(texto):
+    """"STJ" ou "STF" quando a tabela da busca mostra o órgão julgador de um tribunal superior (a tramitação atual
+    está lá e o jus.br não abre estes autos; visto em 08/10/2026 num Recurso Especial), senão None."""
+    m = re.search(r"\b(STJ|STF)\s*-\s*[A-ZÀ-Ú]", texto or "")
+    return m.group(1) if m else None
 
 
 def abrir_tramitacoes(context, numero, salvas=None):
@@ -383,6 +415,7 @@ def abrir_tramitacoes(context, numero, salvas=None):
     else:
         print(f"  Resposta do portal sem data de distribuição (salva em diagnósticos). Tentando o clique.")
     abertas = []
+    superior = em_tribunal_superior(_texto(consulta))
     try:
         for i in range(total):
             if i > 0:  # cada tramitação a partir de uma busca nova (o clique pode trocar a página)
@@ -418,6 +451,9 @@ def abrir_tramitacoes(context, numero, salvas=None):
                 if consulta is None and i + 1 < total:
                     break
         if not abertas:
+            if superior:
+                raise RuntimeError(f"Processo no {superior} (tribunal superior): o jus.br não abre estes autos. "
+                                   "Conferir manualmente no portal do tribunal.")
             raise RuntimeError("Nenhuma tramitação abriu (diagnóstico salvo).")
         return abertas
     finally:

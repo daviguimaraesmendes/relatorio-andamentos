@@ -1401,3 +1401,36 @@ class TestPlanilhaDeContingencias(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestErrosDoPortalJusBr(unittest.TestCase):
+    """Falhas de 08/10/2026: erros passageiros do portal e processo que já está no STJ."""
+
+    def test_reconhece_erro_passageiro_do_portal(self):
+        for texto in ("Internal Server Error\nError id 20d0", "Erro inesperado ao manusear pedido de autenticação para provedor"):
+            with mock.patch.object(coletor, "_texto", return_value=texto):
+                self.assertTrue(coletor.erro_transitorio_do_portal(object()), texto)
+        with mock.patch.object(coletor, "_texto", return_value="Consultar Processos"):
+            self.assertFalse(coletor.erro_transitorio_do_portal(object()))
+
+    def test_abrir_url_tenta_de_novo_depois_de_erro_passageiro(self):
+        paginas = [mock.Mock(), mock.Mock()]
+        with mock.patch.object(janela, "nova_pagina", side_effect=paginas), mock.patch.object(coletor, "fechar_popups"), \
+                mock.patch.object(coletor, "_autos_carregados", side_effect=[False, True]), \
+                mock.patch.object(coletor, "erro_transitorio_do_portal", return_value=True), mock.patch.object(coletor.time, "sleep"):
+            self.assertIs(coletor._abrir_url(object(), "N", "http://x"), paginas[1])
+        paginas[0].close.assert_called()
+
+    def test_abrir_url_nao_insiste_em_erro_que_nao_e_passageiro(self):
+        with mock.patch.object(janela, "nova_pagina", return_value=mock.Mock()) as nova, mock.patch.object(coletor, "fechar_popups"), \
+                mock.patch.object(coletor, "_autos_carregados", return_value=False), \
+                mock.patch.object(coletor, "erro_transitorio_do_portal", return_value=False), mock.patch.object(coletor.time, "sleep"):
+            self.assertIsNone(coletor._abrir_url(object(), "N", "http://x"))
+        self.assertEqual(nova.call_count, 1)
+
+    def test_processo_no_stj_vai_para_conferencia_manual_sem_repetir(self):
+        self.assertEqual(coletor.em_tribunal_superior("Recurso Especial (1032)\nSTJ - SECRETARIA JUDICIÁRIA - SJD"), "STJ")
+        self.assertIsNone(coletor.em_tribunal_superior("1ª VARA CÍVEL DE FORTALEZA"))
+        erro = fila.classificar_erro(RuntimeError("Processo no STJ (tribunal superior): o jus.br não abre estes autos."))
+        self.assertEqual(erro["codigo"], "nao_encontrado")
+        self.assertIn(erro["codigo"], fila.PERMANENTES)

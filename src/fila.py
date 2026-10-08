@@ -843,7 +843,8 @@ def classificar_erro(excecao):
         codigo = "captcha"
     elif "segredo de justiça" in baixo or "segredo de justica" in baixo:
         codigo = "segredo"
-    elif "não encontrado" in baixo or "nao encontrado" in baixo or "não reconheceu o número" in baixo:
+    elif "não encontrado" in baixo or "nao encontrado" in baixo or "não reconheceu o número" in baixo \
+            or "tribunal superior" in baixo:
         codigo = "nao_encontrado"
     elif "login" in baixo or "sessão" in baixo or "sessao" in baixo or "has been closed" in baixo or "target closed" in baixo:
         codigo = "sessao_expirada"
