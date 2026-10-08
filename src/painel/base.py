@@ -168,10 +168,17 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             slug = rodando                  # coleta em andamento: o relatório não muda até terminar
         if slug in disponiveis and slug != comum.PROJETO:
             comum.usar_projeto(slug)
-        primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json")
+        primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json", "/versao.json")
         # o assistente e a migração de modelo criam o primeiro relatório: ficam liberados sem relatório
         if not disponiveis and request.path not in primeiro_uso and not request.path.startswith(("/fluxo", "/migracao")):
             return redirect("/novo")
+
+    @app.get("/versao.json")
+    def versao_json():
+        """Para o lançador (abrir_painel.py): qual versão ESTE servidor carregou, qual está no disco e se há trabalho
+        em andamento (nesse caso o lançador não reinicia o servidor)."""
+        return {"carregada": VERSAO_CARREGADA, "arquivo": versao(), "coleta": bool(coleta_em_andamento_em()),
+                "tarefa": _tarefa_rodando()}
 
     @app.get("/atencao.json")
     def atencao_json():

@@ -1022,7 +1022,8 @@
   "/relatorio GET -> ver_relatorio",
   "/tarefa POST -> tarefa",
   "/triagem GET -> triagem_tela",
-  "/triagem/lote POST -> triagem_lote"
+  "/triagem/lote POST -> triagem_lote",
+  "/versao.json GET -> versao_json"
  ],
  "tela depois de /mostrar": {
   "sha256": "29a69256065b2e57",
