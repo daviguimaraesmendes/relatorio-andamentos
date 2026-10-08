@@ -1519,3 +1519,20 @@ class TestDocumentosPendentes(Base):
         self.assertEqual(len(docs), 1, "o mesmo evento, sem duplicar")
         self.assertTrue(docs[0]["arquivo"])
         self.assertNotIn("901", estado[TRT7]["trt"]["1"]["falhas_documentos"])
+
+
+class TestEntradaNoTRT(Base):
+    def test_entrada_que_falha_na_primeira_tem_segunda_chance_e_guarda_a_tela(self):
+        portal = portal_de(TRT7)
+        with mock.patch.object(trt, "entrar_acesso_restrito", side_effect=[False, True]) as entrar, \
+                mock.patch.object(coletor, "salvar_diagnostico") as diag:
+            page = trt.pagina_da_consulta(portal, "pje.trt8.jus.br")
+        self.assertIsNotNone(page)
+        self.assertEqual(entrar.call_count, 2)
+        self.assertIn("acesso_restrito_falhou_trt8_t1", diag.call_args[0][1])
+
+    def test_entrada_que_falha_duas_vezes_levanta_o_erro_de_sempre(self):
+        portal = portal_de(TRT7)
+        with mock.patch.object(trt, "entrar_acesso_restrito", return_value=False), mock.patch.object(coletor, "salvar_diagnostico"):
+            with self.assertRaisesRegex(RuntimeError, "Acesso restrito do TRT não abriu"):
+                trt.pagina_da_consulta(portal, "pje.trt8.jus.br")

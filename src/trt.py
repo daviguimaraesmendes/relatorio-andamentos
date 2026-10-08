@@ -164,6 +164,10 @@ def entrar_acesso_restrito(page, host, guardar=None):
     for _ in range(30):  # até ~30 s pela consulta pronta
         if consulta_pronta(page):
             break
+        if tem_captcha(page):  # alguns TRTs pedem o captcha já na entrada (visto no TRT 8 em 08/10/2026?)
+            if not esperar_captcha_humano(page, tribunal=numero_do_trt(host)):
+                raise CaptchaNaoResolvido(f"Captcha do TRT {numero_do_trt(host)} não resolvido a tempo "
+                                          f"({int(espera_do_captcha_s() // 60)} min).")
         page.wait_for_timeout(1000)
     if guardar:
         guardar(page, "0_acesso_restrito")
@@ -341,7 +345,15 @@ def pagina_da_consulta(context, host, guardar=None):
         CONSULTAS.pop(chave, None)
     page = janela.nova_pagina(context)
     try:
-        if not entrar_acesso_restrito(page, host, guardar):
+        for tentativa in (1, 2):  # a entrada às vezes não completa na primeira (TRT 8, 08/10/2026): uma segunda chance
+            if entrar_acesso_restrito(page, host, guardar):
+                break
+            try:
+                import coletor
+                coletor.salvar_diagnostico(page, f"acesso_restrito_falhou_trt{numero_do_trt(host)}_t{tentativa}")
+            except Exception:
+                pass
+        else:
             raise RuntimeError("Acesso restrito do TRT não abriu a consulta.")
     except BaseException:
         try:
