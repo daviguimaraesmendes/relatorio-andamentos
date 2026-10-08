@@ -117,6 +117,9 @@ def notificar(texto, titulo=TITULO):
         try:
             _executar(["osascript", "-e", f'display notification "{_aspas(texto)}" with title "{_aspas(titulo)}" '
                                           f'sound name "Ping"'])
+            # o Mac pode bloquear as notificações do osascript (Ajustes > Notificações > Editor de Script) e então a
+            # notificação nem o som aparecem: o bipe do sistema não depende dessa permissão
+            _executar(["osascript", "-e", "beep 2"])
             return True
         except Exception:
             return False
@@ -125,11 +128,12 @@ def notificar(texto, titulo=TITULO):
 
 
 def trazer_navegador_para_frente():
-    """Põe o navegador de automação por cima de tudo (Terminal e painel inclusive). Só no Mac."""
+    """Põe o navegador de automação (Chrome for Testing / Chromium) por cima de tudo, Terminal e painel inclusive.
+    Nunca o Chrome pessoal da pessoa. Só no Mac."""
     if not MAC:
         return False
     script = ('tell application "System Events"\n'
-              '  set alvos to every process whose name contains "Chrom"\n'
+              '  set alvos to every process whose name is "Google Chrome for Testing" or name is "Chromium"\n'
               '  if (count of alvos) > 0 then set frontmost of item 1 of alvos to true\n'
               'end tell')
     try:

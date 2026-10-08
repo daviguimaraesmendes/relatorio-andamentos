@@ -97,6 +97,8 @@ class TestAtencao(unittest.TestCase):
         self.assertTrue(any("display notification" in x and 'sound name "Ping"' in x for x in scripts))
         self.assertTrue(any("frontmost" in x and "Chrom" in x for x in scripts))
         self.assertTrue(all(a[0] == "osascript" for a in chamadas))
+        self.assertIn("beep 2", scripts, "bipe que não depende da permissão de notificações")
+        self.assertFalse(any('contains "Chrom"' in x for x in scripts), "nunca traz o Chrome pessoal para a frente")
         self.assertIn('\\"do\\"', scripts[0], "aspas do texto são escapadas")
         self.assertEqual(atencao.atual()["tipo"], "captcha")
 
