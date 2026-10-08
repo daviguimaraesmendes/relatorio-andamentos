@@ -280,6 +280,9 @@ def explorar(numero):
 
 # --- coleta (rodada normal) ---------------------------------------------------
 
+# Quantas rodadas se tenta de novo um documento cujo arquivo não veio antes de desistir (fica só o print).
+DESISTE_DO_DOCUMENTO = 3
+
 # Andamentos que indicam recurso (2º grau): só com um desses a coleta tenta ler o 2º grau.
 INDICIO_2_GRAU = re.compile(
     r"remessa\s.*(tribunal|2[ºo°]\s*grau|segundo\s+grau)|remetid[oa]s?\s.*(tribunal|2[ºo°]\s*grau|segundo\s+grau)|"
@@ -604,29 +607,43 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
             marcas["andamentos"] = time.time()
             # documentos
             docs_conhecidos = set(reg.get("documentos", []))
+            falhas = dict(reg.get("falhas_documentos", {}))        # {id: tentativas sem conseguir o arquivo}
             if primeira_vez:
                 novos_docs = [d for d in docs if coletor._depois(d["data"], desde)] if desde else docs[:historico]
             else:
                 novos_docs = [d for d in docs if d["id"] not in docs_conhecidos]
+            fora_da_selecao = [d["id"] for d in docs if d not in novos_docs]
             for d in novos_docs[:max(cota - baixados, 0)]:
                 nome = f"{d['id']} - {d['tipo']} - {d['titulo']}"
                 ev = coletor._evento_base(proc, "documento", f"doc|{d['id']}", nome)
-                if ev["id"] in ids:
+                anterior = next((e for e in lista if e["id"] == ev["id"]), None) if ev["id"] in ids else None
+                if anterior is not None and anterior.get("arquivo"):
+                    docs_conhecidos.add(d["id"])
                     continue
                 arquivo, foto = _baixar_documento_trt(context, host, numero, grau, d, capturas, pasta_prints, proc)
                 if arquivo:
                     baixados += 1
-                ev.update(tipo=d["tipo"], descricao=d["titulo"], doc_id=d["id"], data=d["data"], grau=nivel,
-                          arquivo=str(arquivo) if arquivo else None, print=str(foto) if foto else None)
-                lista.append(ev)
-                ids.add(ev["id"])
-                docs_conhecidos.add(d["id"])
+                    falhas.pop(d["id"], None)
+                    docs_conhecidos.add(d["id"])
+                else:  # sem o arquivo: tenta de novo nas próximas rodadas (até DESISTE_DO_DOCUMENTO vezes)
+                    falhas[d["id"]] = falhas.get(d["id"], 0) + 1
+                    if falhas[d["id"]] >= DESISTE_DO_DOCUMENTO:
+                        docs_conhecidos.add(d["id"])
+                dados_ev = dict(tipo=d["tipo"], descricao=d["titulo"], doc_id=d["id"], data=d["data"], grau=nivel,
+                                arquivo=str(arquivo) if arquivo else None, print=str(foto) if foto else None)
+                if anterior is not None:
+                    anterior.update(dados_ev)
+                else:
+                    ev.update(dados_ev)
+                    lista.append(ev)
+                    ids.add(ev["id"])
                 print(f"  documento {'baixado' if arquivo else 'só com print'}: {nome}", flush=True)
                 coletor.pausa(comum.config()["coleta"]["pausa_entre_documentos_s"])
             print(f"  documentos: {len(docs)} nos autos, {len(novos_docs)} novo(s)", flush=True)
-            if primeira_vez or len(novos_docs) <= cota:
-                docs_conhecidos.update(d["id"] for d in docs)
-            novo_estado[grau] = {"movimentos": sorted({m[0] for m in movs} | conhecidos), "documentos": sorted(docs_conhecidos)}
+            # fora da seleção da 1ª leitura (antigos demais) = conhecidos; o que passou da cota fica para a próxima rodada
+            docs_conhecidos.update(fora_da_selecao)
+            novo_estado[grau] = {"movimentos": sorted({m[0] for m in movs} | conhecidos), "documentos": sorted(docs_conhecidos),
+                                 "falhas_documentos": falhas}
         for grau_antigo, reg_antigo in reg_proc.items():  # grau lido antes e não relido agora: o registro não se perde
             novo_estado.setdefault(grau_antigo, reg_antigo)
         estado[numero] = {"trt": novo_estado, "ultima_coleta": datetime.datetime.now().isoformat(timespec="seconds")}

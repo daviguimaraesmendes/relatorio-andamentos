@@ -644,6 +644,10 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
     return baixados
 
 
+# Quantas rodadas se tenta de novo um documento cujo arquivo não veio antes de desistir (fica só o print).
+DESISTE_DO_DOCUMENTO = 3
+
+
 def _coletar_tramitacao(autos, proc, reg, rotulo, lista, historico, cota, desde, chave_t, ja_lidas=None):
     numero = proc["numero"]
     primeira_vez = reg is None
@@ -689,14 +693,18 @@ def _coletar_tramitacao(autos, proc, reg, rotulo, lista, historico, cota, desde,
     abrir_aba(autos, "Documentos")
     documentos = listar_documentos(autos)
     doc_conhecidos = set(reg.get("documentos", []))
+    falhas = dict(reg.get("falhas_documentos", {}))        # {nome: tentativas sem conseguir o arquivo}
     if primeira_vez:
         novos_doc = [d for d in documentos if _depois(d[2], desde)] if desde else documentos[:historico]
     else:
         novos_doc = [d for d in documentos if d[0] not in doc_conhecidos]
+    fora_da_selecao = [d[0] for d in documentos if d not in novos_doc]
     for nome, link, data_doc in novos_doc[:max(cota, 0)]:
         info = separar_nome_documento(nome)
         ev = _evento_base(proc, "documento", f"doc|{info['id'] or nome}", nome)
-        if ev["id"] in ids:
+        anterior = next((e for e in lista if e["id"] == ev["id"]), None) if ev["id"] in ids else None
+        if anterior is not None and anterior.get("arquivo"):
+            doc_conhecidos.add(nome)
             continue
         arquivo, foto = abrir_documento(autos, link, nome, pasta_prints / slug(nome)[:80])
         if arquivo:
@@ -705,18 +713,27 @@ def _coletar_tramitacao(autos, proc, reg, rotulo, lista, historico, cota, desde,
             arquivo.replace(destino)
             arquivo = destino
             baixados += 1
-        ev.update(tipo=info["tipo"], descricao=info["descricao"], doc_id=info["id"], data=data_doc, grau=nivel,
-                  arquivo=str(arquivo) if arquivo else None, print=str(foto))
-        lista.append(ev)
-        ids.add(ev["id"])
-        doc_conhecidos.add(nome)
+            falhas.pop(nome, None)
+            doc_conhecidos.add(nome)
+        else:  # sem o arquivo: tenta de novo nas próximas rodadas (até DESISTE_DO_DOCUMENTO vezes)
+            falhas[nome] = falhas.get(nome, 0) + 1
+            if falhas[nome] >= DESISTE_DO_DOCUMENTO:
+                doc_conhecidos.add(nome)
+        dados_ev = dict(tipo=info["tipo"], descricao=info["descricao"], doc_id=info["id"], data=data_doc, grau=nivel,
+                        arquivo=str(arquivo) if arquivo else None, print=str(foto))
+        if anterior is not None:
+            anterior.update(dados_ev)
+        else:
+            ev.update(dados_ev)
+            lista.append(ev)
+            ids.add(ev["id"])
         print(f"  documento {'baixado' if arquivo else 'só com print'}: {nome}")
         pausa(config()["coleta"]["pausa_entre_documentos_s"])
     print(f"  documentos: {len(documentos)} na tela, {len(novos_doc)} novo(s)")
-    if primeira_vez or len(novos_doc) <= cota:
-        doc_conhecidos.update(d[0] for d in documentos)  # o que passou da cota fica para a próxima rodada
+    # fora da seleção da 1ª leitura (antigos demais) = conhecidos; o que passou da cota fica para a próxima rodada
+    doc_conhecidos.update(fora_da_selecao)
     return baixados, {"movimentos": sorted({m[0] for m in movimentos} | mov_conhecidos),
-                      "documentos": sorted(doc_conhecidos)}
+                      "documentos": sorted(doc_conhecidos), "falhas_documentos": falhas}
 
 
 def rodar(numeros=None, historico=0, desde=None):

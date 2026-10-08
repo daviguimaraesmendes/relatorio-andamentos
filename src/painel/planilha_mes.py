@@ -40,7 +40,12 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 nome_base = re.sub(r"\s*-\s*atualizada$", "", re.sub(r"^\d{4}-\d{2}-\d{2} - ", "", nome_base))
                 nome = re.sub(r"[^\w .-]", "", nome_base)[:80] or "relatorio"
                 destino = comum.RELATORIOS_DIR / "planilhas" / f"{datetime.date.today():%Y-%m-%d} - {nome}.xlsx"
-                feitos, fora = planilha.gerar(modelo, destino, sem_novidade=bool(request.form.get("sem_novidade")))
+                try:
+                    feitos, fora = planilha.gerar(modelo, destino, sem_novidade=bool(request.form.get("sem_novidade")))
+                except Exception as erro:  # planilha fora do modelo da aba "Processos" (ex.: de contingências)
+                    return _ir("/planilha", f"Não consegui gerar a partir desta planilha: {erro}\n"
+                                            "Se ela não segue o modelo da aba Processos, use \"Atualizar por arquivo\" "
+                                            "(/fluxo/atualizar) ou \"Migrar de modelo\" (/migracao): lá as colunas são mapeadas.")
             proj.update(planilha_modelo=str(destino), ultimo_relatorio=datetime.date.today().isoformat())
             comum.salvar_projeto(proj)
             msg = f"Planilha gerada: {len(feitos)} processo(s) atualizado(s). Ela passa a ser a referência do próximo mês."

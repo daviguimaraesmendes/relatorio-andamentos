@@ -23,7 +23,11 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         proj = comum.projeto()
         ultimo = proj.get("ultimo_relatorio", "")
         primeira = not comum.load_json(comum.ESTADO_FILE, {})
-        h = [cabecalho("atualizar"), "<h1>Atualizar andamentos</h1>", _msg()]
+        h = [cabecalho("atualizar"), "<h1>Atualizar andamentos</h1>", _msg(),
+             "<div class='caixa'><b>Tem um relatório pronto (Word ou planilha)?</b> Use o "
+             "<a href='/fluxo/atualizar'>fluxo de atualização por arquivo</a>: ele lê o relatório, pergunta a data-base, "
+             "mostra o que mudou e faz a coleta. Para passar um relatório atual para os modelos novos (texto simplificado, "
+             "planilha ou painel), use <a href='/migracao'>Migrar de modelo</a>.</div>"]
         if TAREFA:
             rodando = _tarefa_rodando()
             log = Path(TAREFA["log"]).read_text(encoding="utf-8", errors="replace")[-12000:] if Path(TAREFA["log"]).exists() else ""
@@ -46,7 +50,10 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                  "Ao terminar, os rascunhos aparecem em Revisar.</p>"
                  + (f"<p>Primeira atualização deste relatório: considerar como novo o que veio depois de "
                     f"<input type='date' name='desde' value='{html.escape(ultimo)}'> (data do último relatório enviado). "
-                    "Sem data, só registra o que já existe e começa a acompanhar daqui para frente.</p>" if primeira else "")
+                    "Sem data, o programa lê e baixa os "
+                    "<input type='number' name='historico' value='5' min='0' max='200' style='width:4em'> andamentos e "
+                    "documentos mais recentes de cada processo (0 = só registrar o que já existe, sem baixar nada).</p>"
+                    if primeira else "")
                  + f"<button class='principal' {bloqueado}>Atualizar</button></form>")
         h.append(f"<form class='caixa' method='post' action='/tarefa'>{oculto}<input type='hidden' name='tipo' value='conferencia'>"
                  "<b>Conferência</b><p class='dica'>Sem IA. Separa, por responsável, os andamentos e documentos dos últimos "
@@ -68,6 +75,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             if request.form.get("desde"):
                 a, m, d = request.form["desde"].split("-")
                 args += ["--desde", f"{d}/{m}/{a}"]
+            elif request.form.get("historico", "").strip().isdigit():  # 1ª atualização sem data: quantos mais recentes
+                args += ["--historico", request.form["historico"].strip()]
             descricao = "Atualização no jus.br"
         elif tipo == "teste_acesso":
             args, descricao = py + [str(raiz / "src" / "coletor.py"), "--testar-login"], "Teste de acesso ao jus.br"

@@ -371,10 +371,11 @@ class PortalFalso:
     processo; voltar leva à consulta sem recarregar; o captcha, se pedido, trava o detalhe até alguém resolver."""
 
     def __init__(self, autos, captcha_na_primeira=0, captcha_nunca_resolvido=False, falha_grau2=False,
-                 escolha_de_grau=False, com_tst=False):
+                 escolha_de_grau=False, com_tst=False, sem_pdf=()):
         self.autos = autos                      # {(numero, grau): corpo}
         self.escolha_de_grau = escolha_de_grau  # a pesquisa devolve a tela "N processos encontrados: 1° Grau / 2° Grau"
         self.com_tst = com_tst
+        self.sem_pdf = set(sem_pdf)             # ids de documentos cujo PDF o portal não entrega
         self.paginas, self.ouvintes = [], []
         self.captcha_pendente = captcha_na_primeira       # nº de esperas até a pessoa resolver; 0 = sem captcha
         self.captcha_nunca = captcha_nunca_resolvido
@@ -496,6 +497,8 @@ class PaginaFalsa:
             self.url, self.estado = base, "detalhe"
             if "#" in url:                                        # visualizador de documento: entrega o PDF
                 unico = url.split("#")[1]
+                if unico[1:] in self.portal.sem_pdf:
+                    return
                 self.portal.emitir(RespostaFalsa(f"https://pje.trt7.jus.br/pje-consulta-api/api/processos/{numero}/documentos/{unico[1:]}",
                                                  pdf=b"%PDF-1.4 ficticio"))
             else:
@@ -1340,6 +1343,37 @@ class TestPlanilhaDeContingencias(unittest.TestCase):
             self.assertFalse(_ficha.obter(f0, "objeto"), "o resumo do caso foi desmarcado")
             self.assertTrue(f0.get("linha_de_base"), "o histórico da coluna Observação virou a linha de base")
 
+    def test_planilha_do_mes_com_planilha_fora_do_modelo_explica_em_vez_de_dar_erro_500(self):
+        planilha_de_contingencias(self.arq, com_data_base=True)       # sem a aba "Processos"
+        with ficticio.projeto_de_teste(FICHAS[:1]):
+            c, token = self._painel()
+            r = c.post("/planilha", data={"token": token, "modelo": (open(self.arq, "rb"), "contingencias.xlsx")},
+                       content_type="multipart/form-data")
+            self.assertEqual(r.status_code, 302)
+            pagina = c.get(r.headers["Location"]).get_data(as_text=True)
+            self.assertIn("Não consegui gerar a partir desta planilha", pagina)
+            self.assertIn("/fluxo/atualizar", pagina)
+
+    def test_aba_atualizar_oferece_o_fluxo_por_arquivo_e_o_historico_da_primeira_vez(self):
+        with ficticio.projeto_de_teste(FICHAS[:1]):
+            c, _ = self._painel()
+            pagina = c.get("/atualizar").get_data(as_text=True)
+            self.assertIn("/fluxo/atualizar", pagina)
+            self.assertIn("/migracao", pagina)
+            self.assertIn("name='historico' value='5'", pagina, "sem data, a 1ª atualização baixa os mais recentes, não só registra")
+
+    def test_tarefa_de_atualizacao_passa_o_historico_para_o_coletor(self):
+        with ficticio.projeto_de_teste(FICHAS[:1]):
+            c, token = self._painel()
+            with mock.patch("subprocess.Popen") as popen, mock.patch("painel.atualizar._tarefa_rodando", return_value=False):
+                c.post("/tarefa", data={"token": token, "tipo": "rodada", "historico": "7"})
+            args = popen.call_args[0][0]
+            self.assertEqual(args[args.index("--historico") + 1], "7")
+            with mock.patch("subprocess.Popen") as popen, mock.patch("painel.atualizar._tarefa_rodando", return_value=False):
+                c.post("/tarefa", data={"token": token, "tipo": "rodada", "desde": "2026-09-01"})
+            self.assertNotIn("--historico", popen.call_args[0][0])
+            self.assertEqual(popen.call_args[0][0][popen.call_args[0][0].index("--desde") + 1], "01/09/2026")
+
     def test_converter_a_planilha_para_texto_planilha_e_painel(self):
         planilha_de_contingencias(self.arq, com_data_base=True)
         with ficticio.projeto_de_teste(FICHAS[:1]):
@@ -1434,3 +1468,52 @@ class TestErrosDoPortalJusBr(unittest.TestCase):
         erro = fila.classificar_erro(RuntimeError("Processo no STJ (tribunal superior): o jus.br não abre estes autos."))
         self.assertEqual(erro["codigo"], "nao_encontrado")
         self.assertIn(erro["codigo"], fila.PERMANENTES)
+
+
+class TestDocumentosPendentes(Base):
+    def _portal(self, docs, **kw):
+        autos = {(TRT7, "1"): autos_falsos(TRT7, 101, ("Distribuição",), documentos=docs)}
+        return PortalFalso(autos, **kw)
+
+    def test_o_que_passou_da_cota_na_primeira_leitura_e_baixado_na_proxima_rodada(self):
+        portal = self._portal(["901", "902", "903"])
+        estado = {}
+        baixados, estado, _ = self.coletar(portal, TRT7, estado=estado, historico=10, cota=1)
+        self.assertEqual(baixados, 1)
+        self.assertEqual(len(estado[TRT7]["trt"]["1"]["documentos"]), 1, "só o baixado fica conhecido")
+        baixados, estado, _ = self.coletar(portal, TRT7, estado=estado, historico=10, cota=5)
+        self.assertEqual(baixados, 2)
+        self.assertEqual(set(estado[TRT7]["trt"]["1"]["documentos"]), {"901", "902", "903"})
+
+    def test_primeira_leitura_nao_marca_como_conhecido_o_que_ficou_fora_do_historico(self):
+        # historico=0 = linha de base deliberada: nada é baixado e nada fica pendente
+        portal = self._portal(["901", "902"])
+        baixados, estado, _ = self.coletar(portal, TRT7, historico=0, cota=5)
+        self.assertEqual(baixados, 0)
+        self.assertEqual(set(estado[TRT7]["trt"]["1"]["documentos"]), {"901", "902"})
+
+    def test_documento_sem_arquivo_e_tentado_de_novo_e_depois_desiste(self):
+        portal = self._portal(["901"], sem_pdf={"901"})
+        estado = {}
+        for rodada in range(1, trt.DESISTE_DO_DOCUMENTO + 1):
+            _, estado, lista = self.coletar(portal, TRT7, estado=estado, historico=10, cota=5)
+            reg = estado[TRT7]["trt"]["1"]
+            self.assertEqual(reg["falhas_documentos"]["901"], rodada)
+            self.assertEqual("901" in reg["documentos"], rodada == trt.DESISTE_DO_DOCUMENTO)
+
+    def test_documento_que_falhou_e_atualizado_no_mesmo_evento_quando_o_pdf_chega(self):
+        portal = self._portal(["901"], sem_pdf={"901"})
+        estado, lista = {}, comum.eventos()
+
+        def rodada():
+            with mock.patch.object(comum, "config", return_value=self.config):
+                return trt.coletar_processo(portal, {"numero": TRT7, "cliente": "Cliente X"}, estado, lista, 10, 5, None, {})
+        self.assertEqual(rodada(), 0)
+        docs = [e for e in lista if e["tipo_evento"] == "documento"]
+        self.assertEqual((len(docs), docs[0].get("arquivo")), (1, None))
+        portal.sem_pdf.clear()
+        self.assertEqual(rodada(), 1)
+        docs = [e for e in lista if e["tipo_evento"] == "documento"]
+        self.assertEqual(len(docs), 1, "o mesmo evento, sem duplicar")
+        self.assertTrue(docs[0]["arquivo"])
+        self.assertNotIn("901", estado[TRT7]["trt"]["1"]["falhas_documentos"])
