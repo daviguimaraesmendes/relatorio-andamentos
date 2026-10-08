@@ -400,6 +400,51 @@ def preparar_busca(page, host):
     return "recarregada"
 
 
+def _chave_do_grau(texto):
+    """"1° Grau\nATOrd-..." -> "1"; "2° Grau..." -> "2"; "TST\nAIRR-..." -> "tst"; o resto -> "?"."""
+    t = (texto or "").strip().upper()
+    if t.startswith("TST"):
+        return "tst"
+    m = re.match(r"(\d)\s*[°ºO]", t)
+    return m.group(1) if m else "?"
+
+
+def botoes_de_grau(page):
+    """Tela de escolha que o PJe mostra quando o número existe em mais de um grau ("2 processos encontrados:
+    1° Grau / 2° Grau / TST", um botão `.selecao-processo` por grau). Devolve [(chave, botão)]; lista vazia = a tela
+    não está aberta. Visto no TRT 7 e no TRT 22 em 08/10/2026: sem clicar aqui os autos nunca chegavam."""
+    try:
+        botoes = page.locator("#painel-escolha-processo button.selecao-processo")
+        total = botoes.count()
+    except Exception:
+        return []
+    achados = []
+    for i in range(total):
+        try:
+            b = botoes.nth(i)
+            if b.is_visible():
+                achados.append((_chave_do_grau(b.inner_text()), b))
+        except Exception:
+            continue
+    return achados
+
+
+def escolher_grau(page, grau, capturas):
+    """Clica no botão do grau pedido ("1", "2"). Para o 1º grau, se ele não estiver na lista (processo só no 2º),
+    abre o primeiro grau numérico que houver. Registra em `capturas["graus_disponiveis"]` o que a lista oferecia."""
+    achados = botoes_de_grau(page)
+    if not achados:
+        return False
+    capturas["graus_disponiveis"] = [c for c, _ in achados]
+    alvo = next((b for c, b in achados if c == grau), None)
+    if alvo is None and grau == "1":
+        alvo = next((b for c, b in achados if c.isdigit()), None)
+    if alvo is None:
+        raise RuntimeError(f"A consulta do TRT não lista o {grau}º grau (oferece: {', '.join(c for c, _ in achados)}).")
+    alvo.click(timeout=5000)
+    return True
+
+
 def _ir_para_grau(page, host, numero, grau, capturas):
     """Abre os autos de um grau na MESMA página: primeiro pela rota da aplicação (sem recarregar), e só se os
     autos não vierem em ~8 s, carregando o endereço."""
@@ -419,10 +464,13 @@ def _ir_para_grau(page, host, numero, grau, capturas):
 
 
 def _abrir_autos_trt(context, page, host, numero, capturas, grau=None):
-    """Busca o número pelo formulário da consulta (ou abre direto um grau) e espera o JSON dos autos chegar.
+    """Busca o número pelo formulário da consulta e espera o JSON dos autos chegar. Se o PJe mostrar a tela de escolha
+    de grau, clica no grau pedido (`grau`; padrão o 1º). Para o 2º grau, quando a lista já mostrou que ele existe, a
+    busca é refeita pelo formulário e o botão do 2º grau é clicado; senão tenta a rota da aplicação.
     Captcha: chama uma pessoa; se ninguém resolver a tempo, levanta CaptchaNaoResolvido."""
     capturas["autos"] = None
-    if grau is None:
+    alvo = grau or "1"
+    if grau is None or "2" in capturas.get("graus_disponiveis", []):
         preparar_busca(page, host)
         campo = _campo_numero(page)
         if campo is None:
@@ -430,6 +478,7 @@ def _abrir_autos_trt(context, page, host, numero, capturas, grau=None):
         buscar_numero(page, campo, numero)
     else:
         _ir_para_grau(page, host, numero, grau, capturas)
+    escolhido = False
     fim = time.time() + 40
     while time.time() < fim and capturas["autos"] is None:
         page.wait_for_timeout(1000)
@@ -437,6 +486,9 @@ def _abrir_autos_trt(context, page, host, numero, capturas, grau=None):
             if not esperar_captcha_humano(page, tribunal=numero_do_trt(host)):
                 raise CaptchaNaoResolvido(f"Captcha do TRT {numero_do_trt(host)} não resolvido a tempo "
                                           f"({int(espera_do_captcha_s() // 60)} min).")
+            fim = time.time() + 40
+        if not escolhido and capturas["autos"] is None and escolher_grau(page, alvo, capturas):
+            escolhido = True
             fim = time.time() + 40
         texto = ""
         try:
@@ -494,11 +546,15 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
         if grau_aberto and grau_aberto.group(1) != "1":
             autos = {grau_aberto.group(1): autos["1"]}
         relato["graus_lidos"] = list(autos)
+        if capturas.get("graus_disponiveis"):
+            relato["graus_disponiveis"] = list(capturas["graus_disponiveis"])
         reg_proc = estado.get(numero, {}).get("trt", {})
         # recurso no 2º grau: mesma página, outro grau; só com indício de recurso
         if "2" not in autos:
             movs_1g = itens_do_processo(next(iter(autos.values())))[0]
             motivo = indicio_de_recurso(movs_1g, proc, reg_proc)
+            if not motivo and "2" in capturas.get("graus_disponiveis", []):
+                motivo = "a consulta do TRT lista o 2º grau"
             if motivo:
                 try:
                     segundo = _abrir_autos_trt(context, page, host, numero, capturas, grau="2")

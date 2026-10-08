@@ -1008,6 +1008,8 @@ class ColetorReal:
             resultado["graus"] = {"lidos": relato.get("graus_lidos", []), "falhos": relato.get("graus_falhos", [])}
         if relato.get("avisos"):
             resultado["avisos"] = relato["avisos"]
+        if "tst" in relato.get("graus_disponiveis", []):  # a própria consulta do TRT lista o TST
+            resultado["no_tst"] = True
         if trabalhista and not erro:
             _acrescentar_tst(resultado, processo["numero"])
         return resultado

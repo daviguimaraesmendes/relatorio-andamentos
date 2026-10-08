@@ -329,8 +329,11 @@ class PortalFalso:
     """Simula o PJe do TRT: um contexto com páginas. A consulta é uma página só (SPA): pesquisar leva ao detalhe do
     processo; voltar leva à consulta sem recarregar; o captcha, se pedido, trava o detalhe até alguém resolver."""
 
-    def __init__(self, autos, captcha_na_primeira=0, captcha_nunca_resolvido=False, falha_grau2=False):
+    def __init__(self, autos, captcha_na_primeira=0, captcha_nunca_resolvido=False, falha_grau2=False,
+                 escolha_de_grau=False, com_tst=False):
         self.autos = autos                      # {(numero, grau): corpo}
+        self.escolha_de_grau = escolha_de_grau  # a pesquisa devolve a tela "N processos encontrados: 1° Grau / 2° Grau"
+        self.com_tst = com_tst
         self.paginas, self.ouvintes = [], []
         self.captcha_pendente = captcha_na_primeira       # nº de esperas até a pessoa resolver; 0 = sem captcha
         self.captcha_nunca = captcha_nunca_resolvido
@@ -391,11 +394,48 @@ class FakeLocator:
         self.page.pesquisar()
 
 
+class BotaoDeGrau:
+    def __init__(self, page, numero, grau):
+        self.page, self.numero, self.grau = page, numero, grau
+
+    def is_visible(self):
+        return self.page.estado == "escolha"
+
+    def inner_text(self):
+        rotulo = "TST\nAIRR-" if self.grau == "tst" else f"{self.grau}° Grau\nATOrd-"
+        return f" {rotulo}{self.numero} "
+
+    def click(self, **k):
+        if self.grau == "tst":
+            return
+        self.page.estado, self.page.url = "detalhe", f"https://pje.trt7.jus.br/consultaprocessual/detalhe-processo/{self.numero}/{self.grau}"
+        self.page.abrir_detalhe(self.numero, self.grau)
+
+
+class BotoesDeGrau:
+    def __init__(self, page):
+        self.page = page
+
+    def lista(self):
+        p = self.page
+        if p.estado != "escolha" or p.captcha:
+            return []
+        graus = sorted(g for n, g in p.portal.autos if n == p.numero_escolha)
+        return graus + (["tst"] if p.portal.com_tst else [])
+
+    def count(self):
+        return len(self.lista())
+
+    def nth(self, i):
+        return BotaoDeGrau(self.page, self.page.numero_escolha, self.lista()[i])
+
+
 class PaginaFalsa:
     def __init__(self, portal):
         self.portal, self.url, self.estado, self.captcha = portal, "about:blank", "vazia", False
         self.digitado, self.fechada, self.aberta_na_consulta = "", False, False
         self.historico = []
+        self.numero_escolha = None
         self.fragmento_pdf = None
         self.context = portal
 
@@ -426,12 +466,18 @@ class PaginaFalsa:
             self.aberta_na_consulta = True
 
     def go_back(self, **k):
-        if self.estado == "detalhe":
+        if self.estado == "detalhe" and self.portal.escolha_de_grau and self.numero_escolha:
+            self.estado, self.url = "escolha", "https://pje.trt7.jus.br/consultaprocessual/lista-processo"
+        elif self.estado in ("detalhe", "escolha"):
             self.estado, self.url = "consulta", "https://pje.trt7.jus.br/consultaprocessual/"
 
     def pesquisar(self):
         self.portal.pesquisas.append(self.digitado)
         numero = next(n for n, _ in self.portal.autos if "".join(c for c in n if c.isdigit()) == self.digitado)
+        if self.portal.escolha_de_grau and sum(1 for n, _ in self.portal.autos if n == numero) + int(self.portal.com_tst) > 1:
+            self.estado, self.numero_escolha = "escolha", numero
+            self.url = "https://pje.trt7.jus.br/consultaprocessual/lista-processo"
+            return
         self.estado, self.url = "detalhe", f"https://pje.trt7.jus.br/consultaprocessual/detalhe-processo/{numero}/1"
         self.abrir_detalhe(numero, "1")
 
@@ -454,12 +500,16 @@ class PaginaFalsa:
 
     # conteúdo
     def locator(self, sel):
+        if "selecao-processo" in sel:
+            return BotoesDeGrau(self)
         return FakeLocator(self, sel)
 
     def get_by_role(self, *a, **k):
         return FakeLocator(self, "__nada__")
 
     def inner_text(self, sel):
+        if self.estado == "escolha" and not self.captcha:
+            return "2 processos encontrados: 1° Grau 2° Grau"
         return "digite os caracteres da imagem" if self.captcha else "Consulta processual"
 
     def wait_for_timeout(self, ms):
@@ -812,6 +862,40 @@ class TestGraus(Base):
         self.assertEqual(graus, {"1º grau", "2º grau"})
         self.assertEqual(set(estado[TRT7]["trt"]), {"1", "2"})
         self.assertFalse([g for g in portal.gotos if "/detalhe-processo/" in g and g.endswith("/2")], "pela rota da aplicação, sem recarregar")
+
+    def test_tela_de_escolha_de_grau_abre_o_primeiro_e_le_o_segundo_pela_lista(self):
+        # TRT 7 / TRT 22 em 08/10/2026: a pesquisa devolve "N processos encontrados" e os autos só vêm ao clicar
+        portal = portal_de(TRT7, com_segundo_grau={TRT7}, escolha_de_grau=True, com_tst=True)
+        relato = {}
+        _, estado, lista = self.coletar(portal, TRT7, relato=relato)
+        self.assertEqual(relato["graus_lidos"], ["1", "2"])
+        self.assertEqual(relato["graus_disponiveis"], ["1", "2", "tst"])
+        self.assertEqual(len(portal.pesquisas), 2, "o 2º grau sai de nova pesquisa + clique no botão do 2º grau")
+        self.assertFalse([g for g in portal.gotos if "/detalhe-processo/" in g and "#" not in g], "sem recarregar")
+        self.assertEqual({e.get("grau") for e in lista if e["tipo_evento"] == "movimento"}, {"1º grau", "2º grau"})
+
+    def test_tela_de_escolha_sem_segundo_grau_le_so_o_primeiro(self):
+        portal = portal_de(TRT7, escolha_de_grau=True, com_tst=True)
+        relato = {}
+        self.coletar(portal, TRT7, relato=relato)
+        self.assertEqual(relato["graus_lidos"], ["1"])
+        self.assertEqual(len(portal.pesquisas), 1)
+
+    def test_coletor_real_marca_no_tst_quando_a_consulta_lista_o_tst(self):
+        real = fila.ColetorReal()
+        real._contexto = object()
+
+        def falso(contexto, proc, estado, lista, historico, cota, desde=None, relato=None):
+            relato.update(graus_lidos=["1"], graus_disponiveis=["1", "tst"])
+            return 0
+        with mock.patch.object(coletor, "coletar_processo", side_effect=falso), \
+                mock.patch.object(capa, "_config_datajud", return_value=(False, None)):
+            r = real.coletar({"numero": TRT7, "cliente": "x"}, "rapido", None)
+        self.assertTrue(r["no_tst"])
+
+    def test_chave_do_grau(self):
+        self.assertEqual([trt._chave_do_grau(t) for t in (" 1° Grau\n ATOrd-x", "2º Grau ROT-x", "TST\nAIRR-x", "outra")],
+                         ["1", "2", "tst", "?"])
 
     def test_indicio_do_datajud_basta(self):
         portal = portal_de(TRT7, com_segundo_grau={TRT7})
