@@ -20,8 +20,8 @@ GLOBAIS = ("PROJETOS_DIR", "ATUAL_FILE", "CONFIG_FILE", "PROJETO", "PROJETO_DIR"
            "RELATORIOS_DIR", "DIAG_DIR", "PRINTS_DIR")
 N1, N2, N3 = numero_ficticio(1), numero_ficticio(2), numero_ficticio(3)
 CLIENTE = "Cliente Exemplo 01 Ltda"
-CLIENTE_XSS = "Empresa <script>alert(1)</script> & Filhos Ltda"
-SEGREDO = "senha-super-secreta-123"
+CLIENTE_XSS = "Cliente Exemplo 09 <script>alert(1)</script> & Cia Ltda"
+VALOR_SIGILOSO = "valor-sigiloso-do-cofre-123"
 AGORA = datetime.datetime(2026, 10, 8, 21, 30)      # quinta-feira, à noite
 
 
@@ -64,7 +64,7 @@ class Tela(unittest.TestCase):
         comum._apontar(self.raiz / "_vazio" / "data", self.raiz / "_vazio" / "carteira.json",
                        self.raiz / "_vazio" / "clientes.json")
         comum.PROJETO = comum.PROJETO_DIR = comum.PROJETO_FILE = None
-        self.cofre = {"cert_senha": SEGREDO, "totp_secret": "JBSWY3DPEHPK3PXP"}
+        self.cofre = {"cert_senha": VALOR_SIGILOSO, "totp_secret": "JBSWY3DPEHPK3PXP"}
         for alvo in (mock.patch.object(acesso, "obter", lambda chave: self.cofre.get(chave)),
                      mock.patch.object(self.inicio, "_agora", lambda: AGORA),
                      mock.patch("urllib.request.urlopen", side_effect=AssertionError("rede usada")),
@@ -165,17 +165,17 @@ class Tela(unittest.TestCase):
     def test_escapa_html_dos_nomes(self):
         self.criar_relatorio(fichas=[self.ficha(N1, cliente=CLIENTE_XSS)],
                              eventos=[evento(1, N1, cliente=CLIENTE_XSS, frase="<img src=x onerror=alert(1)>")])
-        for caminho in ("/inicio", "/busca?q=empresa", "/busca?q=img", f"/busca?q={CLIENTE_XSS}"):
+        for caminho in ("/inicio", "/busca?q=cia", "/busca?q=img", f"/busca?q={CLIENTE_XSS}"):
             t = self.pagina(caminho)
             self.assertNotIn("<script>alert(1)", t, caminho)
             self.assertNotIn("<img src=x", t, caminho)
-        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", self.pagina("/busca?q=empresa"))
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", self.pagina("/busca?q=cia"))
 
     def test_nada_sensivel_aparece(self):
         self.criar_relatorio(fichas=[self.ficha(N1)], eventos=[evento(1, N1, arquivo=str(TMP / "doc-secreto.html"))])
         for caminho in ("/inicio", "/busca?q=decisão", f"/busca?q={N1}"):
             t = self.pagina(caminho)
-            for proibido in (SEGREDO, "JBSWY3DPEHPK3PXP", "doc-secreto", str(TMP)):
+            for proibido in (VALOR_SIGILOSO, "JBSWY3DPEHPK3PXP", "doc-secreto", str(TMP)):
                 self.assertNotIn(proibido, t, caminho)
 
     # --- Busca ---
@@ -184,7 +184,7 @@ class Tela(unittest.TestCase):
         self.criar_relatorio(
             fichas=[self.ficha(N1, autores="Maria da Silva Fictícia", reus=CLIENTE, apelido="Caso do galpão"),
                     self.ficha(N2, cliente="Outro Cliente S.A.", reus="Outro Cliente S.A.")],
-            clientes=[CLIENTE, "Outro Cliente S.A.", "Cliente Sem Processo Ltda"],
+            clientes=[CLIENTE, "Outro Cliente S.A.", "Cliente Exemplo 03 Ltda"],
             eventos=[evento(1, N1, frase="Deferida a penhora online sobre contas.", conteudo="Valor bloqueado"),
                      evento(2, N2, status="aprovado", cliente="Outro Cliente S.A.", frase="Audiência designada.")])
 
@@ -202,7 +202,7 @@ class Tela(unittest.TestCase):
         self.assertIn("Clientes", t)
         self.assertIn(f"/processo?numero={N1}", t)
         self.assertNotIn(f"/processo?numero={N2}", t)
-        self.assertIn("Cliente Sem Processo Ltda", self.texto("/busca?q=sem+processo"))
+        self.assertIn("Cliente Exemplo 03 Ltda", self.texto("/busca?q=exemplo+03"))
         self.assertIn(f"/processo?numero={N1}", self.pagina("/busca?q=FICTICIA"))        # sem acento, sem caixa
         self.assertIn(f"/processo?numero={N1}", self.pagina("/busca?q=galpao"))
 

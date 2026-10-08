@@ -355,7 +355,7 @@ class TelaInicial(Base):
     def test_subabas_na_barra(self):
         _, t = self.get("/fluxo")
         for rotulo in ("Assistente", "Entregas", "Perfil"):
-            self.assertIn(f">{rotulo}</a>", t)
+            self.assertIn(f"<span class='rot'>{rotulo}</span></a>", t)      # menu lateral
 
     def test_revisao_registra_as_rotas_novas(self):
         import revisao
