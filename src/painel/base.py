@@ -63,7 +63,8 @@ def faixa_de_atencao():
             + SCRIPT_ATENCAO)
 
 SUBABAS = [("fluxo", "/fluxo", "Assistente"), ("atualizar", "/atualizar", "Atualizar"), ("revisar", "/", "Revisar"),
-           ("planilha", "/planilha", "Planilha"), ("entregas", "/entregas", "Entregas"),
+           ("planilha", "/planilha", "Planilha"), ("migracao", "/migracao", "Migrar de modelo"),
+           ("entregas", "/entregas", "Entregas"),
            ("pedidos", "/pedidos", "Pedidos"), ("cadastro", "/cadastro", "Clientes e processos"),
            ("perfil", "/perfil", "Perfil"), ("ia", "/ia", "IA"), ("config", "/config", "Configuração")]
 

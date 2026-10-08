@@ -1,32 +1,32 @@
 {
  "GET / com aviso de acesso": {
-  "sha256": "18e7470047c14ffa",
+  "sha256": "88ba45497eed0331",
   "status": 200,
-  "tamanho": 6741,
+  "tamanho": 6790,
   "tipo": "text/html"
  },
  "GET / com rascunhos": {
-  "sha256": "f0c47d8411c3eacd",
+  "sha256": "3c08fca04ac7a446",
   "status": 200,
-  "tamanho": 8668,
+  "tamanho": 8717,
   "tipo": "text/html"
  },
  "GET / com tarefa em andamento": {
-  "sha256": "a4b87a209bc48973",
+  "sha256": "4db15e5f6dc8ce6d",
   "status": 200,
-  "tamanho": 6801,
+  "tamanho": 6850,
   "tipo": "text/html"
  },
  "GET / depois das ações": {
-  "sha256": "843293d41b23151a",
+  "sha256": "a6525da661a8e002",
   "status": 200,
-  "tamanho": 6731,
+  "tamanho": 6780,
   "tipo": "text/html"
  },
  "GET / sem rascunhos": {
-  "sha256": "d363be39afa0a792",
+  "sha256": "53184cd779a6b9da",
   "status": 200,
-  "tamanho": 4377,
+  "tamanho": 4426,
   "tipo": "text/html"
  },
  "GET / sem relatório (vai para /novo)": {
@@ -37,69 +37,69 @@
   "tipo": "text/html"
  },
  "GET /acesso com teste concluído": {
-  "sha256": "14ff4af61a21ce46",
+  "sha256": "e3109bc17ea8c923",
   "status": 200,
-  "tamanho": 5574,
+  "tamanho": 5623,
   "tipo": "text/html"
  },
  "GET /acesso com teste em andamento": {
-  "sha256": "fa4dee8acea759b6",
+  "sha256": "5bc4235cf5af5b2f",
   "status": 200,
-  "tamanho": 5711,
+  "tamanho": 5760,
   "tipo": "text/html"
  },
  "GET /acesso nada configurado": {
-  "sha256": "7e0087e760efcadc",
+  "sha256": "41f84b7ad2940e97",
   "status": 200,
-  "tamanho": 5561,
+  "tamanho": 5610,
   "tipo": "text/html"
  },
  "GET /acesso sem relatório": {
-  "sha256": "2abcb7a342e40a5c",
+  "sha256": "24c71efa635cd76e",
   "status": 200,
-  "tamanho": 5493,
+  "tamanho": 5542,
   "tipo": "text/html"
  },
  "GET /atualizar conferência concluída": {
-  "sha256": "c40e946247449093",
+  "sha256": "40706854e9e1037c",
   "status": 200,
-  "tamanho": 5237,
+  "tamanho": 5650,
   "tipo": "text/html"
  },
  "GET /atualizar já atualizado": {
-  "sha256": "c8e191abc0ce2522",
+  "sha256": "d6c2e0df2a1e6ed0",
   "status": 200,
-  "tamanho": 4970,
+  "tamanho": 5383,
   "tipo": "text/html"
  },
  "GET /atualizar primeira vez": {
-  "sha256": "5f7d0c1ea15ec74a",
+  "sha256": "5cfe5ab27bae420f",
   "status": 200,
-  "tamanho": 5213,
+  "tamanho": 5775,
   "tipo": "text/html"
  },
  "GET /atualizar tarefa concluída": {
-  "sha256": "5dfcb56c9456ee09",
+  "sha256": "fc3e19583d89fca5",
   "status": 200,
-  "tamanho": 5237,
+  "tamanho": 5650,
   "tipo": "text/html"
  },
  "GET /atualizar tarefa em andamento": {
-  "sha256": "a7977ceee2acca37",
+  "sha256": "46d93d7cca403392",
   "status": 200,
-  "tamanho": 5448,
+  "tamanho": 5861,
   "tipo": "text/html"
  },
  "GET /cadastro com dados": {
-  "sha256": "e94091f1ce3e911f",
+  "sha256": "74b43956b4f75804",
   "status": 200,
-  "tamanho": 10644,
+  "tamanho": 10693,
   "tipo": "text/html"
  },
  "GET /cadastro com pendentes": {
-  "sha256": "04dbcce924617ad0",
+  "sha256": "f1923a34c21f0325",
   "status": 200,
-  "tamanho": 11662,
+  "tamanho": 11711,
   "tipo": "text/html"
  },
  "GET /cadastro sem relatório (vai para /novo)": {
@@ -110,15 +110,15 @@
   "tipo": "text/html"
  },
  "GET /cadastro vazio": {
-  "sha256": "9d07d982b84a708d",
+  "sha256": "bd6f3ec55081dce3",
   "status": 200,
-  "tamanho": 8733,
+  "tamanho": 8782,
   "tipo": "text/html"
  },
  "GET /config": {
-  "sha256": "0f0735de0944299d",
+  "sha256": "5e5cd9f3fc6bafa9",
   "status": 200,
-  "tamanho": 4817,
+  "tamanho": 4866,
   "tipo": "text/html"
  },
  "GET /config sem relatório (vai para /novo)": {
@@ -161,15 +161,15 @@
   "tipo": "text/html"
  },
  "GET /novo": {
-  "sha256": "96dadc2895cc9fba",
+  "sha256": "b1e8106eebbe1991",
   "status": 200,
-  "tamanho": 4452,
+  "tamanho": 4501,
   "tipo": "text/html"
  },
  "GET /novo sem relatório": {
-  "sha256": "4211b744f9fad686",
+  "sha256": "0b6333fe0f69b054",
   "status": 200,
-  "tamanho": 4394,
+  "tamanho": 4443,
   "tipo": "text/html"
  },
  "GET /p/<inexistente>": {
@@ -186,15 +186,15 @@
   "tipo": "text/html"
  },
  "GET /planilha com arquivo": {
-  "sha256": "41b1013611b7005d",
+  "sha256": "29a69256065b2e57",
   "status": 200,
-  "tamanho": 5187,
+  "tamanho": 5236,
   "tipo": "text/html"
  },
  "GET /planilha referência sumida": {
-  "sha256": "022a6afad5387309",
+  "sha256": "3bac86a8939f56a8",
   "status": 200,
-  "tamanho": 5191,
+  "tamanho": 5240,
   "tipo": "text/html"
  },
  "GET /planilha sem relatório (vai para /novo)": {
@@ -205,9 +205,9 @@
   "tipo": "text/html"
  },
  "GET /planilha vazia": {
-  "sha256": "bcf5e53bcd97a51d",
+  "sha256": "6408578c53401455",
   "status": 200,
-  "tamanho": 4857,
+  "tamanho": 4906,
   "tipo": "text/html"
  },
  "GET /print": {
@@ -731,153 +731,153 @@
   ]
  ],
  "mensagem /acesso salva": {
-  "sha256": "4f6cf3e67af0455f",
+  "sha256": "e234e1f13c996c15",
   "status": 200,
-  "tamanho": 5896,
+  "tamanho": 5945,
   "tipo": "text/html"
  },
  "mensagem /acesso segredo inválido": {
-  "sha256": "cf226edfcd189e72",
+  "sha256": "5d8ef582fc6ea5d3",
   "status": 200,
-  "tamanho": 5666,
+  "tamanho": 5715,
   "tipo": "text/html"
  },
  "mensagem /acesso só dados": {
-  "sha256": "b86ab99932a881e0",
+  "sha256": "63a34c6e0280fd66",
   "status": 200,
-  "tamanho": 5739,
+  "tamanho": 5788,
   "tipo": "text/html"
  },
  "mensagem /cadastro após criar": {
-  "sha256": "c36bf0def4cae6a8",
+  "sha256": "d4f929d96dcfc609",
   "status": 200,
-  "tamanho": 7798,
+  "tamanho": 7847,
   "tipo": "text/html"
  },
  "mensagem /cadastro cliente repetido": {
-  "sha256": "d95f472550d969a2",
+  "sha256": "b600aaeb0c14b53a",
   "status": 200,
-  "tamanho": 9652,
+  "tamanho": 9701,
   "tipo": "text/html"
  },
  "mensagem /cadastro cliente salvo": {
-  "sha256": "63f7601fe0a16b93",
+  "sha256": "160e522eb5a7b36e",
   "status": 200,
-  "tamanho": 9647,
+  "tamanho": 9696,
   "tipo": "text/html"
  },
  "mensagem /cadastro completar": {
-  "sha256": "a0c440129d332a78",
+  "sha256": "a6a76274c2cd7b6d",
   "status": 200,
-  "tamanho": 10781,
+  "tamanho": 10830,
   "tipo": "text/html"
  },
  "mensagem /cadastro descobrir": {
-  "sha256": "51751570d6d5e025",
+  "sha256": "9d4c538f6c49165c",
   "status": 200,
-  "tamanho": 8811,
+  "tamanho": 8860,
   "tipo": "text/html"
  },
  "mensagem /cadastro importar": {
-  "sha256": "953c5444f446e1ac",
+  "sha256": "a85ee28bed944013",
   "status": 200,
-  "tamanho": 10780,
+  "tamanho": 10829,
   "tipo": "text/html"
  },
  "mensagem /cadastro importar vazio": {
-  "sha256": "ca61d20e421dfca2",
+  "sha256": "569d1bd5dc8ee301",
   "status": 200,
-  "tamanho": 9663,
+  "tamanho": 9712,
   "tipo": "text/html"
  },
  "mensagem /cadastro pendente ignorado": {
-  "sha256": "852a39ca1d3f357a",
+  "sha256": "e9f88264a3397512",
   "status": 200,
-  "tamanho": 11708,
+  "tamanho": 11757,
   "tipo": "text/html"
  },
  "mensagem /cadastro pendente incluído": {
-  "sha256": "6bfaedb6076dcb15",
+  "sha256": "320689376fc0ccb3",
   "status": 200,
-  "tamanho": 12298,
+  "tamanho": 12347,
   "tipo": "text/html"
  },
  "mensagem /cadastro processo removido": {
-  "sha256": "c98f5127335fc2dc",
+  "sha256": "fef3e6b9a15c9665",
   "status": 200,
-  "tamanho": 10699,
+  "tamanho": 10748,
   "tipo": "text/html"
  },
  "mensagem /cadastro processo salvo": {
-  "sha256": "0484ed8a8885fa3b",
+  "sha256": "939136e1a27cc15a",
   "status": 200,
-  "tamanho": 10699,
+  "tamanho": 10748,
   "tipo": "text/html"
  },
  "mensagem /cadastro remover em uso": {
-  "sha256": "b22c6d946842c108",
+  "sha256": "02043f18fba0ebaa",
   "status": 200,
-  "tamanho": 10763,
+  "tamanho": 10812,
   "tipo": "text/html"
  },
  "mensagem /config nome vazio": {
-  "sha256": "cef076ddf7703649",
+  "sha256": "55ecb094b147a37f",
   "status": 200,
-  "tamanho": 4857,
+  "tamanho": 4906,
   "tipo": "text/html"
  },
  "mensagem /config planilha inexistente": {
-  "sha256": "c609b85cc15c8277",
+  "sha256": "15e0daf92578db07",
   "status": 200,
-  "tamanho": 4881,
+  "tamanho": 4930,
   "tipo": "text/html"
  },
  "mensagem /config salva": {
-  "sha256": "ce709d4b98aeae4f",
+  "sha256": "52466a4d30cfec14",
   "status": 200,
-  "tamanho": 4892,
+  "tamanho": 4941,
   "tipo": "text/html"
  },
  "mensagem /interromper": {
-  "sha256": "ad21c2d06a80f98a",
+  "sha256": "27ce0eeff4f1ee2d",
   "status": 200,
-  "tamanho": 5525,
+  "tamanho": 5938,
   "tipo": "text/html"
  },
  "mensagem /novo sem nome": {
-  "sha256": "174d89961dd8e61a",
+  "sha256": "88ddec88c804af3f",
   "status": 200,
-  "tamanho": 4499,
+  "tamanho": 4548,
   "tipo": "text/html"
  },
  "mensagem /planilha arquivo errado": {
-  "sha256": "2d6116f6e9099707",
+  "sha256": "d263ed75c89df6ab",
   "status": 200,
-  "tamanho": 4905,
+  "tamanho": 4954,
   "tipo": "text/html"
  },
  "mensagem /planilha gerada": {
-  "sha256": "bd10875a0bb8051a",
+  "sha256": "a0b8e7ff7f478f03",
   "status": 200,
-  "tamanho": 5300,
+  "tamanho": 5349,
   "tipo": "text/html"
  },
  "mensagem /planilha referência atual": {
-  "sha256": "7e89f5cd43254adf",
+  "sha256": "80181d83b76c0c0f",
   "status": 200,
-  "tamanho": 5300,
+  "tamanho": 5349,
   "tipo": "text/html"
  },
  "mensagem /planilha sem modelo": {
-  "sha256": "5ca0ce14e5da9d5e",
+  "sha256": "362b69dd662751a9",
   "status": 200,
-  "tamanho": 4950,
+  "tamanho": 4999,
   "tipo": "text/html"
  },
  "mensagem /tarefa duplicada": {
-  "sha256": "27647ca3fb5a1600",
+  "sha256": "f0e5c1ee89311d63",
   "status": 200,
-  "tamanho": 5524,
+  "tamanho": 5937,
   "tipo": "text/html"
  },
  "mostrar chamou": [
@@ -891,7 +891,7 @@
  "processos pedidos": [
   {
    "args": [
-    "/usr/bin/python3",
+    "«RAIZ»/.venv/bin/python",
     "-u",
     "«RAIZ»/src/rodar.py",
     "--projeto",
@@ -910,7 +910,7 @@
   },
   {
    "args": [
-    "/usr/bin/python3",
+    "«RAIZ»/.venv/bin/python",
     "-u",
     "«RAIZ»/src/conferencia.py",
     "--projeto",
@@ -930,7 +930,7 @@
   },
   {
    "args": [
-    "/usr/bin/python3",
+    "«RAIZ»/.venv/bin/python",
     "-u",
     "«RAIZ»/src/coletor.py",
     "--testar-login"
@@ -1025,9 +1025,9 @@
   "/triagem/lote POST -> triagem_lote"
  ],
  "tela depois de /mostrar": {
-  "sha256": "41b1013611b7005d",
+  "sha256": "29a69256065b2e57",
   "status": 200,
-  "tamanho": 5187,
+  "tamanho": 5236,
   "tipo": "text/html"
  }
 }
