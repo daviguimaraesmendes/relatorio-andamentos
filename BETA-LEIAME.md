@@ -1,6 +1,32 @@
-# Relatório de Andamentos — versão 2.0.0-beta2
+# Relatório de Andamentos — versão 2.0.0-beta3
 
 Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você já usa, a montagem e a atualização de relatórios completos (texto, planilha e dashboard). O acesso ao jus.br e aos TRTs é o mesmo que já funciona; a aba **Atualizar** da versão anterior continua no painel, como plano B.
+
+## 00. Novo no beta3 (corrigido a partir do seu teste com 92 processos)
+
+**O que mudou**
+
+1. **Login do jus.br que explica o que deu errado.** Se o login automático não concluir, o programa grava a tela e o **motivo por passo** em `projetos/<relatório>/data/diagnosticos/` (arquivos `login_jusbr_t1…`), mostra a **faixa vermelha** no topo do painel dizendo o que fazer (por exemplo, abrir o PJe Office) e **pausa a coleta**: antes, cada processo repetia o login inteiro. Depois de resolver, clique em **Retomar** (o processo que estava na vez volta para a fila sem perder tentativa).
+2. **Captcha do TRT: uma vez por TRT, não por processo.** A consulta de cada TRT fica aberta durante toda a rodada e o número seguinte é pesquisado pelo próprio formulário; os documentos abrem em outra aba. No fim da rodada o log diz: `captchas pedidos nesta rodada: N no TRT X`.
+3. **Aviso de captcha que chama a atenção (Mac).** Notificação do sistema com som, o navegador vem para a frente **em tela cheia**, repete a cada 60 s e o painel mostra a faixa vermelha fixa ("Precisa de você: captcha do TRT 7 aguardando"). Se ninguém resolver em **10 minutos** (`coleta.captcha_espera_min` no `config.json`), o processo é **pulado**, a coleta segue com os demais tribunais e volta ao captcha **no fim da rodada**. No Windows o aviso é só o sinal sonoro do terminal (não testado).
+4. **Processo físico.** Quando o processo não é achado no tribunal **e** o DJEN não tem publicação **e** o DataJud não o conhece, ele é marcado como **físico** (sem autos eletrônicos): aparece à parte, não conta como falha e a **taxa de sucesso é calculada só sobre os eletrônicos**. Na dúvida (DataJud desligado ou fora do ar), continua em "conferir à mão". O relatório do físico segue com as publicações do DJEN e o que você lançar à mão.
+5. **Graus.** O 2º grau só é lido quando há sinal de recurso (andamento de remessa, recurso ordinário, distribuição ao relator, acórdão, ou o DataJud indicando grau 2), na mesma página, e **a falha nunca mais passa em silêncio** (aviso `grau_nao_lido` na entrega). O **TST** é reconhecido pelo DataJud (mesmo número CNJ): os andamentos do TST entram marcados "TST" e o momento vira "Aguardando julgamento do recurso de revista". Os **documentos** do TST ainda não são coletados (falta ver o acesso real; peço no fim).
+6. **Textos dos resumos mais completos.** O modelo local agora é orientado a explicar **o que foi decidido, por quê, o que muda e os valores/prazos** (até 80 palavras, em vez de 40) e o programa avisa quando o resumo vem curto demais. Para imitar o seu jeito de escrever, crie o arquivo `projetos/<relatório>/estilo.md` com 3 a 5 parágrafos de relatórios seus (ou a chave `estilo_redacao` no `config.json`): eles vão junto de cada pedido. Os textos ficam no seu computador. Se a máquina tiver memória, um modelo maior melhora muito o resultado: no `config.json`, `"modelo": "gemma3:12b"` (depois `ollama pull gemma3:12b`).
+7. **Diagnóstico da rodada.** `src/diagnostico_rodada.py` lê os logs e o estado e escreve as contagens **sem nomes nem números de processo** (veja `docs/fase2/diagnostico-rodada1.md`).
+
+**O que olhar no teste (o que eu não consigo ver daqui)**
+
+| Onde | O que você deve ver |
+| --- | --- |
+| Terminar de uma rodada com TRT | no log (Terminal ou aba Atualizar), a linha `captchas pedidos nesta rodada: …` com número bem menor que o de processos de TRT; compare com a rodada anterior |
+| Forçar um captcha | notificação do Mac com som, navegador em tela cheia, faixa vermelha no painel; repete a cada minuto até resolver |
+| Deixar o PJe Office fechado e iniciar a coleta | faixa vermelha com o motivo ("O diálogo do PJe Office não apareceu…"), coleta em pausa, e `diagnosticos/login_jusbr_t1.json`; abra o PJe Office e clique em **Retomar** |
+| Assistente → andamento da coleta | cartão "físicos (sem autos eletrônicos)" e "Taxa de sucesso (só processos eletrônicos)" |
+| Entregas → Conferir manualmente | físicos numa lista à parte |
+| Processo com recurso | linha `graus lidos: 1º, 2º` no log; se o 2º grau falhar, `2º grau NÃO lido (…)` e um aviso na entrega |
+| Resumos | mais completos; os curtos aparecem com o alerta "curto demais" na revisão |
+
+**Limites conhecidos do beta3**: login, captcha, notificação/tela cheia no Mac e a navegação da consulta do TRT (voltar à pesquisa sem recarregar) **só se validam na sua máquina**; foram testados com simulações. Se a consulta do TRT recarregar mesmo assim, o log mostra `consulta recarregada do zero: Nx` e me diga o TRT.
 
 ## 0. Novo no beta2: clientes em lote
 
@@ -28,7 +54,7 @@ Seus dados ficam na pasta `projetos/` e a sua configuração em `config.json`. O
 2. Descompacte `relatorio-andamentos.zip` e copie o conteúdo **por cima** da pasta do programa, escolhendo "Substituir". (Se preferir, descompacte numa pasta nova e copie para ela a sua `projetos/` e o seu `config.json`.)
 3. Dois cliques em **`Instalar (Mac).command`** e responda `s`. Ele reaproveita o que já está instalado e só acrescenta o que falta (por exemplo, a biblioteca de Word).
 4. **Opcional, recomendado**: instale o LibreOffice. Com ele, as fórmulas da planilha saem já calculadas (sem ele, abrem calculadas no Excel, mas o dashboard embutido perde alguns indicadores).
-5. Dois cliques em **`Abrir painel.command`**. No topo da tela deve aparecer "versão 2.0.0-beta1".
+5. Dois cliques em **`Abrir painel.command`**. No topo da tela deve aparecer "versão 2.0.0-beta3".
 
 **DataJud (opcional)**: a fonte de capa do processo (vara, município, data de ajuizamento, classe) vem ligada, mas precisa da chave pública do CNJ, que está na página "Acesso" da wiki do DataJud. Cole-a em `config.json` (`fontes_externas` → `datajud` → `chave`) ou na variável `DATAJUD_CHAVE`. Sem a chave, o programa segue sem ela.
 

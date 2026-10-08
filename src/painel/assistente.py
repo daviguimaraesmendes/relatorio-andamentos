@@ -662,6 +662,7 @@ def execucao_rodando():
 def _progresso(resumo):
     EXEC["resumo"] = resumo
     if isinstance(resumo, dict) and resumo.get("evento") == "login":
+        EXEC["estado"] = "pausada"       # a fila pausou sozinha: a tela passa a oferecer "Retomar"
         _log(f"PRECISA DE VOCÊ: a coleta parou porque o acesso ao jus.br falhou. {resumo.get('mensagem') or ''} "
              "Resolva e clique em Retomar; o processo volta para a fila sem perder tentativa.")
     if isinstance(resumo, dict):
@@ -697,6 +698,13 @@ def _trabalho(fila_mod, fila, coletor, slug):
     except Exception as erro:  # noqa: BLE001
         EXEC["estado"], EXEC["erro"] = "erro", str(erro)
         _log(f"erro na coleta: {erro}")
+    finally:
+        fechar = getattr(coletor, "fechar", None)       # o navegador da coleta não fica aberto depois da rodada
+        if callable(fechar):
+            try:
+                fechar()
+            except Exception as erro:  # noqa: BLE001
+                _log(f"não consegui fechar o navegador: {erro}")
 
 
 def iniciar_execucao():

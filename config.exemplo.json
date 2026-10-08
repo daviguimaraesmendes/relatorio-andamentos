@@ -12,7 +12,8 @@
     "pausa_entre_documentos_s": [
       2,
       4
-    ]
+    ],
+    "captcha_espera_min": 10
   },
   "revisor": "",
   "fontes_externas": {

@@ -483,6 +483,7 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
             pass
 
     context.on("response", ouvir)
+    marcas = {"inicio": time.time()}
     try:
         page = pagina_da_consulta(context, host)
         autos = {"1": _abrir_autos_trt(context, page, host, numero, capturas)}
@@ -518,6 +519,7 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
                                                          "Conferir o recurso à mão."})
                     print(f"  2º grau NÃO lido ({falha}).", flush=True)
 
+        marcas["busca"] = time.time()
         varios = len(autos) > 1
         ids = {e["id"] for e in lista}
         pasta_prints = comum.PRINTS_DIR / slug(proc.get("cliente") or "sem-cliente") / slug(numero)
@@ -543,6 +545,7 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
                     lista.append(ev)
                     ids.add(ev["id"])
             print(f"  andamentos: {len(movs)} nos autos, {len(novos)} novo(s)", flush=True)
+            marcas["andamentos"] = time.time()
             # documentos
             docs_conhecidos = set(reg.get("documentos", []))
             if primeira_vez:
@@ -571,6 +574,10 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
         for grau_antigo, reg_antigo in reg_proc.items():  # grau lido antes e não relido agora: o registro não se perde
             novo_estado.setdefault(grau_antigo, reg_antigo)
         estado[numero] = {"trt": novo_estado, "ultima_coleta": datetime.datetime.now().isoformat(timespec="seconds")}
+        fim = time.time()
+        for etapa, t in (("busca", marcas["busca"] - marcas["inicio"]),
+                         ("documentos", fim - marcas.get("andamentos", marcas["busca"]))):
+            print(f"  tempo: {etapa} {t:.1f} s", flush=True)      # lido por diagnostico_rodada.py
         print(f"  graus lidos: {', '.join(g + 'º' for g in relato['graus_lidos'])}"
               + (f"; NÃO lidos: {', '.join(f['grau'] + 'º' for f in relato['graus_falhos'])}" if relato["graus_falhos"] else ""), flush=True)
         return baixados

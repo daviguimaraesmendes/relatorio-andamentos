@@ -582,7 +582,10 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
     ultima_busca = reg_proc.get("ultima_busca", "")
     busca_recente = ultima_busca >= (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
     usar = {k: v for k, v in salvas.items() if v.get("url_autos")} if busca_recente else {}
+    t_busca = time.time()
     tramitacoes = abrir_tramitacoes(context, numero, usar)
+    print(f"  tempo: busca {time.time() - t_busca:.1f} s", flush=True)      # lido por diagnostico_rodada.py
+    t_leitura = time.time()
     if not usar:
         ultima_busca = datetime.date.today().isoformat()
     varias = len(tramitacoes) > 1
@@ -601,6 +604,7 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
         finally:
             autos.close()
     estado[numero] = {"tramitacoes": novas_salvas, "ultima_coleta": agora(), "ultima_busca": ultima_busca}
+    print(f"  tempo: leitura {time.time() - t_leitura:.1f} s", flush=True)
     return baixados
 
 

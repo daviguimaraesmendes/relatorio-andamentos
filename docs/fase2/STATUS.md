@@ -1,6 +1,6 @@
 # Status da Fase 2: matriz módulo x estado x pendência
 
-Mantida pelo WS-13 e atualizada pelo WS-14. Última atualização: **07/10/2026**, depois da Onda 2 / WS-14 (fluxos ponta a
+Mantida pelo WS-13 e atualizada pelo WS-14. Última atualização: **08/10/2026** (beta 3: seção 8); antes, 07/10/2026, depois da Onda 2 / WS-14 (fluxos ponta a
 ponta): os 15 workstreams da Onda 1 e o `src/fluxos.py` estão integrados e ligados; o WS-15 (regressão e carga) ainda não
 começou.
 
@@ -166,3 +166,20 @@ O que os fluxos fazem hoje, de ponta a ponta, está provado com o `ColetorSimula
 11. **Entregas**: o `.xlsx` de 200 linhas leva cerca de 4 s com o `soffice`; o ciclo completo (coleta simulada, revisão,
     três arquivos mais o painel) de 200 processos leva cerca de 20 s neste ambiente. O tempo real vem da coleta, não do
     processamento.
+
+## 8. Beta 3 (08/10/2026)
+
+Correções a partir do teste real de 92 processos; detalhes e o que validar no Mac em `PROXIMA-SESSAO.md`.
+
+| Módulo / arquivo | O que mudou | Teste |
+| --- | --- | --- |
+| `src/atencao.py` (novo) | faixa vermelha, notificação do Mac, navegador à frente, lembrete a cada 60 s | `tests/test_beta3.py` |
+| `src/trt.py` | uma página de consulta por TRT, aba própria para documentos, captcha adiável e contado, 2º grau com indício e sem engolir falha | `tests/test_beta3.py` (portal falso) |
+| `src/fila.py` | erro `fatal` (pausa), captcha adiável (volta no fim), motivo `fisico`, `taxa_de_sucesso`, TST no `ColetorReal` | `tests/test_beta3.py`, `tests/test_fila.py` |
+| `src/acesso.py`, `src/coletor.py` | motivo do login por passo, diagnóstico em `diagnosticos/`, `LoginFalhou` | `tests/test_beta3.py` |
+| `src/capa.py`, `src/taxonomia.py`, `src/julgamento.py`, `src/fluxos.py` | TST pelo DataJud, grau "TST", momento de recurso de revista, avisos e graus na ficha | `tests/test_beta3.py` |
+| `src/resumir.py` | resumo mais completo, estilo do escritório, alerta de resumo curto | `tests/test_beta3.py`, `tests/test_sintese.py` |
+| `src/diagnostico_rodada.py` (novo) | diagnóstico anonimizado dos logs | `tests/test_beta3.py` |
+| `src/painel/base.py`, `assistente.py`, `entregas.py` | faixa de atenção, físicos e taxa de sucesso, retomar após falha de login, fechar o navegador no fim | `tests/test_beta3.py`, `tests/test_painel.py` (instantâneo regravado: só o cabeçalho mudou) |
+
+Depende do Mac/tribunal real (não provado): login e PJe Office, captcha e navegação da consulta do TRT, notificação/tela cheia por `osascript`, qualidade do texto do modelo local, DataJud/TST com a chave real. Windows: não testado.

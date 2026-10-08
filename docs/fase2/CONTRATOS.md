@@ -94,7 +94,13 @@ ResultadoColeta = {
   "capa": {campo: valor},        # só campos de ficha.CAMPOS (grupos capa/partes/situacao); polo_cliente e parte_contraria NUNCA vêm da coleta (o tribunal não os informa)
   "movimentos": [{"data": "AAAA-MM-DD", "texto": str, "grau": str|None, "chave": str}],   # chave: "DD/MM/AAAA|texto|n", como no coletor real
   "documentos": [{"nome": str, "tipo": str, "data": "AAAA-MM-DD", "caminho": str}],
-  "erro": None | {"codigo": "captcha|segredo|nao_encontrado|timeout|sessao_expirada|outro", "mensagem": str},
+  "erro": None | {"codigo": "captcha|segredo|nao_encontrado|fisico|timeout|sessao_expirada|outro", "mensagem": str,
+                  "adiavel": bool (opcional: captcha de TRT sem solução no prazo; a fila pula o TRT e volta no fim da rodada),
+                  "fatal": bool (opcional: o acesso caiu, p.ex. login; a fila pausa e devolve o processo sem gastar tentativa)},
+  # campos OPCIONAIS acrescentados no beta 3 (o coletor simulado pode omiti-los):
+  "graus": {"lidos": ["1", "2"], "falhos": [{"grau": "2", "motivo": str}]},          # graus do TRT lidos / que falharam
+  "avisos": [{"nivel": "atencao", "codigo": "grau_nao_lido", "onde": str, "mensagem": str}],   # vão ao ciclo (fluxos._avisar_no_ciclo)
+  "no_tst": True,   # DataJud (índice tst) tem o processo; seus movimentos entram com "grau": "TST"
 }
 ```
 
@@ -105,10 +111,12 @@ fila.Fila(...).proximo() -> item | None        # respeita janela de horário e p
 fila.Fila(...).marcar(numero, estado, erro=None)
 fila.Fila(...).resumo() -> {"total", "pendente", "coletando", "coletado", "erro", "manual", "estimativa_s"}
 fila.Fila(...).pausar() / .retomar() / .parar_com_seguranca()
-fila.cobertura(projeto) -> {tribunal: {"coletado": n, "so_djen": n, "manual": n}}
+fila.Fila(...).devolver(numero)                # beta 3: o reservado volta a pendente sem gastar tentativa
+fila.cobertura(projeto) -> {tribunal: {"coletado": n, "so_djen": n, "manual": n}}   # + "fisico": n só onde houver processo físico
+fila.taxa_de_sucesso(projeto) -> {"coletados", "eletronicos", "taxa", "fisicos", "so_djen", "manuais", "erros"}   # beta 3: taxa só sobre eletrônicos
 ```
 
-Estados por processo: `pendente → coletando → coletado | erro | manual`. Estado persistido em disco a cada transição (retomável após queda em qualquer ponto; nunca repete processo `coletado`). `erro` guarda contagem e código; `captcha`/`segredo` vão para `manual` sem travar o resto. **Sequencial contra jus.br e TRT**; modo `imediato` mostra estimativa de duração e exige confirmação antes de começar.
+Estados por processo: `pendente → coletando → coletado | erro | manual`. Beta 3: `fisico` (sem autos eletrônicos; só marcado quando DJEN e DataJud respondem vazios) é um motivo permanente que vai para `manual` e fica fora da taxa de sucesso; captcha de TRT com `adiavel` volta a `pendente` e é retomado no fim da rodada (uma segunda chance; se falhar de novo, `manual`). Estado persistido em disco a cada transição (retomável após queda em qualquer ponto; nunca repete processo `coletado`). `erro` guarda contagem e código; `captcha`/`segredo` vão para `manual` sem travar o resto. **Sequencial contra jus.br e TRT**; modo `imediato` mostra estimativa de duração e exige confirmação antes de começar.
 
 ## 7. Perfil do relatório (`projetos/<slug>/perfil.json`)
 

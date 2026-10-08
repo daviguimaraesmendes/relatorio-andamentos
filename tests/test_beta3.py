@@ -252,6 +252,34 @@ class TestLogin(unittest.TestCase):
             self.assertIn("Login", login[0]["mensagem"])
             self.assertEqual(rodar["pendente"], 5)
 
+    def test_painel_oferece_retomar_depois_da_falha_de_login(self):
+        from painel import assistente
+        antes = dict(assistente.EXEC)
+        self.addCleanup(lambda: (assistente.EXEC.clear(), assistente.EXEC.update(antes)))
+        assistente.EXEC["log"].clear()
+        assistente._progresso({"evento": "login", "mensagem": "O diálogo não apareceu.", "total": 1})
+        self.assertEqual(assistente.EXEC["estado"], "pausada")
+        self.assertIn("PRECISA DE VOCÊ", assistente.EXEC["log"][0])
+        self.assertIn("Retomar", assistente.EXEC["log"][0])
+
+    def test_assistente_fecha_o_navegador_no_fim_da_coleta(self):
+        from painel import assistente
+        fechados = []
+
+        class Coletor:
+            def coletar(self, processo, profundidade, desde):
+                return {"capa": {}, "movimentos": [], "documentos": [], "erro": None}
+
+            def fechar(self):
+                fechados.append(1)
+        antes = dict(assistente.EXEC)
+        self.addCleanup(lambda: (assistente.EXEC.clear(), assistente.EXEC.update(antes)))
+        f = nova_fila({"slug": comum.PROJETO}, Relogio())
+        f.enfileirar([FICHAS[0]["numero"]], modo="imediato", profundidade="rapido")
+        assistente.EXEC.update(modo="imediato", pedido=None, erro=None)
+        assistente._trabalho(fila, f, Coletor(), comum.PROJETO)
+        self.assertEqual(fechados, [1])
+
     def test_coletor_real_devolve_erro_fatal_quando_abrir_falha(self):
         real = fila.ColetorReal()
         with mock.patch.object(fila.ColetorReal, "abrir", side_effect=coletor.LoginFalhou("Login no jus.br não concluído a tempo. x")):
@@ -963,6 +991,60 @@ class TestEstiloDaIA(unittest.TestCase):
         self.assertFalse(any("curto demais" in a for a in resumir.conferir(bom, texto)))
         vazio = {**curto, "conteudo": "Não foi possível identificar o conteúdo."}
         self.assertFalse(any("curto demais" in a for a in resumir.conferir(vazio, texto)))
+
+
+# ================================================================== diagnóstico anonimizado da rodada
+
+class TestDiagnostico(unittest.TestCase):
+    def setUp(self):
+        self._ctx = ficticio.projeto_de_teste(FICHAS[:1])
+        self.proj = self._ctx.__enter__()
+        self.addCleanup(self._ctx.__exit__, None, None, None)
+
+    def test_conta_sem_vazar_numero_nem_nome(self):
+        import diagnostico_rodada as dr
+        data = comum.DATA
+        (data / "logs").mkdir(parents=True, exist_ok=True)
+        (data / "logs" / "r1.log").write_text("\n".join([
+            f"{TRT7} (Cliente Fulano)", "CAPTCHA na consulta do TRT: resolva na janela que apareceu.",
+            "  tempo: busca 12.5 s", "  tempo: documentos 30.0 s",
+            "1234568-72.2024.5.07.0001 (Cliente Fulano)", "CAPTCHA na consulta do TRT 7: resolva na janela",
+            "1234567-06.2026.8.06.0001 (Cliente Fulano)", "  falhou: Processo em segredo de justiça: sem acesso a autos de MARIA DA SILVA SOUZA",
+            "Login automático não concluiu (tentativa 1 de 2): O diálogo do PJe Office de /Users/fulano/x não apareceu.",
+            "O diálogo do PJe Office não apareceu. Confira se o PJe Office está aberto.", "Termine o login no jus.br na janela que apareceu.",
+            "Login concluído.", "  tramitação: 2º grau"]), encoding="utf-8")
+        itens = {}
+        for k, (n, trib, estado, codigo) in enumerate([(TRT7, "TRT7", "coletado", None), (TRT7_B, "TRT7", "manual", "captcha"),
+                                                       ("1234568-72.2024.5.07.0001", "TRT7", "manual", "fisico"),
+                                                       ("1234567-06.2026.8.06.0001", "TJCE", "manual", "nao_encontrado")]):
+            itens[n] = {"numero": n, "tribunal": trib, "estado": estado, "erro": {"codigo": codigo} if codigo else None,
+                        "duracao_s": 40.0 if estado == "coletado" else None, "proxima_tentativa": None}
+        comum.save_json(data / "fila.json", {"itens": itens})
+        comum.save_json(data / "eventos.json", [
+            {"tipo_evento": "movimento", "numero": TRT7, "titulo": "Remetidos os autos ao Tribunal", "alertas": []},
+            {"tipo_evento": "movimento", "numero": TRT7, "titulo": "Expedida notificação para JOAO DE TAL em 12/09/2026",
+             "alertas": ["Movimentação sem tradução cadastrada: reescrever"]}])
+        comum.save_json(data / "estado_coleta.json", {TRT7: {"trt": {"1": {}}}})
+        texto = dr.montar()
+        self.assertNotIn("1234567", texto)
+        self.assertNotIn("MARIA", texto)
+        self.assertNotIn("JOAO", texto)
+        self.assertNotIn("/Users/fulano", texto)
+        self.assertIn("<NOME>", texto)
+        self.assertIn("| TRT 7 | 2 |", texto, "dois captchas do TRT 7")
+        self.assertIn("1º processo do bloco", texto)
+        self.assertIn("2º processo do bloco em diante", texto)
+        self.assertIn("Físicos marcados (beta 3) | 1", texto)
+        self.assertIn("1 de 3 (33%)", texto, "1 coletado de 3 eletrônicos: o físico fica fora da conta")
+        self.assertIn("busca | 1 | 12.5 s", texto)
+        self.assertIn("| concluidos | 1 |", texto)
+        self.assertIn("Processos de TRT com andamento que indica recurso: 1; destes, sem o 2º grau lido: 1", texto)
+        self.assertIn("Expedida notificação para <NOME>", texto)
+
+    def test_mascara(self):
+        import diagnostico_rodada as dr
+        m = dr.mascarar(f"Juntada de petição de FULANO DE TAL no processo {TRT7} valor R$ 1.234,56 em 12/09/2026")
+        self.assertEqual(m, "Juntada de petição de <NOME> no processo <proc> valor R$ # em ##/##/####")
 
 
 if __name__ == "__main__":

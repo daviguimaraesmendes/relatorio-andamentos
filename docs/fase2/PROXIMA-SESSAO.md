@@ -1,6 +1,6 @@
 # Como retomar a Fase 2 na próxima sessão
 
-Atualizado em 07/10/2026, ao fim da Onda 1. **Nenhum agente está rodando.** Tudo está commitado e enviado ao branch `claude/gallant-pasteur-etzpu5`.
+Atualizado em 08/10/2026, ao fim do **beta 3** (seção "Beta 2.0.0-beta3" abaixo). **Nenhum agente está rodando.** Tudo está commitado e enviado ao branch `claude/gallant-pasteur-etzpu5`.
 
 ## Onde estamos
 
@@ -34,7 +34,7 @@ Prompt do WS-15 (depois do WS-14): idem, trocando a seção por "WS-15" e acresc
 
 ## Observações do teste prático (usuário, beta2)
 
-Anotadas em 08/10/2026 enquanto a análise de um relatório real roda. **Sem ação por enquanto** (esperar a análise terminar e ver o que mais aparece).
+Anotadas em 08/10/2026 enquanto a análise de um relatório real roda. **Tratadas no beta 3** (seção acima); o texto original fica como registro das hipóteses.
 
 1. **Login automático do jus.br falhou.** Faltam detalhes para diagnosticar: mensagem exata na tela do navegador de automação ou no Terminal, se o PJe Office estava aberto, se foi na primeira consulta ou depois de um tempo, e se a aba Atualizar da versão anterior (caminho já validado) faz o login normalmente na mesma máquina. Hipótese a checar: o caminho novo (`fila.ColetorReal`, chamado pelo painel em outra thread) chama `coletor.logar` fora da mesma ordem/estado da aba Atualizar. O login está em `coletor.logar` → `acesso.login_automatico` (diálogo do PJe Office).
 2. **Captcha do TRT não chama a atenção.** A janela é trazida de volta por `janela.mostrar` (restaura, posiciona 1100×800 e `page.bring_to_front()`) e há um aviso sonoro, mas no Mac isso pode não passar por cima do Terminal/painel. Ideias, da mais simples à mais forte: (a) `osascript` com notificação do sistema ("Captcha do TRT: precisa de você") e `activate` do navegador de automação; (b) maximizar/tela cheia em vez de 1100×800; (c) faixa vermelha fixa no painel ("Precisa de você: captcha do TRT 7 aguardando") com atualização automática; (d) repetir o aviso a cada 60 s até ser resolvido; (e) enquanto espera, **pular o processo** e seguir com os demais, voltando ao captcha no fim (a fila já agrupa por TRT). Código: `trt.esperar_captcha_humano`, `janela.mostrar`.
@@ -45,7 +45,42 @@ Anotadas em 08/10/2026 enquanto a análise de um relatório real roda. **Sem aç
 
 4. **Instâncias nos tribunais trabalhistas: 1º grau, 2º grau e TST** (pedido do usuário). **Leitura do código (`trt.coletar_processo`)**: o 1º grau é lido pela pesquisa da consulta do TRT; o **2º grau é tentado** em seguida pela mesma consulta, trocando o grau na URL (`/detalhe-processo/<número>/2`), e só entra se o `id` dos autos for diferente do 1º; se a pesquisa já abrir direto o 2º grau, os autos ficam sob o grau 2. **O TST não é consultado em lugar nenhum**: não há tratamento de host do TST (`consultaprocessual.tst.jus.br` ou equivalente); o único contato é o alias `tst` do DataJud em `capa.py`, só para metadados. Dois pontos fracos na parte do 2º grau: (a) `except Exception: pass` engole qualquer falha (captcha, tempo esgotado, sessão) na tentativa do 2º grau, então um recurso que existe pode ficar sem leitura **sem nenhum aviso**; (b) essa tentativa faz **mais um `page.goto`** por processo, o que pode contribuir para os captchas repetidos do item 3. Proposta: (1) registrar no evento/estado qual grau foi lido e qual falhou, com aviso `grau_nao_lido`; (2) só tentar o 2º grau quando houver indício de recurso (movimento de remessa/distribuição ao 2º grau, ou o DataJud indicar processo no grau 2) e reutilizar a mesma página; (3) detectar o **TST** de forma barata e sem captcha pelo **DataJud** (índice `tst`, mesmo número CNJ): se existir, trazer os movimentos do TST e marcar o processo "no TST"; (4) se o usuário quiser os **documentos** do TST (acórdãos, decisões), implementar o coletor da consulta do TST num segundo momento, depois de ver o acesso real (captcha/login). Os eventos já têm o campo `grau` ("1º grau", "2º grau"); acrescentar "TST" e o momento atual "AGUARDANDO JULGAMENTO DO RECURSO DE REVISTA" (ou similar) ao vocabulário. A matéria dos graus superiores também importa para o relatório (momento atual, último andamento, resultado e probabilidade usam a decisão mais recente e de instância mais alta).
 
-Ao retomar: pedir ao usuário os detalhes do item 1 (sem nomes de cliente) e decidir quais ideias do item 2 implementar. É trabalho pequeno (coordenador, sem agente).
+Ao retomar: rodar `src/diagnostico_rodada.py` no Mac (ver `diagnostico-rodada1.md`), conferir as hipóteses e validar o beta 3 (lista acima).
+
+## Beta 2.0.0-beta3 (08/10/2026): o que foi feito a partir do teste de 92 processos
+
+Feito numa sessão em nuvem **sem acesso aos logs reais** (ficam no Mac do usuário): o diagnóstico numérico ficou como script (`src/diagnostico_rodada.py`) e o documento `diagnostico-rodada1.md` traz a leitura do código. Tudo abaixo foi testado só com doubles (`tests/test_beta3.py`, 53 testes); **o que depende de tribunal, captcha, login e janelas do Mac está em "Validar no Mac"**.
+
+| Item | Onde |
+| --- | --- |
+| 2.1 Login: motivo por passo (`acesso.ULTIMO`/`ORIENTACAO`), diagnóstico em `diagnosticos/login_jusbr_t*.{png,html,txt,json}`, `LoginFalhou`, erro `fatal` pausa a fila (`Fila.devolver`) e o painel passa a "Retomar"; o painel assistente fecha o navegador no fim | `acesso.py`, `coletor.logar`, `fila.ColetorReal/rodar_fila`, `painel/assistente.py`, `rodar.py` |
+| 2.2 Uma página de consulta por TRT por rodada, pesquisa pelo formulário (escada: campo já pronto → "nova consulta" → voltar no histórico → recarregar, contada em `RECARGAS`), documentos em aba própria, log `captchas pedidos nesta rodada` | `trt.py` |
+| 2.3 Captcha que chama a atenção: `atencao.py` (arquivo `data/atencao.json` + faixa vermelha `/atencao.json` em todas as telas), notificação e som por `osascript`, navegador à frente e maximizado (`janela.mostrar(maximizar=True)`), lembrete a cada 60 s, espera `coleta.captcha_espera_min` (padrão 10), depois o processo é **adiado** (`erro.adiavel`) e a fila volta ao TRT no fim da rodada | `atencao.py`, `trt.py`, `fila.py`, `painel/base.py` |
+| 2.4 Físico: código `fisico` (`fila.parece_fisico`: DJEN vazio **e** DataJud vazio; na dúvida, manual), `cobertura()` com `fisico`, `taxa_de_sucesso()`, cartões e listas à parte no painel | `fila.py`, `painel/assistente.py`, `painel/entregas.py` |
+| 2.5 Graus: 2º grau só com indício (`trt.indicio_de_recurso`, DataJud grau G2), pela rota da aplicação (sem recarregar), falha vira aviso `grau_nao_lido` (vai ao ciclo e a `ficha.ultima_coleta.graus`); TST pelo DataJud (`capa.consultar_tst/no_tst/movimentos_do_tst`, `fila._acrescentar_tst`), grau "TST", `taxonomia.GRAUS`, momento "AGUARDANDO JULGAMENTO DO RECURSO DE REVISTA", `julgamento` trata TST como grau 3 | `trt.py`, `capa.py`, `fila.py`, `taxonomia.py`, `julgamento.py`, `fluxos.py` |
+| Texto da IA local: pedido de 25 a 80 palavras com motivo, efeito e dados concretos, exemplos de redação do escritório (`estilo.md` ou `estilo_redacao`), alerta de resumo curto (`resumir.MINIMO_PALAVRAS`) | `resumir.py` |
+| Diagnóstico anonimizado da rodada; linhas `tempo:` por etapa nos logs | `diagnostico_rodada.py`, `trt.py`, `coletor.py` |
+
+**Gancho do TST (não implementado, a pedido do usuário)**: o coletor de **documentos** do TST (acórdãos, decisões) só será escrito depois que o usuário abrir a consulta do TST e descrever o acesso (captcha? login?). Hoje só há os movimentos do TST pelo DataJud e a marca `no_tst`. O lugar natural é um `tst.py` no estilo de `trt.py` (uma página de consulta por rodada, `coletar_processo(context, proc, estado, lista, historico, cota, desde, relato)`), chamado por `fila._acrescentar_tst` quando `no_tst`.
+
+### Validar no Mac (o que o usuário vai ver)
+
+1. **PJe Office fechado + iniciar a coleta**: faixa vermelha com o motivo, coleta em pausa, `diagnosticos/login_jusbr_t1.json` com `"passo": "dialogo"`; abrir o PJe Office, clicar **Retomar**.
+2. **Captcha**: notificação com som, navegador maximizado na frente do Terminal, faixa vermelha; repete a cada 60 s. Deixar passar 10 min num TRT: o processo é pulado, os outros tribunais seguem e o TRT volta no fim.
+3. **Captchas por rodada**: a linha `captchas pedidos nesta rodada` deve mostrar bem menos que o número de processos de TRT. Se a consulta recarregar (`consulta recarregada do zero: Nx`), a navegação por formulário (botão "nova consulta" ou voltar no histórico) não funcionou naquele TRT: me dizer qual, e abrir `diagnosticos/` para ver a tela.
+4. **2º grau**: `graus lidos: 1º, 2º` em processo com recurso; a navegação do 1º para o 2º é por rota da aplicação (`pushState`); se não vierem os autos em 8 s, cai no `goto` (que pode pedir captcha).
+5. **Físicos**: conferir se os marcados como físicos são mesmo físicos (a regra é conservadora).
+6. **TST**: com a chave do DataJud, processos no TST mostram "no TST" nos avisos do ciclo e andamentos com grau TST.
+
+### Riscos e pendências do beta 3
+
+- A navegação do TRT (escada de `preparar_busca`, rota de grau, aba de documento) segue suposições sobre o PJe (campo `#nrProcessoInput`, SPA que aceita `pushState`/`popstate`); só o TRT real confirma.
+- `osascript` para notificação e para trazer o navegador à frente precisa de permissão (Acessibilidade/Automação) para o aplicativo que abre o painel; sem ela o aviso sonoro da notificação pode falhar em silêncio (a faixa vermelha do painel continua).
+- Windows: o aviso é só o sinal sonoro do terminal; **não testado**.
+- `rodar.py --fila` (caminho antigo da fila) não grava os movimentos do TST (só o fluxo `fluxos.processar_resultado` os grava).
+- **Defeito de desenho conhecido, não corrigido**: o `comum.PROJETO` é global e a coleta roda numa thread do painel; trocar de relatório (aba) durante uma coleta no Assistente pode gravar eventos no relatório errado. Proposta: a thread de coleta fixar o projeto (como `fluxos._em(slug)`) ou o painel bloquear a troca de aba enquanto a coleta roda.
+- O resumo curto só avisa; a qualidade real do texto depende do modelo (testar `gemma3:12b` ou maior se a memória permitir) e dos exemplos em `estilo.md`.
+- Andamentos sem tradução: a lista real sai do script de diagnóstico; cadastrar as regras em `movimentos.json` só depois de ver a lista.
 
 ## Beta 2.0.0-beta2 (08/10/2026): clientes em lote
 
