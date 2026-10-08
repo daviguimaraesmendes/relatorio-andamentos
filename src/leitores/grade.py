@@ -89,7 +89,8 @@ SINONIMOS = {
     "area": ("area do direito", "area", "area juridica", "ramo do direito", "ramo", "area do processo"),
     "materia_principal": ("materia principal", "materia", "tese", "tese principal", "materia do processo",
                           "causa de pedir"),
-    "objeto": ("objeto", "objeto da acao", "pedido", "pedidos", "pedido principal", "resumo do objeto"),
+    "objeto": ("objeto", "objeto da acao", "pedido", "pedidos", "pedido principal", "resumo do objeto",
+               "breve resumo do caso", "resumo do caso", "sintese do caso", "resumo da acao"),
     "valor_causa": ("valor da causa", "valor causa", "valor atribuido a causa", "valor atribuido", "valor da acao",
                     "valor do processo", "valor inicial", "valor da causa atualizado"),
     "momento_atual": ("momento atual", "momento atual do processo", "momento processual", "fase atual",
@@ -216,6 +217,13 @@ def _pontuar(cabecalho):
                         melhor = max(melhor, r * 0.88)
         if melhor >= LIMIAR_MIN:
             achados.append((round(melhor, 3), destino))
+    # "AUTOR/RECLAMANTE", "RÉU/RECLAMADO": cada parte é um nome conhecido do MESMO campo -> o cabeçalho inteiro também
+    partes = [x for x in re.split(r"\s*[/|]\s*|\s+ou\s+", cabecalho.strip(), flags=re.I) if x.strip()]
+    if len(partes) > 1:
+        donos = {_EXATOS.get(_expandir(base.chave(x))) for x in partes}
+        if len(donos) == 1 and None not in donos:
+            dono = donos.pop()
+            achados = [(c, d) for c, d in achados if d != dono] + [(0.95, dono)]
     return tuple(sorted(achados, key=lambda x: (-x[0], x[1])))
 
 
@@ -281,7 +289,39 @@ def propor_mapeamento(cabecalhos, amostras=None):
             donos[reg["campo"]] = reg["indice"]
     for reg in registros:
         reg["aplicado"] = bool(reg["campo"]) and reg["confianca"] >= LIMIAR_AUTO
+    _reconhecer_historico_pelo_conteudo(registros, amostras)
     return registros
+
+
+_DATA_NO_TEXTO = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+
+
+def _parece_historico(amostra):
+    """A coluna parece o HISTÓRICO de andamentos pelo conteúdo? Pelo menos 3 células preenchidas e metade delas com
+    2 datas ou mais e 25 palavras ou mais (texto corrido: 'Em 10/05/2026, foi ...'). Serve para colunas chamadas
+    'Observação', 'Comentários' etc. que o escritório usa para o histórico."""
+    cheias = [str(v) for v in amostra if not base.vazio(v)]
+    if len(cheias) < 3:
+        return False
+    bons = sum(1 for t in cheias if len(_DATA_NO_TEXTO.findall(t)) >= 2 and len(t.split()) >= 25)
+    return bons / len(cheias) >= 0.5
+
+
+def _reconhecer_historico_pelo_conteudo(registros, amostras):
+    """Sem uma coluna de andamentos reconhecida pelo nome, a coluna cujo CONTEÚDO é um histórico datado vira
+    `andamentos` (confiança 0,9; a tela de mapeamento deixa corrigir). Só vale para colunas que estavam sem destino ou
+    com destino de texto livre (observações, apelido, objeto)."""
+    if any(r["campo"] == "andamentos" and r["confianca"] >= 0.9 for r in registros):
+        return
+    candidatas = [r for r in registros if r["indice"] < len(amostras) and _parece_historico(amostras[r["indice"]])
+                  and r["campo"] in (None, "observacoes", "apelido", "objeto", "situacao")]
+    if not candidatas:
+        return
+    melhor = max(candidatas, key=lambda r: sum(len(str(v).split()) for v in amostras[r["indice"]] if not base.vazio(v)))
+    for r in registros:
+        if r["campo"] == "andamentos" and r is not melhor:
+            r["campo"], r["aplicado"] = None, False
+    melhor.update(campo="andamentos", confianca=0.9, aplicado=True, ambigua=False, duplicada_de=None)
 
 
 def aplicar_mapeamento_do_usuario(registros, mapeamento, avisos, onde):
@@ -586,6 +626,7 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
         if principal is None:
             continue
         campos, extras = {}, {}
+        aba_de_encerrados = bool(re.search(r"arquivad|encerrad|baixad", base.chave(nome or "")))     # aba "Arquivados": processo inativo
         andamentos_texto, ultimo_texto, fecho, lista_andamentos = "", None, None, []
         for j in nao_vazias:
             destino = por_coluna.get(j)
@@ -632,7 +673,8 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
         processos.append(base.processo_lido(
             principal, campos, vinculados, andamentos_texto, ultimo,
             f"aba {nome!r}, linha {numero_linha}" if nome else f"linha {numero_linha}",
-            ativo=extras.get("ativo"), fecho=fecho, andamentos=lista_andamentos,
+            ativo=extras.get("ativo") if "ativo" in extras else (False if aba_de_encerrados else None),
+            fecho=fecho, andamentos=lista_andamentos,
             momento_qualificador=extras.get("momento_qualificador")))
     if ignoradas:
         avisos.append(base.aviso("info", "linhas_ignoradas", onde_aba,

@@ -37,7 +37,8 @@ from painel.base import _ir, _msg
 from painel.entregas import ESTILO_FLUXO, Indisponivel, modulo
 
 EXTENSOES_MIGRACAO = (".xlsx", ".csv", ".docx", ".txt", ".md")
-MODELOS_DE_DESTINO = {"docx_a": "Relatório em texto (modelo A, .docx)", "xlsx_b": "Planilha (modelo B, .xlsx)"}
+MODELOS_DE_DESTINO = {"docx_a": "Relatório em texto simplificado (modelo A, .docx)", "xlsx_b": "Planilha (modelo B, .xlsx)",
+                      "dashboard": "Painel com gráficos (modelo C, .html; usa a planilha)"}
 DESTINOS_ESPECIAIS = {"numero": "Número do processo", "andamentos": "Andamentos (histórico)"}
 # onde cada campo aparece no relatório em texto (modelo A); o que não está aqui só existe na planilha
 DESTINO_NO_TEXTO = {"numero": "Nº do processo", "andamentos": "Andamentos", "autores": "Autor(es)", "reus": "Réu(s)",
@@ -209,6 +210,104 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         pasta, dados = _carregar(request.args.get("lote", ""))
         return pagina("Mapeamento das colunas", html_do_mapeamento(dados, {}, None, oculto, pasta.name, _nome_sugerido(dados)))
 
+    # ---------------------------------------------------- mapeamento das colunas dentro de Importar e Atualizar
+
+    def _lote_de_fluxo(lote):
+        pasta = ass.pasta_do_lote(lote)
+        dados = ass.ler_lote(pasta, "lote.json")
+        if dados is None or dados.get("tipo") not in ("importar", "atualizar"):
+            abort(404)
+        return pasta, dados
+
+    def _arquivo_livre(dados):
+        return next((a for a in dados["arquivos"] if a.get("formato") == "tabela_livre"), None)
+
+    def _volta(dados, pasta):
+        return f"/fluxo/{'importar' if dados['tipo'] == 'importar' else 'atualizar'}/conferir?lote={pasta.name}"
+
+    @app.get("/fluxo/mapear")
+    def fluxo_mapear():
+        pasta, dados = _lote_de_fluxo(request.args.get("lote", ""))
+        arq = _arquivo_livre(dados)
+        if arq is None:
+            return _ir(_volta(dados, pasta), "Nenhum arquivo deste envio é planilha fora do modelo: não há colunas para mapear.")
+        leitores = modulo("leitores", "O leitor de relatórios")
+        escolhido = (dados.get("mapeamentos") or {}).get(arq["nome"]) or None
+        rel = leitores.ler(Path(arq["caminho"]), "tabela_livre", mapeamento=escolhido)
+        vistas, linhas = set(), []
+        for l in colunas_da_leitura(rel):         # a mesma coluna em duas abas aparece uma vez só (vale para as duas)
+            if l["coluna"] not in vistas:
+                vistas.add(l["coluna"])
+                linhas.append(l)
+        selecionado = {l["coluna"]: l["campo"] for l in linhas}      # a proposta inteira vem marcada; a pessoa corrige
+        opcoes = opcoes_de_campo()
+        h = [f"<form class='caixa' method='post' action='/fluxo/mapear'>{oculto}<input type='hidden' name='lote' value='{_e(pasta.name)}'>",
+             f"<p><b>{_e(arq['nome'])}</b>: {rel.get('processos') and len(rel['processos']) or 0} processo(s) com este mapeamento. "
+             "Escolha, para cada coluna, o campo do programa que ela alimenta. O que ficar em \"(não usar)\" não entra no relatório "
+             "novo, mas nada se perde: vai para a aba \"Campos não migrados\" quando você converter.</p>",
+             "<table class='t'><tr><th>Coluna do arquivo</th><th>Exemplos</th><th>Vai para o campo</th><th>Confiança</th></tr>"]
+        for i, l in enumerate(linhas):
+            atual = selecionado.get(l["coluna"]) or ""
+            extra = [] if atual in {v for v, _ in opcoes} else [(atual, atual)]
+            conf = f"{round(l['confianca'] * 100)}%" if isinstance(l.get("confianca"), (int, float)) and l["confianca"] else "-"
+            h.append(f"<tr><td>{_e(l['coluna'])}<input type='hidden' name='col_{i}' value='{_e(l['coluna'])}'></td>"
+                     f"<td class='dica'>{_e(' | '.join(map(str, l.get('amostra', [])[:3])))}</td><td><select name='map_{i}'>"
+                     + "".join(f"<option value='{_e(v)}' {'selected' if v == atual else ''}>{_e(r)}</option>" for v, r in [*opcoes, *extra])
+                     + f"</select></td><td>{conf}</td></tr>")
+        h.append("</table><button class='principal'>Aplicar e voltar à conferência</button> "
+                 f"<a href='{_e(_volta(dados, pasta))}'>Cancelar</a></form>")
+        return pagina("Mapeamento das colunas", "".join(h))
+
+    @app.post("/fluxo/mapear")
+    def fluxo_mapear_aplicar():
+        token_ok()
+        pasta, dados = _lote_de_fluxo(request.form.get("lote", ""))
+        arq = _arquivo_livre(dados)
+        if arq is None:
+            abort(404)
+        mapeamento, i = {}, 0
+        while f"col_{i}" in request.form:
+            mapeamento[request.form[f"col_{i}"]] = request.form.get(f"map_{i}") or None
+            i += 1
+        if "numero" not in mapeamento.values():
+            return _ir(f"/fluxo/mapear?lote={pasta.name}", "Escolha qual coluna traz o número do processo (campo \"Número do processo\").")
+        leitores = modulo("leitores", "O leitor de relatórios")
+        lidos = []
+        for a in dados["arquivos"]:
+            caminho = Path(a["caminho"])
+            try:
+                rel = leitores.ler(caminho, a["formato"], mapeamento=mapeamento) if a is arq else leitores.ler(caminho, a["formato"])
+            except Exception as erro:  # noqa: BLE001
+                return _ir(f"/fluxo/mapear?lote={pasta.name}", f"Não consegui aplicar o mapeamento ({erro}).")
+            lidos.append({"nome": a["nome"], "caminho": a["caminho"], "formato": a["formato"], "rel": rel})
+        if dados["tipo"] == "atualizar":
+            fichas, avisos, novo = ass.montar_lote_de_atualizacao(lidos, dados.get("rejeitados", []))
+        else:
+            fichas, avisos, resumos = ass.tratar_leituras(lidos)
+            novo = {"tipo": "importar", "arquivos": resumos, "rejeitados": dados.get("rejeitados", [])}
+        novo["mapeamentos"] = {**(dados.get("mapeamentos") or {}), arq["nome"]: {c: v for c, v in mapeamento.items()}}
+        ass.gravar_lote(pasta, "lote.json", novo)
+        ass.gravar_lote(pasta, "fichas.json", fichas)
+        ass.gravar_lote(pasta, "avisos.json", avisos)
+        usados = sum(1 for v in mapeamento.values() if v)
+        return _ir(_volta(novo, pasta), f"Mapeamento aplicado: {usados} coluna(s) em uso, {len(fichas)} processo(s).")
+
+    @app.get("/fluxo/migrar")
+    def fluxo_migrar():
+        """Do envio de Importar/Atualizar para 'Migrar de modelo': converte o mesmo arquivo para texto, planilha e painel."""
+        pasta, dados = _lote_de_fluxo(request.args.get("lote", ""))
+        arq = _arquivo_livre(dados) or (dados["arquivos"][0] if dados["arquivos"] else None)
+        if arq is None:
+            return _ir(_volta(dados, pasta), "Não há arquivo para converter neste envio.")
+        leitores = modulo("leitores", "O leitor de relatórios")
+        escolhido = (dados.get("mapeamentos") or {}).get(arq["nome"]) or None
+        rel = leitores.ler(Path(arq["caminho"]), arq["formato"], mapeamento=escolhido) if arq["formato"] == "tabela_livre" and escolhido \
+            else leitores.ler(Path(arq["caminho"]), arq["formato"])
+        novo_lote, nova_pasta = ass.novo_lote()
+        resumo = ass.resumo_da_leitura({"nome": arq["nome"], "caminho": arq["caminho"], "formato": arq["formato"], "rel": rel})
+        ass.gravar_lote(nova_pasta, "lote.json", {"tipo": "migrar", "arquivo": resumo, "colunas": colunas_da_leitura(rel)})
+        return _ir(f"/migracao/mapear?lote={novo_lote}")
+
     @app.post("/migracao/converter")
     def migracao_converter():
         token_ok()
@@ -228,7 +327,9 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             return pagina("Mapeamento das colunas", html_do_mapeamento(dados, selecionado, previa, oculto, pasta.name, nome))
         modelos = [m for m in request.form.getlist("modelos") if m in MODELOS_DE_DESTINO]
         if not modelos:
-            return _ir(f"/migracao/mapear?lote={pasta.name}", "Escolha pelo menos um modelo de destino (texto ou planilha).")
+            return _ir(f"/migracao/mapear?lote={pasta.name}", "Escolha pelo menos um modelo de destino (texto, planilha ou painel).")
+        if "dashboard" in modelos and "xlsx_b" not in modelos:
+            modelos.append("xlsx_b")         # o painel lê a planilha: ela é gerada junto
         if not fichas:
             return _ir(f"/migracao/mapear?lote={pasta.name}", "Não encontrei nenhum processo com este mapeamento. Confira a coluna do número do processo.")
         slug = ass.criar_relatorio(nome, fichas, [resumos[0]], resumos)

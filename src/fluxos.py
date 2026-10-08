@@ -508,10 +508,12 @@ def converter(arquivo, destino_modelo, mapeamento=None, projeto=None, *, nome=No
     planilha (e para `Campos não migrados.csv` na pasta de saída, que vale também para o texto): nada se perde em
     silêncio. Devolve o resultado de `entregar` mais `campos_nao_migrados`, `projeto` e `migracao`."""
     modelos = [destino_modelo] if isinstance(destino_modelo, str) else list(destino_modelo or [])
-    modelos = [m for m in modelos if m in ("docx_a", "xlsx_b")]
+    modelos = [m for m in modelos if m in ("docx_a", "xlsx_b", "dashboard")]
+    if "dashboard" in modelos and "xlsx_b" not in modelos:
+        modelos.append("xlsx_b")          # o painel lê a planilha
     if not modelos:
-        return _resultado(False, "Escolha o modelo de destino (docx_a ou xlsx_b).",
-                          [_aviso("erro", "modelo_de_destino", "converter", "Escolha o modelo de destino: docx_a ou xlsx_b.")])
+        return _resultado(False, "Escolha o modelo de destino (docx_a, xlsx_b ou dashboard).",
+                          [_aviso("erro", "modelo_de_destino", "converter", "Escolha o modelo de destino: docx_a, xlsx_b ou dashboard.")])
     mig = migrar([arquivo], projeto, confirmar=True, nome=nome or f"{Path(arquivo).stem} (convertido)", mapeamento=mapeamento,
                  ao_progresso=ao_progresso)
     if not mig["ok"] or not mig.get("projeto"):

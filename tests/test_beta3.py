@@ -1107,5 +1107,172 @@ class TestEstiloDosAndamentos(unittest.TestCase):
         self.assertNotIn("Não cite número de lei", resumir.SISTEMA_BASE)
 
 
+# ================================================================== relatório de contingências (planilha fora do modelo)
+
+def planilha_de_contingencias(caminho, com_data_base=False):
+    """Planilha FICTÍCIA no formato 'contingências' do escritório: título nas 3 primeiras linhas, cabeçalho na linha 5,
+    partes numa só coluna 'AUTOR/RECLAMANTE', histórico em 'OBSERVAÇÃO' e colunas próprias (passivo, provisão)."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Relatório Cliente Teste"
+    ws["A1"], ws["A2"], ws["A3"] = "CLIENTE TESTE", "Acompanhamento de Passivo", "Mês: Setembro- 2026"
+    cab = ["AUTOR/RECLAMANTE", "RÉU/RECLAMADO", "PROCESSO Nº.", "NATUREZA DA AÇÃO", "PASSIVO POTENCIAL ", "POSSIBILIDADE DE PERDA ",
+           "PROVISÃO CONSTITUÍDA", "BREVE RESUMO DO CASO", "OBSERVAÇÃO"]
+    for j, c in enumerate(cab, 1):
+        ws.cell(5, j, c)
+    historico = ("Ação de cobrança ajuizada pelo autor contra a empresa, com pedido de tutela de urgência indeferido. Em 10/03/2026, "
+                 "apresentamos contestação e documentos novos sobre os pagamentos alegados. Em 15/04/2026, o Juízo designou audiência "
+                 "de conciliação, que restou sem acordo. Em 20/05/2026, requeremos o julgamento antecipado da lide. "
+                 + ("Em 18/09/2026, sem atualizações." if com_data_base else "Em 12/06/2026, foi proferida sentença de improcedência."))
+    for k, num in enumerate(["1234567-06.2026.8.06.0001", "1234568-72.2024.4.05.8100", "1234569-95.2026.5.07.0001"]):
+        r = 6 + k
+        ws.cell(r, 1, f"Autor Fictício {k}"); ws.cell(r, 2, "Empresa Ré Fictícia S.A."); ws.cell(r, 3, num)
+        ws.cell(r, 4, "Cobrança"); ws.cell(r, 5, "R$ 10.000,00"); ws.cell(r, 6, "REMOTA - improcedência"); ws.cell(r, 7, "R$ 2.000,00")
+        ws.cell(r, 8, "Resumo curto do caso fictício."); ws.cell(r, 9, historico)
+    wb.save(caminho)
+
+
+class TestPlanilhaDeContingencias(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(dir=isolamento.TMP))
+        self.arq = self.tmp / "contingencias.xlsx"
+
+    def test_leitor_reconhece_partes_resumo_e_historico(self):
+        import leitores
+        planilha_de_contingencias(self.arq, com_data_base=True)
+        rel = leitores.ler(self.arq)
+        self.assertEqual((rel["formato"], len(rel["processos"])), ("tabela_livre", 3))
+        mapa = {m["coluna"].strip(): (m["campo"], m["aplicado"]) for m in rel["mapeamento"]}
+        self.assertEqual(mapa["AUTOR/RECLAMANTE"], ("autores", True))
+        self.assertEqual(mapa["RÉU/RECLAMADO"], ("reus", True))
+        self.assertEqual(mapa["BREVE RESUMO DO CASO"], ("objeto", True))
+        self.assertEqual(mapa["OBSERVAÇÃO"], ("andamentos", True), "o histórico é reconhecido pelo conteúdo")
+        p = rel["processos"][0]
+        self.assertEqual(len(p["andamentos"]), 3)
+        self.assertEqual(rel["data_base"], "2026-09-18", "sem data-base escrita, vale a data do fecho 'sem atualizações'")
+        self.assertIn("data_base_deduzida", [a["codigo"] for a in rel["avisos"]])
+        nao_lidas = {c["coluna"].strip() for c in rel["colunas_sem_destino"]}
+        self.assertIn("PROVISÃO CONSTITUÍDA", nao_lidas, "coluna própria do cliente não se perde: vai para 'campos não migrados'")
+
+    def test_observacao_comum_continua_observacao(self):
+        import leitores
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for j, c in enumerate(["Processo", "Autor", "Réu", "Observação"], 1):
+            ws.cell(1, j, c)
+        for k in range(4):
+            ws.cell(2 + k, 1, ["1234567-06.2026.8.06.0001", "1234568-72.2024.4.05.8100", "1234569-95.2026.5.07.0001", "1234570-71.2025.8.06.0001"][k])
+            ws.cell(2 + k, 2, "Autor"); ws.cell(2 + k, 3, "Réu"); ws.cell(2 + k, 4, "Ligar para o cliente")
+        wb.save(self.tmp / "simples.xlsx")
+        rel = leitores.ler(self.tmp / "simples.xlsx")
+        mapa = {m["coluna"]: m["campo"] for m in rel["mapeamento"]}
+        self.assertEqual(mapa["Observação"], "observacoes")
+
+    def _painel(self):
+        from revisao import app, TOKEN
+        return app.test_client(), TOKEN
+
+    def _enviar(self, c, token, rota, campo="arquivos"):
+        r = c.post(rota, data={"token": token, campo: (open(self.arq, "rb"), "contingencias.xlsx")}, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 302, r.get_data(as_text=True)[:300])
+        return r.headers["Location"]
+
+    def test_importar_avisa_da_planilha_fora_do_modelo_e_deixa_mapear(self):
+        planilha_de_contingencias(self.arq, com_data_base=True)
+        with ficticio.projeto_de_teste(FICHAS[:1]):
+            c, token = self._painel()
+            loc = self._enviar(c, token, "/fluxo/importar/enviar")
+            pagina = c.get(loc).get_data(as_text=True)
+            self.assertIn("Planilha fora do modelo do programa", pagina)
+            self.assertIn("/fluxo/mapear?lote=", pagina)
+            self.assertIn("/fluxo/migrar?lote=", pagina)
+            lote = loc.split("lote=")[1]
+            mapa = c.get(f"/fluxo/mapear?lote={lote}").get_data(as_text=True)
+            self.assertIn("PROVISÃO CONSTITUÍDA", mapa)
+            # a pessoa manda a provisão para "custas" e tira o resumo do caso; o resto fica como o programa propôs
+            import re as _re
+            form = {"token": token, "lote": lote}
+            for i, nome, bloco in _re.findall(r"name='col_(\d+)' value='([^']*)'.*?<select name='map_\d+'>(.*?)</select>", mapa, flags=_re.S):
+                marcado = _re.search(r"<option value='([^']*)' selected>", bloco)
+                form[f"col_{i}"] = nome.replace("&amp;", "&")
+                form[f"map_{i}"] = {"PROVISÃO CONSTITUÍDA": "custas", "BREVE RESUMO DO CASO": ""}.get(nome.strip(), marcado.group(1) if marcado else "")
+            sem_numero = {k: ("" if v == "numero" else v) for k, v in form.items()}
+            r = c.post("/fluxo/mapear", data=sem_numero)
+            self.assertIn("mapear?lote=", r.headers["Location"], "sem a coluna do número, volta com explicação")
+            r = c.post("/fluxo/mapear", data=form)
+            self.assertEqual(r.status_code, 302)
+            self.assertIn("conferir?lote=", r.headers["Location"])
+            pagina = c.get(r.headers["Location"]).get_data(as_text=True)
+            self.assertIn("Mapeamento aplicado", pagina)
+            fichas = comum.load_json(next(Path(isolamento.TMP).rglob(f"{lote}/fichas.json")), [])
+            self.assertEqual(len(fichas), 3)
+            f0 = next(f for f in fichas if f["numero"] == "1234567-06.2026.8.06.0001")
+            import ficha as _ficha
+            self.assertTrue(_ficha.obter(f0, "autores"))
+            self.assertTrue(_ficha.obter(f0, "custas"), "a provisão foi mapeada para custas pela pessoa")
+            self.assertFalse(_ficha.obter(f0, "objeto"), "o resumo do caso foi desmarcado")
+            self.assertTrue(f0.get("linha_de_base"), "o histórico da coluna Observação virou a linha de base")
+
+    def test_converter_a_planilha_para_texto_planilha_e_painel(self):
+        planilha_de_contingencias(self.arq, com_data_base=True)
+        with ficticio.projeto_de_teste(FICHAS[:1]):
+            c, token = self._painel()
+            loc = self._enviar(c, token, "/fluxo/importar/enviar")
+            lote = loc.split("lote=")[1]
+            r = c.get(f"/fluxo/migrar?lote={lote}")
+            self.assertEqual(r.status_code, 302)
+            self.assertIn("/migracao/mapear?lote=", r.headers["Location"])
+            mapa = c.get(r.headers["Location"]).get_data(as_text=True)
+            self.assertIn("Painel com gráficos", mapa)
+            novo_lote = r.headers["Location"].split("lote=")[1]
+            r = c.post("/migracao/converter", data={"token": token, "lote": novo_lote, "acao": "converter", "nome": "Convertido",
+                                                    "modelos": ["docx_a", "dashboard"], "estilo_texto": "a"})
+            self.assertEqual(r.status_code, 302, r.get_data(as_text=True)[:300])
+            from painel import entregas
+            gerados = {a["nome"].rsplit(".", 1)[-1] for rodada in entregas.listar_saida() for a in rodada["arquivos"]}
+            self.assertTrue({"docx", "xlsx", "html"} <= gerados, f"a conversão gerou {sorted(gerados)}")
+
+    def test_atualizar_pede_a_data_base_quando_o_arquivo_nao_traz(self):
+        planilha_de_contingencias(self.arq, com_data_base=False)
+        f = FICHAS[0]
+        with ficticio.projeto_de_teste(FICHAS[:1]):
+            c, token = self._painel()
+            loc = self._enviar(c, token, "/fluxo/atualizar/enviar")
+            pagina = c.get(loc).get_data(as_text=True)
+            self.assertIn("Data-base do relatório", pagina)
+            self.assertIn("name='data_base'", pagina)
+            self.assertIn("<b>O arquivo não traz a data-base.</b>", pagina)
+            self.assertIn("histórico completo", pagina)
+        planilha_de_contingencias(self.arq, com_data_base=True)
+        with ficticio.projeto_de_teste(FICHAS[:1]):
+            c, token = self._painel()
+            loc = self._enviar(c, token, "/fluxo/atualizar/enviar")
+            pagina = c.get(loc).get_data(as_text=True)
+            self.assertIn("value='18/09/2026'", pagina)
+            self.assertNotIn("<b>O arquivo não traz a data-base.</b>", pagina)
+
+    def test_conversao_aceita_o_painel_como_destino(self):
+        from painel import migracao
+        self.assertIn("dashboard", migracao.MODELOS_DE_DESTINO)
+        self.assertIn("texto simplificado", migracao.MODELOS_DE_DESTINO["docx_a"])
+
+    def test_coletor_real_sem_desde_traz_o_historico_completo(self):
+        """Antes, processo visto pela primeira vez sem `desde` voltava vazio (virava 'linha de base')."""
+        real = fila.ColetorReal()
+        real._contexto = object()
+        visto = {}
+
+        def falso(contexto, proc, estado, lista, historico, cota, desde=None, relato=None):
+            visto["historico"], visto["desde"] = historico, desde
+            return 0
+        with mock.patch.object(coletor, "coletar_processo", side_effect=falso), mock.patch.object(capa, "_config_datajud", return_value=(False, None)):
+            real.coletar({"numero": TRT7, "cliente": "x"}, "padrao", None)
+            self.assertEqual(visto["historico"], fila.ColetorReal.HISTORICO_TODO)
+            real.coletar({"numero": TRT7, "cliente": "x"}, "padrao", "2026-09-18")
+            self.assertEqual(visto["historico"], 0, "com data-base: só o que veio depois")
+
+
 if __name__ == "__main__":
     unittest.main()

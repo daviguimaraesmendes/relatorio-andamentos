@@ -147,6 +147,14 @@ def salvar_eventos(lista):
     save_json(EVENTOS_FILE, lista)
 
 
+def versao_do_programa():
+    """Texto do arquivo VERSAO (ex.: '2.0.0-beta3'); vazio se não existir. Vai na primeira linha dos logs."""
+    try:
+        return (RAIZ / "VERSAO").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def slug(texto):
     texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
     return re.sub(r"[^A-Za-z0-9]+", "-", texto).strip("-").lower() or "sem-nome"

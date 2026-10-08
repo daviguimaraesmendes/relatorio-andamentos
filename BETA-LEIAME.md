@@ -1,6 +1,17 @@
-# Relatório de Andamentos — versão 2.0.0-beta3
+# Relatório de Andamentos — versão 2.0.0-beta4
 
 Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você já usa, a montagem e a atualização de relatórios completos (texto, planilha e dashboard). O acesso ao jus.br e aos TRTs é o mesmo que já funciona; a aba **Atualizar** da versão anterior continua no painel, como plano B.
+
+## 000. Novo no beta4 (a partir do teste com a planilha de contingências)
+
+**ANTES DE TESTAR: feche o painel e abra de novo.** Depois de copiar um pacote novo por cima, o painel que já estava aberto continua rodando o programa **antigo**, e o número da versão no topo (lido do arquivo) engana. No beta2 e no beta3 isso explicaria "o aviso de captcha não apareceu" e "o login automático falhou de novo" se o painel não foi reaberto. A partir do beta4, se o arquivo da versão mudar com o painel aberto, aparece uma **faixa vermelha**: "Reinicie o painel". Para conferir que o código novo está rodando: o log da coleta do Assistente (`projetos/<relatório>/data/logs/AAAAMMDD-HHMMSS-assistente.log`, novo) começa com "Relatório de Andamentos 2.0.0-beta4".
+
+1. **Planilha fora do modelo (como a de contingências).** Ao importar ou atualizar com uma planilha assim, o programa avisa no alto da conferência e abre **"Conferir e corrigir o mapeamento das colunas"**: você escolhe, coluna por coluna, o campo que ela alimenta (proposta já marcada). Melhorias de leitura: `AUTOR/RECLAMANTE` e `RÉU/RECLAMADO` viram autores e réus; `BREVE RESUMO DO CASO` vira o objeto; a coluna cujo **conteúdo** é um histórico datado (a sua `OBSERVAÇÃO`) é lida como **andamentos**; abas "Arquivados" entram como processos inativos; colunas próprias (passivo, provisão, depósito) **não se perdem**: vão para "Campos não migrados". Sem coluna de momento atual, o momento é deduzido pelas regras do último andamento (origem "derivado", conferir).
+2. **Data-base.** Se o arquivo não traz, o programa usa a maior data do fecho "Em DD/MM/AAAA, sem atualizações." dos textos e **mostra um campo para você confirmar ou corrigir** antes de coletar.
+3. **Correção importante na coleta.** Processo visto pela primeira vez **sem data-base** voltava **vazio** na coleta real (era tratado como "linha de base"). Agora traz o histórico completo. Isso pode explicar autos acessíveis que "não foram baixados" no relatório inicial e na atualização de processos sem data-base.
+4. **Converter relatórios atuais para os modelos novos.** Está em **Assistente → Migrar de modelo** (e num link na própria conferência de importar/atualizar): você escolhe **texto simplificado (.docx)**, **planilha (.xlsx)** e/ou **painel com gráficos (.html)** (novo como destino; o painel lê a planilha, que sai junto). O arquivo original não é alterado; o que não tem destino fica em "Campos não migrados".
+
+**O que eu não consegui ver** (os logs ficam no seu Mac): por que o login automático e o aviso de captcha não funcionaram. Se depois de **reabrir o painel** ainda falhar, me mande (sem nomes): a primeira linha do `*-assistente.log`, o conteúdo de `diagnosticos/login_jusbr_t1.json` e a saída de `python src/diagnostico_rodada.py --projeto <pasta>`.
 
 ## 00. Novo no beta3 (corrigido a partir do seu teste com 92 processos)
 
@@ -55,7 +66,7 @@ Seus dados ficam na pasta `projetos/` e a sua configuração em `config.json`. O
 2. Descompacte `relatorio-andamentos.zip` e copie o conteúdo **por cima** da pasta do programa, escolhendo "Substituir". (Se preferir, descompacte numa pasta nova e copie para ela a sua `projetos/` e o seu `config.json`.)
 3. Dois cliques em **`Instalar (Mac).command`** e responda `s`. Ele reaproveita o que já está instalado e só acrescenta o que falta (por exemplo, a biblioteca de Word).
 4. **Opcional, recomendado**: instale o LibreOffice. Com ele, as fórmulas da planilha saem já calculadas (sem ele, abrem calculadas no Excel, mas o dashboard embutido perde alguns indicadores).
-5. Dois cliques em **`Abrir painel.command`**. No topo da tela deve aparecer "versão 2.0.0-beta3".
+5. Dois cliques em **`Abrir painel.command`**. No topo da tela deve aparecer "versão 2.0.0-beta4".
 
 **DataJud (opcional)**: a fonte de capa do processo (vara, município, data de ajuizamento, classe) vem ligada, mas precisa da chave pública do CNJ, que está na página "Acesso" da wiki do DataJud. Cole-a em `config.json` (`fontes_externas` → `datajud` → `chave`) ou na variável `DATAJUD_CHAVE`. Sem a chave, o programa segue sem ela.
 

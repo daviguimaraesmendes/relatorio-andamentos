@@ -915,8 +915,10 @@ class ColetorReal:
       devolvido espelha o que foi acrescentado: `movimentos` e `documentos` (só os baixados).
     - `capa` vem VAZIA: o coletor atual não lê a capa (é o WS-4, `capa.py`).
     - `desde` (estrito, igual ao `_depois` do coletor): vale na PRIMEIRA vez que o processo é visto; depois, o
-      coletor usa o estado por processo (só o que ainda não conhecia). Primeira vez sem `desde` e `historico=0`
-      não traz nada novo (vira linha de base, como na Fase 1).
+      coletor usa o estado por processo (só o que ainda não conhecia). Primeira vez SEM `desde` e sem `historico`
+      informado traz o histórico COMPLETO (beta 3.1: antes virava "linha de base" e não trazia nada, o que fazia o
+      relatório inicial e a atualização de processos sem data-base voltarem vazios). A profundidade `rapido` limita
+      os documentos (cota 0), não os andamentos.
     - `profundidade`: `rapido` não baixa documentos (cota 0; os andamentos entram); `padrao` usa
       `max_documentos_por_rodada` do config; `completo` não limita. O real não separa "documentos-chave".
     - Exceção do coletor vira `erro` com código (`classificar_erro`); falha de sessão/navegador fecha o
@@ -924,6 +926,7 @@ class ColetorReal:
     """
 
     COTA_COMPLETO = 10 ** 6
+    HISTORICO_TODO = 10 ** 6
 
     def __init__(self, historico=0):
         import trt
@@ -936,6 +939,7 @@ class ColetorReal:
         import coletor
         import janela
         from playwright.sync_api import sync_playwright
+        print(f"Relatório de Andamentos {comum.versao_do_programa() or '?'}: abrindo o navegador e entrando no jus.br", flush=True)
         self._pw = sync_playwright().start()
         try:
             self._navegador, self._contexto = janela.abrir_navegador(self._pw)
@@ -987,7 +991,8 @@ class ColetorReal:
         antes = len(lista)
         erro, relato = None, {}
         try:
-            coletor.coletar_processo(self._contexto, proc, estado, lista, self.historico, cota, fch.data(desde), relato)
+            historico = self.historico if (self.historico or desde) else self.HISTORICO_TODO
+            coletor.coletar_processo(self._contexto, proc, estado, lista, historico, cota, fch.data(desde), relato)
         except Exception as e:
             erro = classificar_erro(e)
             if erro["codigo"] == "sessao_expirada":

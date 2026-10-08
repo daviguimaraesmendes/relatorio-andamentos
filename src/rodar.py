@@ -60,6 +60,7 @@ def coletar_pela_fila(numeros, historico, desde):
 
 
 def main():
+    print(f"Relatório de Andamentos {comum.versao_do_programa() or '?'}", flush=True)
     import coletor
     import extrair
     import resumir

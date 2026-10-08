@@ -47,6 +47,16 @@ Anotadas em 08/10/2026 enquanto a análise de um relatório real roda. **Tratada
 
 Ao retomar: rodar `src/diagnostico_rodada.py` no Mac (ver `diagnostico-rodada1.md`), conferir as hipóteses e validar o beta 3 (lista acima).
 
+## Beta 2.0.0-beta4 (08/10/2026): planilha de contingências, data-base e painel desatualizado
+
+Origem: o usuário rodou o beta (provavelmente o beta2/beta3 com o painel já aberto) num relatório em **planilha de contingências** (não é modelo A nem B) e relatou: (a) login automático não funcionou (senha e autenticador manuais), (b) autos acessíveis não baixados, (c) sem aviso de captcha, (d) "atualizar" não funcionou, (e) pediu a conversão para os modelos novos (texto simplificado e painel). **Os logs ficam no Mac do usuário e a sessão em nuvem não os alcança**: (a) e (c) não foram diagnosticados com dados.
+
+- **Hipótese mais forte para (a) e (c)**: o painel não foi reiniciado depois de copiar o pacote, então rodou código antigo; o topo do painel mostra a versão lida do arquivo `VERSAO` a cada pedido (enganava). Agora `painel.base.VERSAO_CARREGADA` compara com o arquivo e mostra a faixa "Reinicie o painel". A coleta do Assistente passou a gravar `data/logs/*-assistente.log` (antes só ia ao Terminal) com a versão na primeira linha.
+- **(b)/(d) com causa em código achada**: `fila.ColetorReal` tratava processo visto pela primeira vez sem `desde` como "linha de base" (nada coletado), e a conferência da atualização não pedia data-base; o arquivo do usuário vinha sem data-base e só com o número lido (planilha fora do modelo, colunas de baixa confiança descartadas sem aviso). Corrigido: histórico completo sem `desde`; campo de data-base na conferência; `leitores.base.finalizar` deduz a data-base do fecho; `grade.py` lê "A/B" como o mesmo campo, "breve resumo do caso" como objeto e a coluna de histórico pelo conteúdo; aba "Arquivados" = inativo; momento deduzido pelas regras; `/fluxo/mapear` e `/fluxo/migrar` nas conferências de importar e atualizar.
+- **(e)**: já existia (`/migracao`, `fluxos.converter`); agora o painel (`dashboard`) é destino também e há atalho a partir da conferência.
+- **Pendente de dados reais**: login (passo que falha), captcha (aviso), downloads dos documentos dos TRTs na aba própria (mudança do beta3 ainda não validada com o tribunal real; se a aba nova pedir captcha de novo ou não entregar o PDF, voltar a abrir o documento na página de consulta).
+- **Lacuna conhecida**: as colunas próprias do cliente (passivo potencial, provisão, depósito) só sobrevivem em "Campos não migrados"; não há campo na ficha para elas. Se o escritório quiser acompanhá-las no modelo novo, definir campos (`ficha.CAMPOS`) e colunas.
+
 ## Beta 2.0.0-beta3 (08/10/2026): o que foi feito a partir do teste de 92 processos
 
 Feito numa sessão em nuvem **sem acesso aos logs reais** (ficam no Mac do usuário): o diagnóstico numérico ficou como script (`src/diagnostico_rodada.py`) e o documento `diagnostico-rodada1.md` traz a leitura do código. Tudo abaixo foi testado só com doubles (`tests/test_beta3.py`, 53 testes); **o que depende de tribunal, captcha, login e janelas do Mac está em "Validar no Mac"**.

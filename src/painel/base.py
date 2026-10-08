@@ -82,7 +82,7 @@ def cabecalho(ativa, titulo="Relatório de Andamentos"):
              "código do autenticador). <a href='/acesso'>Configurar agora</a></div>")
     return (f"<!doctype html><html lang='pt-BR'><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'><title>{html.escape(titulo)}</title>{ESTILO}<body>"
-            f"{faixa_de_atencao()}"
+            f"{faixa_de_atencao()}{aviso_de_painel_desatualizado()}"
             f"<div class='barra'><div class='marca'>Relatório de Andamentos<span class='meta'>{(' · versão ' + html.escape(versao())) if versao() else ''}{rodando}</span>"
             f"<a href='/acesso' style='float:right;font-weight:normal;font-size:14px' "
             f"class='{'ativa' if ativa == 'acesso' else ''}'>Acesso e escritório {'✓' if pronto else '(configurar)'}</a></div>"
@@ -124,6 +124,20 @@ def versao():
         return (comum.RAIZ / "VERSAO").read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+VERSAO_CARREGADA = versao()     # a versão do programa que ESTE painel carregou ao abrir
+
+
+def aviso_de_painel_desatualizado():
+    """Se o arquivo VERSAO mudou depois que o painel abriu (pacote novo copiado por cima com o painel ainda aberto), o
+    painel segue rodando o código ANTIGO e o número da versão no topo mente. Devolve o aviso, ou ''."""
+    atual = versao()
+    if atual == VERSAO_CARREGADA:
+        return ""
+    return ("<div class='alerta' style='margin:12px 16px;background:#b91c1c;color:#fff;font-weight:700'>Reinicie o painel: o programa "
+            f"foi atualizado para a versão {html.escape(atual or '?')}, mas este painel ainda está rodando a versão "
+            f"{html.escape(VERSAO_CARREGADA or '?')}. Feche a janela do Terminal do painel e abra o <b>Abrir painel.command</b> de novo.</div>")
 
 
 def _tarefa_rodando():

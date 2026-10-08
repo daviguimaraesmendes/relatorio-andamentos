@@ -577,6 +577,13 @@ def finalizar(rel):
                                        "como principal e como vinculado. Confirme como deve ser agrupado.", [numero]))
     for chave_ in ("cliente", "data_base"):
         rel.setdefault(chave_, None)
+    if rel["data_base"] is None:     # relatório sem data-base escrita: vale a maior data de fecho ("Em DD/MM/AAAA, sem atualizações.")
+        fechos = [p["fecho"] for p in rel["processos"] if p.get("fecho")]
+        if fechos:
+            rel["data_base"] = max(fechos)
+            rel["avisos"].append(aviso("info", "data_base_deduzida", rel.get("arquivo") or "",
+                                       f"O arquivo não traz a data-base; usei a maior data de fecho dos textos ('sem atualizações'): "
+                                       f"{rel['data_base'][8:10]}/{rel['data_base'][5:7]}/{rel['data_base'][:4]}. Confira."))
     for chave_ in ("processos", "colunas_sem_destino", "avisos"):
         rel.setdefault(chave_, [])
     rel.setdefault("parametros", {})

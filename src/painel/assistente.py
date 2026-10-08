@@ -197,6 +197,39 @@ def ler_arquivos(aceitos, rejeitados):
     return lidos
 
 
+def montar_lote_de_atualizacao(lidos, rejeitados):
+    """Compara o que foi lido com a carteira: (fichas lidas, avisos, dados do lote). `novos` estão no arquivo e não na carteira;
+    `sumiram` estão na carteira e não no arquivo; `data_base` é a maior dos arquivos."""
+    fichas_lidas, avisos, resumos = tratar_leituras(lidos) if lidos else ([], [], [])
+    carteira = ficha.carregar(todas=True)
+    conhecidos = {n for f in carteira for n in ficha.todos_os_numeros(f)}
+    no_arquivo = {n for f in fichas_lidas for n in ficha.todos_os_numeros(f)}
+    novos = [f["numero"] for f in fichas_lidas if f["numero"] not in conhecidos]
+    sumiram = [f["numero"] for f in carteira if f.get("ativo", True) and lidos
+               and not (set(ficha.todos_os_numeros(f)) & no_arquivo)]
+    bases = [r["data_base"] for r in resumos if r["data_base"]]
+    return fichas_lidas, avisos, {"tipo": "atualizar", "arquivos": resumos, "rejeitados": rejeitados, "novos": novos,
+                                  "sumiram": sumiram, "data_base": max(bases) if bases else None, "sem_arquivo": not lidos}
+
+
+def bloco_de_planilha_fora_do_modelo(resumos, lote):
+    """Aviso e atalhos quando um arquivo é planilha FORA do modelo: só as colunas reconhecidas com segurança foram lidas.
+    O resto se confere e corrige em /fluxo/mapear, e o arquivo pode ser convertido para os modelos novos."""
+    livres = [r for r in resumos if r.get("formato") == "tabela_livre"]
+    if not livres:
+        return ""
+    linhas = []
+    for r in livres:
+        nao_lidas = [c for c in r.get("sem_destino", []) if c.get("coluna")]
+        linhas.append(f"<li><b>{_e(r['nome'])}</b>: {len(nao_lidas)} coluna(s) não lida(s) ou com baixa confiança"
+                      + (": " + _e("; ".join(sorted({str(c['coluna']).strip() for c in nao_lidas})[:8])) if nao_lidas else "") + ".</li>")
+    return ("<div class='alerta'><b>Planilha fora do modelo do programa.</b> Só leio sem perguntar as colunas que reconheço com segurança "
+            "(número do processo e poucas mais). Confira o mapeamento: é ele que decide se partes, valores, resumo e histórico "
+            "entram no relatório.<ul>" + "".join(linhas) + "</ul>"
+            f"<a href='/fluxo/mapear?lote={_e(lote)}'><b>Conferir e corrigir o mapeamento das colunas</b></a> · "
+            f"<a href='/fluxo/migrar?lote={_e(lote)}'>Converter este relatório para os modelos novos (texto, planilha e painel)</a></div>")
+
+
 def resumo_da_leitura(lido):
     rel = lido["rel"]
     return {"nome": lido["nome"], "caminho": lido["caminho"], "formato": lido["formato"],
@@ -213,7 +246,7 @@ def _origem_valida(origem):
 def fichas_do_relatorio(rel, nome_arquivo=None):
     """RelatorioLido -> (fichas v2, avisos). Campos entram com a origem que o leitor deu (migrado ou
     humano); o histórico em texto vira `linha_de_base`; processo só de lista fica sem linha de base."""
-    fichas, avisos = [], []
+    fichas, avisos, momentos_deduzidos = [], [], 0
     for p in rel.get("processos", []):
         numero = p.get("numero")
         if not numero:
@@ -237,6 +270,12 @@ def fichas_do_relatorio(rel, nome_arquivo=None):
         if texto or (rel.get("formato") in ("docx_a", "xlsx_b") and rel.get("data_base")):
             f["linha_de_base"] = {"data_base": rel.get("data_base"), "andamentos_texto": texto,
                                   "arquivo": nome_arquivo or rel.get("arquivo"), "ultimo_andamento": p.get("ultimo_andamento")}
+        if not ficha.obter(f, "momento_atual") and p.get("andamentos"):
+            # relatório sem coluna de momento atual (ex.: planilha de contingências): deduz do histórico pelas regras
+            movs = [{"data": a.get("data"), "texto": a.get("texto") or "", "grau": None} for a in p["andamentos"]]
+            deduzido, evidencia = taxonomia.momento_por_regras(movs)
+            if deduzido and ficha.definir(f, "momento_atual", deduzido, "derivado", evidencia=evidencia):
+                momentos_deduzidos += 1
         momento, situacao = ficha.obter(f, "momento_atual"), ficha.obter(f, "situacao")
         ativo = taxonomia.momento_ativo(momento) if momento else None
         if ativo is not None:
@@ -244,6 +283,10 @@ def fichas_do_relatorio(rel, nome_arquivo=None):
         elif situacao == "Encerrado":
             f["ativo"] = False
         fichas.append(f)
+    if momentos_deduzidos:
+        avisos.append(_aviso("info", "momento_deduzido", nome_arquivo or "arquivo",
+                             f"{momentos_deduzidos} processo(s) não tinham o momento atual no arquivo: deduzi pelas regras a partir do último "
+                             "andamento do histórico (origem \"derivado\"). Confira na revisão dos campos."))
     return fichas, avisos
 
 
@@ -353,6 +396,7 @@ def html_da_conferencia(resumos, rejeitados, fichas, avisos, oculto, lote, nome_
         h.append(f"<tr><td>{_e(r['nome'])}</td><td>{_e(ROTULO_FORMATO.get(r['formato'], r['formato']))}</td>"
                  f"<td>{r['processos']}</td><td>{_e(ficha.data_br(r['data_base']) or '-')}</td></tr>")
     h.append("</table>")
+    h.append(bloco_de_planilha_fora_do_modelo(resumos, lote))
     if rejeitados:
         h.append("<h2>Arquivos que não consegui usar</h2><table class='t'><tr><th>Arquivo</th><th>Motivo</th></tr>"
                  + "".join(f"<tr><td>{_e(r['nome'])}</td><td>{_e(r['motivo'])}</td></tr>" for r in rejeitados) + "</table>")
@@ -641,8 +685,77 @@ class _ColetorComGanchos:
         return resultado
 
 
+class _Tee:
+    """Copia tudo o que a coleta imprime (login, captcha, andamentos, tempos) para um arquivo em data/logs/: no
+    Assistente a coleta roda dentro do painel e o que ela imprimia só aparecia no Terminal."""
+
+    def __init__(self, original, arquivo):
+        self._original, self._arquivo = original, arquivo
+
+    def write(self, texto):
+        try:
+            self._arquivo.write(texto)
+            self._arquivo.flush()
+        except (OSError, ValueError):
+            pass
+        return self._original.write(texto)
+
+    def flush(self):
+        try:
+            self._arquivo.flush()
+        except (OSError, ValueError):
+            pass
+        return self._original.flush()
+
+    def __getattr__(self, nome):
+        return getattr(self._original, nome)
+
+
+def _abrir_log_da_coleta():
+    """Abre data/logs/AAAAMMDD-HHMMSS-assistente.log, grava a versão na primeira linha e passa a copiar o que a coleta imprime."""
+    import sys
+    try:
+        logs = Path(comum.DATA) / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        arquivo = (logs / f"{datetime.datetime.now():%Y%m%d-%H%M%S}-assistente.log").open("a", encoding="utf-8")
+    except OSError:
+        return
+    arquivo.write(f"Relatório de Andamentos {comum.versao_do_programa() or '?'} (painel {_versao_carregada()}) - coleta iniciada em "
+                  f"{datetime.datetime.now():%d/%m/%Y %H:%M:%S}\n")
+    arquivo.flush()
+    EXEC["log_arquivo"] = arquivo
+    EXEC["stdout_original"] = sys.stdout
+    sys.stdout = _Tee(sys.stdout, arquivo)
+
+
+def _fechar_log_da_coleta():
+    import sys
+    arquivo = EXEC.pop("log_arquivo", None)
+    original = EXEC.pop("stdout_original", None)
+    if isinstance(sys.stdout, _Tee) and original is not None:
+        sys.stdout = original
+    if arquivo is not None:
+        try:
+            arquivo.close()
+        except OSError:
+            pass
+
+
+def _versao_carregada():
+    from painel import base
+    return base.VERSAO_CARREGADA or "?"
+
+
 def _log(texto):
-    EXEC["log"].append(f"{datetime.datetime.now():%H:%M:%S} {texto}")
+    linha = f"{datetime.datetime.now():%H:%M:%S} {texto}"
+    EXEC["log"].append(linha)
+    arquivo = EXEC.get("log_arquivo")
+    if arquivo is not None:
+        try:
+            arquivo.write(linha + "\n")
+            arquivo.flush()
+        except (OSError, ValueError):
+            pass
 
 
 def _criar_coletor():
@@ -705,6 +818,7 @@ def _trabalho(fila_mod, fila, coletor, slug):
                 fechar()
             except Exception as erro:  # noqa: BLE001
                 _log(f"não consegui fechar o navegador: {erro}")
+        _fechar_log_da_coleta()
 
 
 def iniciar_execucao():
@@ -724,6 +838,7 @@ def iniciar_execucao():
     EXEC["log"].clear()
     EXEC.update(slug=comum.PROJETO, fila=fila, estado="rodando", pedido=None, erro=None, resumo=None,
                 inicio=f"{datetime.datetime.now():%H:%M}", modo=per.carregar()["modo_coleta"])
+    _abrir_log_da_coleta()
     EXEC["thread"] = threading.Thread(target=_trabalho, args=(fila_mod, fila, coletor, comum.PROJETO), daemon=True)
     EXEC["thread"].start()
     return True, "Coleta iniciada. Acompanhe por aqui; pode fechar a página, mas deixe o programa aberto."
@@ -989,16 +1104,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         if (aceitos or rejeitados) and not lidos:
             motivos = "\n".join(f"{r['nome']}: {r['motivo']}" for r in rejeitados)
             return _ir("/fluxo/atualizar", "Não consegui usar o arquivo enviado.\n" + motivos)
-        fichas_lidas, avisos, resumos = tratar_leituras(lidos) if lidos else ([], [], [])
-        carteira = ficha.carregar(todas=True)
-        conhecidos = {n for f in carteira for n in ficha.todos_os_numeros(f)}
-        no_arquivo = {n for f in fichas_lidas for n in ficha.todos_os_numeros(f)}
-        novos = [f["numero"] for f in fichas_lidas if f["numero"] not in conhecidos]
-        sumiram = [f["numero"] for f in carteira if f.get("ativo", True) and lidos
-                   and not (set(ficha.todos_os_numeros(f)) & no_arquivo)]
-        bases = [r["data_base"] for r in resumos if r["data_base"]]
-        gravar_lote(pasta, "lote.json", {"tipo": "atualizar", "arquivos": resumos, "rejeitados": rejeitados, "novos": novos,
-                                         "sumiram": sumiram, "data_base": max(bases) if bases else None, "sem_arquivo": not lidos})
+        fichas_lidas, avisos, dados_lote = montar_lote_de_atualizacao(lidos, rejeitados)
+        gravar_lote(pasta, "lote.json", dados_lote)
         gravar_lote(pasta, "fichas.json", fichas_lidas)
         gravar_lote(pasta, "avisos.json", avisos)
         return _ir(f"/fluxo/atualizar/conferir?lote={lote}")
@@ -1018,6 +1125,15 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             h.append("<table class='t'><tr><th>Arquivo</th><th>Formato</th><th>Processos</th><th>Data-base</th></tr>"
                      + "".join(f"<tr><td>{_e(r['nome'])}</td><td>{_e(ROTULO_FORMATO.get(r['formato'], r['formato']))}</td><td>{r['processos']}</td>"
                                f"<td>{_e(ficha.data_br(r['data_base']) or '-')}</td></tr>" for r in dados["arquivos"]) + "</table>")
+            h.append(bloco_de_planilha_fora_do_modelo(dados["arquivos"], pasta.name))
+            data_base = dados.get("data_base")
+            h.append("<h2>Data-base do relatório</h2>"
+                     f"<p><label>Data do último relatório: <input type='text' name='data_base' size='12' placeholder='DD/MM/AAAA' "
+                     f"value='{_e(ficha.data_br(data_base) if data_base else '')}'></label></p>"
+                     + ("<p class='dica'>O programa vai buscar o que veio <b>depois</b> desta data. Já tinha lido a data no arquivo; corrija se estiver errada.</p>"
+                        if data_base else
+                        "<div class='alerta'><b>O arquivo não traz a data-base.</b> Informe a data do último relatório (DD/MM/AAAA) para o programa buscar só o que "
+                        "veio depois dela. Sem a data, ele lê o <b>histórico completo</b> de cada processo que ainda não tem relatório anterior (mais demorado).</div>"))
             h.append(f"<h2>Processos novos no arquivo ({len(dados['novos'])})</h2>")
             if dados["novos"]:
                 h.append("<p class='dica'>Estão no arquivo e não estão na carteira.</p><ul>"
@@ -1068,8 +1184,12 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             copiar_para_entrada(a["caminho"], a["nome"])
         excluir = set() if request.form.get("incluir_sumidos") or not dados["sumiram"] else set(dados["sumiram"])
         selecionadas = selecionar_processos(carteira, request.form.get("cliente", ""), excluir=excluir)
+        digitada = request.form.get("data_base", "").strip()
+        data_base = ficha.parse_data(digitada) if digitada else dados.get("data_base")
+        if digitada and not data_base:
+            return _ir(f"/fluxo/atualizar/conferir?lote={pasta.name}", f"Não entendi a data-base '{digitada}'. Use DD/MM/AAAA.")
         try:
-            _, quantidade = enfileirar(selecionadas, perfil_novo, dados.get("data_base")) if selecionadas else (None, 0)
+            _, quantidade = enfileirar(selecionadas, perfil_novo, data_base) if selecionadas else (None, 0)
         except Indisponivel as erro:
             return _ir("/fluxo/atualizar", str(erro))
         return seguir_para_a_coleta(perfil_novo, quantidade,
