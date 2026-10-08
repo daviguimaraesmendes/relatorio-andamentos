@@ -908,5 +908,62 @@ class TestTST(unittest.TestCase):
         self.assertEqual(julgamento._grau_declarado({"grau": None}), 1)
 
 
+# ================================================================== texto da IA local: explicar o andamento
+
+class TestEstiloDaIA(unittest.TestCase):
+    def setUp(self):
+        self._ctx = ficticio.projeto_de_teste(FICHAS[:1])
+        self.proj = self._ctx.__enter__()
+        self.addCleanup(self._ctx.__exit__, None, None, None)
+
+    def test_o_pedido_exige_motivo_efeito_e_dados_concretos(self):
+        import resumir
+        pedido = resumir.montar_pedido("texto", "Sentença", "juizo", "Foi proferida sentença", {"cliente": "X", "polo": "ativo"})
+        self.assertIn(f"{resumir.LIMITE_PALAVRAS} palavras", pedido)
+        self.assertNotIn("até 40 palavras", pedido)
+        for exigencia in ("por quê", "o que muda na prática", "valores em reais", "prazos"):
+            self.assertIn(exigencia, pedido)
+        self.assertIn("gerúndio", pedido)
+        self.assertIn("MOTIVO", resumir.SISTEMA_BASE.upper())
+        self.assertIn("frases vagas", resumir.SISTEMA_BASE)
+
+    def test_exemplos_do_escritorio_entram_no_sistema(self):
+        import resumir
+        self.assertEqual(resumir.sistema(), resumir.SISTEMA_BASE)
+        arquivo = comum.PROJETO_DIR / "estilo.md"
+        arquivo.write_text("Em 10/09/2026, foi proferida sentença, que acolheu o pedido por falta de prova do pagamento.", encoding="utf-8")
+        self.assertIn("falta de prova do pagamento", resumir.sistema())
+        self.assertIn("Modelo de redação do escritório", resumir.sistema())
+        arquivo.unlink()
+        with mock.patch.object(resumir, "config", return_value={"estilo_redacao": "Exemplo do config."}):
+            self.assertIn("Exemplo do config.", resumir.sistema())
+
+    def test_o_provedor_recebe_o_sistema_com_o_estilo(self):
+        import resumir
+        (comum.PROJETO_DIR / "estilo.md").write_text("Exemplo X de redação.", encoding="utf-8")
+        recebidos = []
+
+        class Prov:
+            def gerar(self, sistema, usuario, *, esquema=None, cliente=""):
+                recebidos.append(sistema)
+                return {"json": {"conteudo": "julgando procedente o pedido da inicial por falta de defesa e condenando a ré a pagar R$ 1.000,00",
+                                 "trecho_origem": "JULGO PROCEDENTE o pedido formulado na inicial", "prazo": None,
+                                 "audiencia": None, "efeito": "neutro"}, "motor": "falso"}
+        resumir.resumir_com_provedor(Prov(), "SENTENÇA\nJULGO PROCEDENTE o pedido formulado na inicial, condenando a ré.", "Sentença",
+                                     "juizo", "Foi proferida sentença", {"cliente": "X", "polo": "ativo"})
+        self.assertIn("Exemplo X de redação.", recebidos[0])
+
+    def test_resumo_curto_demais_vai_para_a_revisao(self):
+        import resumir
+        texto = "DECISÃO\nDefiro o pedido de dilação de prazo formulado pela parte autora para juntada de documentos."
+        curto = {"conteudo": "deferindo o pedido", "trecho_origem": "Defiro o pedido de dilação de prazo formulado pela parte autora",
+                 "prazo": None, "audiencia": None, "efeito": "neutro"}
+        self.assertTrue(any("curto demais" in a for a in resumir.conferir(curto, texto)))
+        bom = {**curto, "conteudo": "deferindo o pedido de mais prazo feito pela parte autora para juntar documentos, o que adia a decisão"}
+        self.assertFalse(any("curto demais" in a for a in resumir.conferir(bom, texto)))
+        vazio = {**curto, "conteudo": "Não foi possível identificar o conteúdo."}
+        self.assertFalse(any("curto demais" in a for a in resumir.conferir(vazio, texto)))
+
+
 if __name__ == "__main__":
     unittest.main()

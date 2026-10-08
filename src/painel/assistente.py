@@ -739,9 +739,12 @@ def situacao_da_execucao():
         s["aviso"] = f"Não consegui ler a fila ({erro})."
     try:
         s["cobertura"] = modulo("fila", "A fila de coleta").cobertura(comum.PROJETO)
-        s["taxa"] = modulo("fila", "A fila de coleta").taxa_de_sucesso(comum.PROJETO)
     except Exception:  # noqa: BLE001
         s["cobertura"] = None
+    try:
+        s["taxa"] = modulo("fila", "A fila de coleta").taxa_de_sucesso(comum.PROJETO)
+    except Exception:  # noqa: BLE001
+        s["taxa"] = None
     return s
 
 

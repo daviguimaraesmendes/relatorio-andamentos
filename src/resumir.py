@@ -51,15 +51,48 @@ ESQUEMA = {
     "required": ["conteudo", "trecho_origem", "prazo", "audiencia", "efeito"],
 }
 
-SISTEMA = (
-    "Você resume documentos de processos judiciais para o cliente do escritório, uma pessoa leiga. "
+LIMITE_PALAVRAS = 80   # tamanho máximo do resumo de um documento (era 40: curto demais para explicar o andamento)
+MINIMO_PALAVRAS = 5    # abaixo disso o resumo quase nada explica ("deferindo o pedido"): vai para a revisão com alerta
+
+SISTEMA_BASE = (
+    "Você escreve o relatório de andamentos de um escritório de advocacia para o cliente, uma pessoa leiga. "
     "Escreva sempre do ponto de vista desse cliente: deixe claro de quem era o pedido (do cliente ou da parte "
     "contrária) e o que o resultado significa para ele, em tom sóbrio, sem comemorar, sem alarmar e sem prometer resultado. "
+    "O leitor precisa entender o andamento sem abrir o processo: por isso o resumo diz O QUE foi decidido ou pedido, "
+    "POR QUÊ (o motivo da decisão, em uma oração) e o que MUDA na prática, e traz os dados concretos que constarem do "
+    "texto: valores em reais, percentuais, datas, prazos, multas, honorários, pedidos acolhidos e negados. "
+    "Nunca escreva frases vagas como 'analisando o pedido', 'dando andamento ao processo' ou 'apreciando a questão': "
+    "se o texto só permitir isso, escreva exatamente: 'Não foi possível identificar o conteúdo.' "
     "Use só o que está escrito no texto; nunca complete com suposição. "
     "Não cite número de lei, artigo nem jurisprudência. "
-    "Se o texto não permitir saber o conteúdo, escreva exatamente: 'Não foi possível identificar o conteúdo.' "
     "Responda apenas com o JSON pedido."
 )
+
+
+def estilo_do_escritorio():
+    """Exemplos de redação do próprio escritório, se houver: `estilo_redacao` no config.json (texto) ou o arquivo
+    `estilo.md` na pasta do relatório. O texto fica NO COMPUTADOR (projetos/ e config.json nunca vão ao GitHub)
+    e só segue para o modelo local; com IA externa ligada, vale a regra de consentimento por cliente."""
+    texto = config().get("estilo_redacao") or ""
+    if not texto and comum.PROJETO_DIR:
+        arquivo = Path(comum.PROJETO_DIR) / "estilo.md"
+        try:
+            texto = arquivo.read_text(encoding="utf-8") if arquivo.exists() else ""
+        except OSError:
+            texto = ""
+    return str(texto).strip()[:3000]
+
+
+def sistema():
+    """SISTEMA_BASE + os exemplos de redação do escritório (quando existirem)."""
+    estilo = estilo_do_escritorio()
+    if not estilo:
+        return SISTEMA_BASE
+    return (SISTEMA_BASE + "\n\nModelo de redação do escritório: imite o tom, o nível de detalhe e o jeito de explicar "
+            "destes exemplos de relatórios já enviados (não copie fatos deles):\n" + estilo)
+
+
+SISTEMA = SISTEMA_BASE      # compatibilidade; o pedido real usa sistema()
 
 
 def contexto_do_processo(numero):
@@ -135,9 +168,14 @@ def montar_pedido(texto, tipo, quem, frase, ctx):
         f"Frase inicial do relatório, já pronta: \"{frase}\"\n\n"
         "Complete em JSON:\n"
         "- conteudo: a CONTINUAÇÃO da frase inicial (ela já diz quem fez e o quê), começando com verbo no gerúndio, "
-        "UMA frase de até 40 palavras, em português simples, dizendo o que o documento pede, decide ou determina, do ponto de vista do nosso cliente. "
-        "Exemplos: 'intimando a parte contrária a replicar a contestação', 'negando o pedido de urgência da parte contrária', "
-        "'pedindo a juntada do comprovante das custas'. Não comece com 'O documento'. Sem termos técnicos quando houver palavra comum.\n"
+        f"em uma ou duas frases (de {MINIMO_PALAVRAS * 2} a {LIMITE_PALAVRAS} palavras), em português simples, dizendo o que o documento pede, decide ou determina, "
+        "por quê, o que muda na prática e os dados concretos do texto (valores em reais, datas, prazos, multas, pedidos acolhidos e negados), "
+        "do ponto de vista do nosso cliente. Exemplos do nível de detalhe esperado: "
+        "'julgando parcialmente procedentes os pedidos da ação, por entender que ficou comprovada a cobrança indevida, e condenando a empresa a devolver "
+        "R$ 4.200,00 em dobro, com correção desde o pagamento, e a pagar 10% de honorários; os demais pedidos, de indenização por dano moral, foram negados'; "
+        "'intimando a parte contrária a se manifestar, em 15 dias, sobre os documentos juntados pelo nosso cliente, o que permite ao juiz decidir sem nova audiência'; "
+        "'negando o pedido de urgência da parte contrária de bloquear R$ 30.000,00 da conta do nosso cliente, por falta de prova do risco alegado, mantendo o processo no ritmo normal'. "
+        "Não comece com 'O documento'. Sem termos técnicos quando houver palavra comum. Se o texto não trouxer valor, prazo ou data, não invente.\n"
         "- trecho_origem: copie LITERALMENTE do texto a frase que sustenta o conteúdo (até 300 caracteres).\n"
         "- prazo: prazo ou data fixada para alguém cumprir algo (ex.: '15 dias para o autor se manifestar'); null se não houver.\n"
         "- audiencia: data e hora de audiência marcada; null se não houver.\n"
@@ -237,6 +275,8 @@ def conferir(resultado, texto):
         alertas.append("A IA citou dispositivo legal: conferir.")
     if "nao foi possivel identificar" in normalizar(resultado.get("conteudo", "")):
         alertas.append("A IA não identificou o conteúdo: resumir manualmente.")
+    elif 0 < len(resultado.get("conteudo", "").split()) < MINIMO_PALAVRAS:
+        alertas.append("O resumo é curto demais para explicar o andamento (faltam o motivo, o efeito ou os valores): complementar.")
     if resultado.get("efeito") == "desfavoravel":
         alertas.append("Resultado desfavorável ao cliente, segundo a IA: avaliar contato pessoal antes de enviar o relatório.")
     return alertas
@@ -263,7 +303,7 @@ def resumir_texto(texto, tipo, quem, frase, modelo, ctx):
         "stream": False,
         "format": ESQUEMA,
         "options": {"temperature": 0, "num_ctx": 8192},
-        "messages": [{"role": "system", "content": SISTEMA},
+        "messages": [{"role": "system", "content": sistema()},
                      {"role": "user", "content": montar_pedido(texto, tipo, quem, frase, ctx)}],
     })
     resultado = json.loads(resposta["message"]["content"])
@@ -273,12 +313,12 @@ def resumir_texto(texto, tipo, quem, frase, modelo, ctx):
         resposta = _ollama("/api/chat", {
             "model": modelo, "stream": False, "format": ESQUEMA,
             "options": {"temperature": 0, "num_ctx": 8192},
-            "messages": [{"role": "system", "content": SISTEMA},
+            "messages": [{"role": "system", "content": sistema()},
                          {"role": "user", "content": montar_pedido(texto, tipo, quem, frase, ctx)},
                          {"role": "assistant", "content": json.dumps(resultado, ensure_ascii=False)},
                          {"role": "user", "content": "O campo conteudo precisa CONTINUAR a frase inicial começando com "
                                                      "um verbo no gerúndio (ex.: 'determinando...', 'acolhendo...', "
-                                                     "'intimando...'), em uma só frase de até 40 palavras. Corrija."}],
+                                                     f"'intimando...'), em até {LIMITE_PALAVRAS} palavras. Corrija."}],
         })
         resultado = json.loads(resposta["message"]["content"])
     return resultado, conferir(resultado, texto)
@@ -296,7 +336,7 @@ def resumir_com_provedor(provedor, texto, tipo, quem, frase, ctx, cliente=""):
     pedido = montar_pedido(texto, tipo, quem, frase, ctx)
 
     def uma_vez(usuario):
-        resposta = provedor.gerar(SISTEMA, usuario, esquema=ESQUEMA, cliente=cliente)
+        resposta = provedor.gerar(sistema(), usuario, esquema=ESQUEMA, cliente=cliente)
         dados = resposta.get("json")
         if dados is None:
             try:
@@ -311,8 +351,8 @@ def resumir_com_provedor(provedor, texto, tipo, quem, frase, ctx, cliente=""):
     primeira = (limpar_conteudo(resultado["conteudo"]).split() or [""])[0].lower()
     if not primeira.endswith("ndo") and "nao foi possivel" not in normalizar(resultado["conteudo"]):
         resultado, motor = uma_vez(pedido + "\n\nO campo conteudo precisa CONTINUAR a frase inicial começando com um "
-                                   "verbo no gerúndio (ex.: 'determinando...', 'acolhendo...', 'intimando...'), em uma só "
-                                   "frase de até 40 palavras. Corrija.")
+                                   "verbo no gerúndio (ex.: 'determinando...', 'acolhendo...', 'intimando...'), em até "
+                                   f"{LIMITE_PALAVRAS} palavras. Corrija.")
     resultado = {"trecho_origem": "", "prazo": None, "audiencia": None, "efeito": "incerto", **resultado}
     resultado["conteudo"] = limpar_conteudo(resultado["conteudo"])
     resultado["trecho_origem"] = str(resultado["trecho_origem"] or "").strip()
