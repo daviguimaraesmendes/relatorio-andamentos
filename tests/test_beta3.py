@@ -1536,3 +1536,32 @@ class TestEntradaNoTRT(Base):
         with mock.patch.object(trt, "entrar_acesso_restrito", return_value=False), mock.patch.object(coletor, "salvar_diagnostico"):
             with self.assertRaisesRegex(RuntimeError, "Acesso restrito do TRT não abriu"):
                 trt.pagina_da_consulta(portal, "pje.trt8.jus.br")
+
+
+class TestTrocaDeRelatorioDuranteAColeta(unittest.TestCase):
+    """Defeito conhecido do beta3: a thread de coleta usa o relatório "ativo" (global); trocar de aba no meio
+    gravava andamentos no relatório errado. Agora a troca fica bloqueada enquanto a coleta roda."""
+
+    def _painel(self):
+        from revisao import app
+        return app.test_client()
+
+    def test_troca_bloqueada_com_coleta_em_andamento(self):
+        from painel import assistente
+        with ficticio.projeto_de_teste(FICHAS[:1]) as proj:
+            outro = comum.criar_projeto("Outro relatório")
+            comum.usar_projeto(proj["slug"])
+            c = self._painel()
+            with mock.patch.dict(assistente.EXEC, {"slug": proj["slug"]}), mock.patch.object(assistente, "execucao_rodando", return_value=True):
+                r = c.get(f"/p/{outro}")
+                self.assertEqual(r.status_code, 302)
+                self.assertIn("coleta", r.headers["Location"])
+                self.assertEqual(comum.PROJETO, proj["slug"], "continua no relatório da coleta")
+                c.set_cookie("projeto", outro)
+                c.get("/fluxo")
+                self.assertEqual(comum.PROJETO, proj["slug"], "nem o cookie de outra aba troca o relatório")
+                r = c.post("/novo", data={"token": __import__("revisao").TOKEN, "nome": "Mais um"})
+                self.assertIn("coleta", r.headers["Location"])
+            r = c.get(f"/p/{outro}")                      # coleta terminada: a troca volta a valer
+            self.assertEqual(r.headers["Location"], "/")
+            self.assertEqual(comum.PROJETO, outro)

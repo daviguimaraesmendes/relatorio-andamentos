@@ -145,6 +145,17 @@ def _tarefa_rodando():
     return bool(TAREFA) and TAREFA["proc"].poll() is None
 
 
+def coleta_em_andamento_em():
+    """Slug do relatório em que a coleta do Assistente está rodando agora, ou None. A coleta roda numa thread deste
+    processo e usa o relatório "ativo" (`comum.PROJETO`, global): trocar de relatório no meio gravaria andamentos no
+    relatório errado. Por isso a troca fica bloqueada enquanto a coleta roda."""
+    try:
+        from painel import assistente
+        return assistente.EXEC.get("slug") if assistente.execucao_rodando() else None
+    except Exception:
+        return None
+
+
 def registrar(app, TOKEN, cabecalho, token_ok):
     """Registra o que vale para todas as telas: a escolha do relatório ativo."""
     @app.before_request
@@ -152,6 +163,9 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         """O relatório ativo vem do cookie; sem relatório nenhum, só a tela de criar."""
         slug = request.cookies.get("projeto")
         disponiveis = [s for s, _ in comum.projetos()]
+        rodando = coleta_em_andamento_em()
+        if rodando and rodando in disponiveis:
+            slug = rodando                  # coleta em andamento: o relatório não muda até terminar
         if slug in disponiveis and slug != comum.PROJETO:
             comum.usar_projeto(slug)
         primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json")
