@@ -48,6 +48,7 @@ def _tarefa():
 
 def _normalizar(texto, token):
     texto = texto.replace(token, "«TOKEN»").replace(str(TMP), "«TMP»").replace(str(comum.RAIZ), "«RAIZ»")
+    texto = texto.replace(sys.executable, "/usr/bin/python3")      # o instantâneo não depende de onde está o Python
     texto = texto.replace(__import__("datetime").date.today().isoformat(), "«HOJE»")
     texto = re.sub(r"início \d{2}:\d{2}", "início «HH:MM»", texto)
     texto = re.sub(r"<b>\d{6}</b>", "<b>«CODIGO»</b>", texto)

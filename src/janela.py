@@ -95,12 +95,18 @@ def nova_pagina(context):
     return page
 
 
-def mostrar(page):
-    """Traz a janela de volta, em posição normal, quando alguém precisa agir."""
+def mostrar(page, maximizar=False):
+    """Traz a janela de volta quando alguém precisa agir. Com `maximizar`, ocupa a tela toda (captcha, login:
+    a pessoa não pode deixar de ver); sem ele, abre em posição normal (1100x800)."""
     try:
         sessao, janela = _janela(page)
         sessao.send("Browser.setWindowBounds", {"windowId": janela, "bounds": {"windowState": "normal"}})
         sessao.send("Browser.setWindowBounds", {"windowId": janela, "bounds": {"left": 80, "top": 60, "width": 1100, "height": 800}})
+        if maximizar:
+            try:
+                sessao.send("Browser.setWindowBounds", {"windowId": janela, "bounds": {"windowState": "maximized"}})
+            except Exception:
+                pass  # fica no tamanho normal
         sessao.detach()
         page.bring_to_front()
     except Exception:

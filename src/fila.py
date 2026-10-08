@@ -74,8 +74,8 @@ import ficha as fch
 ESTADOS = ("pendente", "coletando", "coletado", "erro", "manual")
 MODOS = ("continuo", "imediato")
 PROFUNDIDADES = ("rapido", "padrao", "completo")
-CODIGOS = ("captcha", "segredo", "nao_encontrado", "timeout", "sessao_expirada", "outro")
-PERMANENTES = ("captcha", "segredo", "nao_encontrado")      # vão para manual, sem repetir
+CODIGOS = ("captcha", "segredo", "nao_encontrado", "fisico", "timeout", "sessao_expirada", "outro")
+PERMANENTES = ("captcha", "segredo", "nao_encontrado", "fisico")      # vão para manual, sem repetir
 TRANSITORIOS = ("timeout", "sessao_expirada", "outro")      # repetem com espera crescente
 
 PADRAO_PAUSA_S = (3, 5)
@@ -92,6 +92,7 @@ _MENSAGENS = {
     "captcha": "O tribunal pediu verificação humana (captcha). Conferir manualmente.",
     "segredo": "Processo em segredo de justiça: sem acesso aos autos. Conferir manualmente.",
     "nao_encontrado": "Processo não localizado no tribunal. Conferir manualmente.",
+    "fisico": "Processo físico (sem autos eletrônicos): o relatório segue pelo DJEN e pelo que for lançado à mão.",
 }
 
 
@@ -380,10 +381,23 @@ class Fila:
     def _aguarda_retentativa(self, i):
         return i["estado"] == "erro" and bool(i["proxima_tentativa"])
 
+    @staticmethod
+    def _adiado(d, i):
+        """Item pulado nesta rodada por captcha do TRT sem solução: só volta quando não houver mais nada a coletar."""
+        return i.get("adiado") == d["rodada"] and not i.get("segunda_chance")
+
+    def _ha_outros(self, d, filtro):
+        """Há item (pendente ou à espera de nova tentativa) que NÃO foi adiado por captcha?"""
+        return any(filtro(i) and not self._adiado(d, i) and (i["estado"] == "pendente" or self._aguarda_retentativa(i))
+                   for i in d["itens"].values())
+
     def _candidatos(self, d, agora, filtro):
         """Itens que podem sair agora (sem considerar pausa global nem pausa/parada)."""
         saida = []
+        segurar_adiados = self._ha_outros(d, filtro)
         for i in d["itens"].values():
+            if segurar_adiados and self._adiado(d, i):
+                continue
             if not filtro(i):
                 continue
             if i["estado"] == "pendente":
@@ -437,6 +451,8 @@ class Fila:
                 return None
             item.update(estado="coletando", tentativas=item["tentativas"] + 1, iniciado_em=_iso(agora),
                         atualizado_em=_iso(agora), proxima_tentativa=None)
+            if item.get("adiado") == d["rodada"]:
+                item["segunda_chance"] = True       # voltou depois de adiado por captcha: nova falha vai para manual
             d["ultimo_tribunal"] = item["tribunal"]
             return copy.deepcopy(item)
 
@@ -447,7 +463,9 @@ class Fila:
         if d["pausada"] or d["parar"]:
             return None
         agora, filtro = self.relogio(), self._filtro(cliente, numeros)
-        candidatos = [i for i in d["itens"].values() if filtro(i) and (i["estado"] == "pendente" or self._aguarda_retentativa(i))]
+        segurar_adiados = self._ha_outros(d, filtro)
+        candidatos = [i for i in d["itens"].values() if filtro(i) and (i["estado"] == "pendente" or self._aguarda_retentativa(i))
+                      and not (segurar_adiados and self._adiado(d, i))]
         if not candidatos:
             return None
         livre = _de_iso(d["livre_apos"])
@@ -481,10 +499,13 @@ class Fila:
                     return copy.deepcopy(item)
                 raise ValueError(f"{numero} já foi coletado; para coletar de novo use enfileirar(..., recoletar=True).")
             estava_coletando = item["estado"] == "coletando"
+            adiado = False
             item["atualizado_em"] = _iso(agora)
             item["proxima_tentativa"] = None
             if estado == "coletado":
                 item.update(estado="coletado", erro=None, motivo=None, coletado_em=_iso(agora), duracao_s=duracao_s)
+                item.pop("adiado", None)
+                item.pop("segunda_chance", None)
                 if duracao_s is not None:
                     d["medicoes"] = (d["medicoes"] + [float(duracao_s)])[-AMOSTRAS_DA_MEDIA:]
                 d["captcha"].get("por_tribunal", {}).pop(item["tribunal"], None)
@@ -493,7 +514,12 @@ class Fila:
                 codigo = codigo if codigo in CODIGOS else "outro"
                 mensagem = (erro or {}).get("mensagem") or _MENSAGENS.get(codigo, "Falha na coleta.")
                 item["erro"] = {"codigo": codigo, "mensagem": mensagem}
-                if codigo in PERMANENTES:
+                if (codigo == "captcha" and (erro or {}).get("adiavel") and _e_trt(item["tribunal"])
+                        and not item.get("segunda_chance")):
+                    # ninguém resolveu o captcha no prazo: pula este e o resto do TRT, e volta no fim da rodada
+                    self._adiar_captcha(d, item)
+                    adiado = True
+                elif codigo in PERMANENTES:
                     item["estado"] = "manual"
                     item["motivo"] = _MENSAGENS[codigo]
                     if codigo == "captcha" and _e_trt(item["tribunal"]):
@@ -515,9 +541,27 @@ class Fila:
                 item["estado"] = estado
                 if estado == "pendente":
                     item["erro"] = None
-            if estava_coletando and item["estado"] in ("coletado", "erro", "manual"):
+            if estava_coletando and (item["estado"] in ("coletado", "erro", "manual") or adiado):
                 self._pausa_entre_processos(d, agora)
             return copy.deepcopy(item)
+
+    def _adiar_captcha(self, d, item):
+        """O item volta a `pendente` (sem gastar tentativa) e, com os outros pendentes do mesmo TRT, fica adiado até
+        o fim da rodada; a primeira volta pede o captcha uma vez e libera o grupo."""
+        item.update(estado="pendente", tentativas=max(item["tentativas"] - 1, 0), adiado=d["rodada"], motivo=None)
+        for outro in d["itens"].values():
+            if outro["tribunal"] == item["tribunal"] and outro["estado"] == "pendente" and outro is not item:
+                outro["adiado"] = d["rodada"]
+
+    def devolver(self, numero):
+        """O processo reservado volta a `pendente` sem gastar tentativa (a falha não foi dele: login, navegador)."""
+        with self._transacao() as d:
+            item = d["itens"].get(numero)
+            if item is None or item["estado"] != "coletando":
+                return
+            item.update(estado="pendente", tentativas=max(item["tentativas"] - 1, 0), atualizado_em=_iso(self.relogio()),
+                        proxima_tentativa=None)
+            d["livre_apos"] = None
 
     def _captcha_do_trt(self, d, item, agora):
         """Captchas seguidos de um TRT sem solução: o resto do TRT vai para manual (nesta rodada)."""
@@ -574,6 +618,8 @@ class Fila:
                 if i["estado"] in estados and i["estado"] != "coletado" and (alvo is None or i["numero"] in alvo):
                     i.update(estado="pendente", tentativas=0, erro=None, proxima_tentativa=None, motivo=None,
                              so_djen=False, atualizado_em=_iso(self.relogio()))
+                    i.pop("adiado", None)
+                    i.pop("segunda_chance", None)
                     reabertos.append(i["numero"])
         return reabertos
 
@@ -637,6 +683,7 @@ class Fila:
         return {"total": len(itens), **contagem,
                 "estimativa_s": int(round(restantes * (media + sum(self.pausa_s) / 2))),
                 "so_djen": sum(1 for i in itens if i["so_djen"]),
+                "fisico": sum(1 for i in itens if (i["erro"] or {}).get("codigo") == "fisico" and i["estado"] == "manual"),
                 "erro_definitivo": sum(1 for i in itens if i["estado"] == "erro" and not i["proxima_tentativa"]),
                 "pausada": d["pausada"], "parando": d["parar"], "rodada": d["rodada"], "medido": bool(medicoes)}
 
@@ -647,6 +694,7 @@ class Fila:
             if i["estado"] == "manual" or (i["estado"] == "erro" and not i["proxima_tentativa"]):
                 saida.append({"numero": i["numero"], "tribunal": i["tribunal"], "cliente": i["cliente"],
                               "estado": i["estado"], "so_djen": i["so_djen"],
+                              "fisico": (i["erro"] or {}).get("codigo") == "fisico",
                               "codigo": (i["erro"] or {}).get("codigo"), "motivo": i["motivo"] or (i["erro"] or {}).get("mensagem")})
         return saida
 
@@ -662,14 +710,41 @@ def cobertura(projeto):
         tribunal = i.get("tribunal") or "?"
         if i["estado"] == "coletado":
             chave = "coletado"
+        elif i["estado"] == "manual" and (i.get("erro") or {}).get("codigo") == "fisico":
+            chave = "fisico"
         elif i["estado"] == "manual" and i.get("so_djen"):
             chave = "so_djen"
         elif i["estado"] == "manual" or (i["estado"] == "erro" and not i.get("proxima_tentativa")):
             chave = "manual"
         else:
             continue
-        saida.setdefault(tribunal, {"coletado": 0, "so_djen": 0, "manual": 0})[chave] += 1
+        linha = saida.setdefault(tribunal, {"coletado": 0, "so_djen": 0, "manual": 0})
+        linha[chave] = linha.get(chave, 0) + 1      # "fisico" só aparece nos tribunais que têm processo físico
     return dict(sorted(saida.items()))
+
+
+def taxa_de_sucesso(projeto):
+    """A taxa de sucesso da coleta SÓ sobre os processos eletrônicos. Processo físico (sem autos eletrônicos) e
+    tribunal só-DJEN ficam de fora do denominador e aparecem à parte. Pendentes e em coleta ainda não contam.
+
+        {"coletados", "eletronicos", "taxa" (0..1 ou None), "fisicos", "so_djen", "manuais", "erros"}
+    `eletronicos` = coletados + manuais (captcha, segredo, não localizado...) + erros definitivos."""
+    arquivo, _ = _pasta_do_projeto(projeto)
+    estado = comum.load_json(arquivo, None) or {}
+    c = {"coletados": 0, "fisicos": 0, "so_djen": 0, "manuais": 0, "erros": 0}
+    for i in (estado.get("itens") or {}).values():
+        if i["estado"] == "coletado":
+            c["coletados"] += 1
+        elif i["estado"] == "manual" and (i.get("erro") or {}).get("codigo") == "fisico":
+            c["fisicos"] += 1
+        elif i["estado"] == "manual" and i.get("so_djen"):
+            c["so_djen"] += 1
+        elif i["estado"] == "manual":
+            c["manuais"] += 1
+        elif i["estado"] == "erro" and not i.get("proxima_tentativa"):
+            c["erros"] += 1
+    eletronicos = c["coletados"] + c["manuais"] + c["erros"]
+    return {**c, "eletronicos": eletronicos, "taxa": round(c["coletados"] / eletronicos, 4) if eletronicos else None}
 
 
 # ------------------------------------------------------------------ o laço
@@ -732,6 +807,13 @@ def rodar_fila(fila, coletor, ao_progresso=None, *, ao_resultado=None, esperar=T
             except Exception as e:   # falha inesperada: vira erro "outro" e a fila segue
                 erro = {"codigo": "outro", "mensagem": f"{type(e).__name__}: {e}"}
             duracao = fila.cronometro() - inicio
+            if erro and erro.get("fatal"):
+                # o acesso caiu (login, navegador): o processo volta à fila sem gastar tentativa, a fila pausa e
+                # só uma pessoa a retoma. Evita repetir o login (e acordar o jus.br) para cada processo.
+                fila.devolver(numero)
+                fila.pausar()
+                avisar("login", numero=numero, codigo=erro.get("codigo"), mensagem=erro.get("mensagem"))
+                continue
             feitos += 1
             if erro:
                 marcado = fila.marcar(numero, "erro", erro)
@@ -769,7 +851,36 @@ def classificar_erro(excecao):
         codigo = "timeout"
     else:
         codigo = "outro"
-    return {"codigo": codigo, "mensagem": texto or type(excecao).__name__}
+    saida = {"codigo": codigo, "mensagem": texto or type(excecao).__name__}
+    if codigo == "captcha" and getattr(excecao, "adiavel", False):
+        saida["adiavel"] = True      # captcha de TRT que ninguém resolveu no prazo: a fila pode pular e voltar no fim
+    return saida
+
+
+def parece_fisico(numero, *, buscar_djen=None, consultar_datajud=None):
+    """O processo "não encontrado" é FÍSICO (sem autos eletrônicos)? Só quando as duas fontes públicas respondem
+    e as duas estão vazias: o DJEN sem nenhuma publicação E o DataJud sem nenhum registro do número. Fonte
+    desligada, sem chave, sem rede ou com erro => False: na dúvida o processo continua "manual" (nunca se marca
+    como físico um eletrônico que apenas falhou). `buscar_djen(numero)` e `consultar_datajud(numero)` são
+    injetáveis (testes sem rede); `consultar_datajud` devolve (dados | None, avisos)."""
+    try:
+        import capa
+        import djen
+        if consultar_datajud is None:
+            ativo, chave = capa._config_datajud()
+            if not (ativo and chave):
+                return False
+            consultar_datajud = capa.consultar_datajud
+        dados, _ = consultar_datajud(numero)
+        if dados is None:                       # DataJud indisponível: não dá para afirmar
+            return False
+        digitos = re.sub(r"\D", "", numero)
+        if any(re.sub(r"\D", "", str(f.get("numeroProcesso", ""))) == digitos for f in capa._fontes_datajud(dados)):
+            return False                        # o DataJud conhece o processo: tem autos eletrônicos
+        publicacoes = (buscar_djen or djen.publicacoes_do_processo)(numero)
+        return not publicacoes
+    except Exception:
+        return False
 
 
 def _iso_do_evento(texto):
@@ -815,8 +926,10 @@ class ColetorReal:
     COTA_COMPLETO = 10 ** 6
 
     def __init__(self, historico=0):
+        import trt
         self.historico = historico
         self._pw = self._navegador = self._contexto = None
+        trt.zerar_rodada()     # as contagens de captcha valem por rodada (por ColetorReal), não por navegador
 
     # -- navegador
     def abrir(self):
@@ -832,6 +945,12 @@ class ColetorReal:
             raise
 
     def fechar(self):
+        import trt
+        print(trt.resumo_dos_captchas(), flush=True)
+        try:
+            trt.fechar_consultas(self._contexto)
+        except Exception:
+            pass
         for alvo, metodo in ((self._navegador, "close"), (self._pw, "stop")):
             try:
                 if alvo is not None:
@@ -855,16 +974,20 @@ class ColetorReal:
             if self._contexto is None:
                 self.abrir()
         except Exception as e:
-            return {**vazio, "erro": {**classificar_erro(e), "codigo": "sessao_expirada"}}
+            # sem navegador ou sem login não adianta tentar o próximo processo: `fatal` faz o laço pausar a fila
+            return {**vazio, "erro": {**classificar_erro(e), "codigo": "sessao_expirada", "fatal": True}}
         cota = {"rapido": 0, "padrao": comum.config().get("coleta", {}).get("max_documentos_por_rodada", 30),
                 "completo": self.COTA_COMPLETO}[profundidade]
         proc = {"numero": processo["numero"], "cliente": processo.get("cliente") or "", "apelido": processo.get("apelido")}
+        trabalhista = _e_trabalhista(processo["numero"])
+        if trabalhista:
+            proc["indicio_2grau"] = _datajud_indica_segundo_grau(processo["numero"])
         estado = comum.load_json(comum.ESTADO_FILE, {})
         lista = comum.eventos()
         antes = len(lista)
-        erro = None
+        erro, relato = None, {}
         try:
-            coletor.coletar_processo(self._contexto, proc, estado, lista, self.historico, cota, fch.data(desde))
+            coletor.coletar_processo(self._contexto, proc, estado, lista, self.historico, cota, fch.data(desde), relato)
         except Exception as e:
             erro = classificar_erro(e)
             if erro["codigo"] == "sessao_expirada":
@@ -872,8 +995,58 @@ class ColetorReal:
         finally:
             comum.save_json(comum.ESTADO_FILE, estado)
             comum.salvar_eventos(lista)
+        if erro and erro["codigo"] == "nao_encontrado" and parece_fisico(processo["numero"]):
+            erro = {"codigo": "fisico", "mensagem": _MENSAGENS["fisico"]}
         movimentos, documentos = eventos_para_resultado(lista[antes:])
-        return {"capa": {}, "movimentos": movimentos, "documentos": documentos, "erro": erro}
+        resultado = {"capa": {}, "movimentos": movimentos, "documentos": documentos, "erro": erro}
+        if relato.get("graus_lidos") or relato.get("graus_falhos"):
+            resultado["graus"] = {"lidos": relato.get("graus_lidos", []), "falhos": relato.get("graus_falhos", [])}
+        if relato.get("avisos"):
+            resultado["avisos"] = relato["avisos"]
+        if trabalhista and not erro:
+            _acrescentar_tst(resultado, processo["numero"])
+        return resultado
+
+
+def _e_trabalhista(numero):
+    """Número CNJ da Justiça do Trabalho (segmento 5), que passa pelo TRT e pode chegar ao TST."""
+    return bool(re.search(r"\d{7}-\d{2}\.\d{4}\.5\.", str(numero)))
+
+
+def _datajud_indica_segundo_grau(numero):
+    """O DataJud mostra o processo no 2º grau? Só com a fonte ligada e a chave pública; qualquer falha vale False
+    (e a coleta decide pelos andamentos)."""
+    try:
+        import capa
+        ativo, chave = capa._config_datajud()
+        if not (ativo and chave):
+            return False
+        dados, _ = capa.consultar_datajud(numero)
+        return bool(dados) and capa.indica_segundo_grau(dados, numero)
+    except Exception:
+        return False
+
+
+def _acrescentar_tst(resultado, numero):
+    """Se o DataJud tem o processo no TST (mesmo número CNJ, índice `tst`), traz os movimentos do TST (grau "TST") e
+    marca `no_tst`. Sem DataJud ligado, nada acontece. O coletor dos DOCUMENTOS do TST não existe ainda: ver
+    docs/fase2/PROXIMA-SESSAO.md (gancho `coletor_tst`)."""
+    try:
+        import capa
+        ativo, chave = capa._config_datajud()
+        if not (ativo and chave):
+            return
+        dados, avisos = capa.consultar_tst(numero)
+        if dados is None or not capa.no_tst(dados, numero):
+            return
+        resultado["no_tst"] = True
+        conhecidos = {m.get("chave") for m in resultado["movimentos"]}
+        resultado["movimentos"] += [m for m in capa.movimentos_do_tst(dados, numero) if m["chave"] not in conhecidos]
+        resultado.setdefault("avisos", []).append({"nivel": "info", "codigo": "no_tst", "onde": f"datajud/{numero}",
+                                                    "mensagem": "O processo tem tramitação no TST (movimentos pelo DataJud; "
+                                                                "os documentos do TST ainda não são coletados)."})
+    except Exception:
+        pass
 
 
 def verificar_importacao():

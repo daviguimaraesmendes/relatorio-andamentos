@@ -45,9 +45,14 @@ def coletar_pela_fila(numeros, historico, desde):
     resumo = f.resumo()
     print(f"Fila: {resumo['pendente']} processo(s) a coletar.", flush=True)
 
+    f.retomar()  # uma pausa deixada por falha de login numa rodada anterior não vale para esta
+
     def andamento(r):
         if r["evento"] in ("coletado", "erro", "manual"):
             print(f"  {r['numero']}: {r['evento']}{' (' + r['codigo'] + ')' if r.get('codigo') else ''}", flush=True)
+        elif r["evento"] == "login":  # sem ninguém para retomar a fila (rodada em segundo plano): para com segurança
+            print(f"A coleta parou: o acesso ao jus.br falhou. {r.get('mensagem') or ''}", flush=True)
+            f.parar_com_seguranca()
     with fila.ColetorReal(historico=historico) as coletor_real:
         resumo = fila.rodar_fila(f, coletor_real, ao_progresso=andamento)
     print(f"Fila: {resumo['coletado']} coletado(s), {resumo['manual']} para conferir manualmente, "

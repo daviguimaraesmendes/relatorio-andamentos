@@ -142,9 +142,41 @@ def fechar_popups(page, tentativas=4):
 
 # --- login ---
 
+class LoginFalhou(RuntimeError):
+    """O login no jus.br não concluiu. Não adianta tentar o próximo processo: a coleta para e pede uma pessoa."""
+
+
+def _diagnostico_do_login(page, tentativa, mensagem=None):
+    """Grava tela e motivo da falha do login em diagnosticos/ (sem senha, sem código, sem dado pessoal)."""
+    base = salvar_diagnostico(page, f"login_jusbr_t{tentativa}")
+    motivo = dict(acesso.ULTIMO)
+    if mensagem and not motivo:
+        motivo = {"passo": "goto", "mensagem": mensagem}
+    motivo.update(tentativa=tentativa, plataforma=sys.platform, quando=agora())
+    try:
+        comum.save_json(base.with_suffix(".json"), motivo)
+    except OSError:
+        pass
+    return motivo
+
+
+def _orientacao_do_login():
+    """O que a pessoa deve fazer, em uma frase, conforme o passo que falhou."""
+    ultimo = acesso.ULTIMO
+    oque = ultimo.get("o_que_fazer") or "Termine o login no jus.br na janela que apareceu."
+    if ultimo.get("pje_office_aberto") is False and ultimo.get("passo") in ("dialogo", "preencher"):
+        oque += " (O PJe Office não parece estar aberto.)"
+    return f"{ultimo.get('mensagem') or 'O login automático não concluiu.'} {oque}".strip()
+
+
 def logar(context):
-    """Login no jus.br. Automático com os segredos do painel (Acesso); se não
-    concluir, a janela aparece para a pessoa terminar (captcha, tela nova)."""
+    """Login no jus.br. Automático com os segredos do painel (Acesso); se não concluir, a janela aparece
+    (em tela cheia) e a pessoa termina o login, com faixa vermelha no painel e aviso repetido a cada 60 s.
+    É o único caminho de login: a aba Atualizar, a fila (ColetorReal), a conferência e a exploração passam por aqui.
+    Falha → diagnóstico em diagnosticos/ (tela, texto e motivo) e `LoginFalhou`."""
+    import atencao
+    atencao.limpar("login")
+    acesso.ULTIMO.clear()
     page = janela.nova_pagina(context)
     for tentativa in (1, 2):
         try:
@@ -152,18 +184,31 @@ def logar(context):
             page.wait_for_timeout(2000)
             if LOGIN_MARKER in _texto(page) or acesso.login_automatico(page):
                 break
-            print(f"Login automático não concluiu (tentativa {tentativa} de 2).", flush=True)
+            print(f"Login automático não concluiu (tentativa {tentativa} de 2): "
+                  f"{acesso.ULTIMO.get('mensagem') or 'motivo desconhecido'}", flush=True)
+            _diagnostico_do_login(page, tentativa)
         except Exception as e:
             print(f"Login automático falhou ({e}).", flush=True)
-    inicio, avisou = time.time(), False
+            acesso.registrar_falha("goto", f"{type(e).__name__}: {e}")
+            try:
+                _diagnostico_do_login(page, tentativa)
+            except Exception:
+                pass
+    inicio = time.time()
+    lembrete = atencao.Lembrete("Precisa de você: login no jus.br")
+    avisou = False
     while LOGIN_MARKER not in _texto(page):
         if time.time() - inicio > LOGIN_TIMEOUT_S:
-            raise RuntimeError("Login no jus.br não concluído a tempo.")
+            orientacao = _orientacao_do_login()
+            atencao.pedir("login", f"Login não concluído. {orientacao} Depois clique em Retomar.")
+            raise LoginFalhou(f"Login no jus.br não concluído a tempo. {orientacao}")
         if not avisou:
-            janela.mostrar(page)  # só aparece quando precisa de alguém
+            atencao.chamar(page, "login", _orientacao_do_login())
             print("Termine o login no jus.br na janela que apareceu.", flush=True)
             avisou = True
+        lembrete.tick()
         page.wait_for_timeout(1500)
+    atencao.limpar("login")
     page.close()
     print("Login concluído.", flush=True)
 
@@ -526,11 +571,11 @@ def _tramitacoes_salvas(reg):
     return {}
 
 
-def coletar_processo(context, proc, estado, lista, historico, cota, desde=None):
+def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, relato=None):
     numero = proc["numero"]
     if re.search(r"\d{7}-\d{2}\.\d{4}\.5\.", numero):  # Justiça do Trabalho: consulta do próprio TRT
         import trt
-        return trt.coletar_processo(context, proc, estado, lista, historico, cota, desde)
+        return trt.coletar_processo(context, proc, estado, lista, historico, cota, desde, relato)
     reg_proc = estado.get(numero, {})
     salvas = _tramitacoes_salvas(reg_proc)
     # a cada 7 dias refaz a busca: é como se descobre um recurso (tramitação nova)

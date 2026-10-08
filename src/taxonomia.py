@@ -95,6 +95,7 @@ SITUACAO = {"Ativo": ("em andamento", "tramitando", "ativa", "em tramitacao", "e
                           "finalizada", "transitado em julgado", "concluido", "extinto"),
             "Suspenso": ("sobrestado", "suspensa", "sobrestada", "em suspensao")}
 
+GRAUS = ("1º grau", "2º grau", "TST")      # graus dos eventos (campo `grau`); o TST vem do DataJud (índice tst)
 FASE = {"Conhecimento": ("primeiro grau", "1o grau", "fase de conhecimento", "instrucao", "primeira instancia"),
         "Recurso": ("recursal", "2o grau", "segundo grau", "fase recursal", "segunda instancia", "em grau de recurso"),
         "Execução": ("execucao", "cumprimento de sentenca", "cumprimento", "liquidacao", "fase de execucao",
@@ -701,7 +702,7 @@ REGRAS_DE_MOMENTO = [
                 r"apelacao (provida|desprovida|improvida)", "estado", "AGUARDANDO PRAZO RECURSAL"),
     ("pauta_de_julgamento", r"incluid[oa] em pauta|intimacao de pauta|pauta de julgamento|"
                             r"sessao de julgamento (designada|marcada)|pautad", "recurso", _REC),
-    ("distribuicao_de_recurso", r"distribuid\w+.*(recurso|apelacao|agravo|relator|camara|turma|embargos)|"
+    ("distribuicao_de_recurso", r"distribuid\w+.*(recurso|apelacao|agravo|relator|ministro|camara|turma|embargos)|"
                                 r"conclus\w+ ao relator|conclus\w+ para relatoria|recebid[oa]s? os autos.*(tribunal|2o grau)",
      "recurso", _REC),
     ("remessa_em_grau_de_recurso", r"remetid\w+ os autos \(?em grau de recurso|remetid\w+ os autos ao (tribunal|"
@@ -788,6 +789,15 @@ def _segundo_grau(m):
     return bool(re.search(r"\b(2|segundo)\b|2o grau", _norm(str(m.get("grau") or ""))))
 
 
+def _no_tst(m):
+    """Movimento do Tribunal Superior do Trabalho (grau "TST"): o recurso que ali tramita é o de revista (ou
+    agravo contra a decisão que o nega), salvo se o próprio andamento disser outro."""
+    return bool(re.search(r"\btst\b", _norm(str(m.get("grau") or ""))))
+
+
+_REVISTA = "AGUARDANDO JULGAMENTO DO RECURSO DE REVISTA"
+
+
 def _refinar_recurso(ordenados, i):
     """Tipo de recurso lendo o próprio movimento e os anteriores (até _OLHAR_PARA_TRAS)."""
     for k in range(i, max(-1, i - _OLHAR_PARA_TRAS - 1), -1):
@@ -825,6 +835,9 @@ def momento_por_regras(movimentos, janela=30):
         if efeito == "conclusos":
             if consumido_decisao and destino != "AGUARDANDO SENTENÇA":
                 continue            # o juiz já despachou/decidiu depois destes conclusos
+            if destino == "AGUARDANDO SENTENÇA" and _no_tst(mov):
+                momento, origem = _refinar_recurso(ordenados, i)
+                return (_REVISTA if momento == _RECURSO_GENERICO else momento), _evidencia(regra, mov, "movimento do TST")
             if destino == "AGUARDANDO SENTENÇA" and _segundo_grau(mov):
                 momento, origem = _refinar_recurso(ordenados, i)
                 return momento, _evidencia(regra, mov, "movimento de 2º grau")
@@ -837,9 +850,14 @@ def momento_por_regras(movimentos, janela=30):
             return _PRAZO_RECURSAL, _evidencia(regra, mov)
         if efeito == "recurso":
             momento, origem = _refinar_recurso(ordenados, i)
+            if _no_tst(mov) and momento == _RECURSO_GENERICO:
+                return _REVISTA, _evidencia(regra, mov, "movimento do TST")
             return momento, _evidencia(regra, mov, None if origem is mov else
                                        f'tipo do recurso pelo movimento "{origem["texto"].strip()}"')
         # estado ou julgamento
+        if regra == "distribuicao_inicial" and _no_tst(mov):
+            momento, origem = _refinar_recurso(ordenados, i)
+            return (_REVISTA if momento == _RECURSO_GENERICO else momento), _evidencia(regra, mov, "movimento do TST")
         if regra == "distribuicao_inicial" and _segundo_grau(mov):
             momento, origem = _refinar_recurso(ordenados, i)
             return momento, _evidencia(regra, mov, "movimento de 2º grau")

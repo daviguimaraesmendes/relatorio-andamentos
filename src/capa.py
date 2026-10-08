@@ -765,12 +765,13 @@ def _transporte_urllib(url, cabecalhos, corpo, timeout=40):
 _ultima_datajud = [0.0]
 
 
-def consultar_datajud(numero, *, transporte=None, ativo=None, chave=None, relogio=time.monotonic, dormir=time.sleep):
+def consultar_datajud(numero, *, transporte=None, ativo=None, chave=None, relogio=time.monotonic, dormir=time.sleep, alias=None):
     """Consulta o DataJud pelo número. Volta (resposta JSON | None, avisos); erro esperado vira aviso.
 
     `ativo`/`chave`: sobrepõem a configuração (`fontes_externas.datajud`); sem flag ligada ou sem chave, NÃO
     há chamada. `transporte(url, cabecalhos, corpo_bytes) -> (status, bytes)` é injetável (testes sem rede);
-    `relogio`/`dormir` também. A chave é a pública da wiki do CNJ e pode mudar sem aviso: por isso não vai no código."""
+    `relogio`/`dormir` também. `alias` troca o índice (o padrão vem do número; "tst" consulta o TST com o mesmo número CNJ).
+    A chave é a pública da wiki do CNJ e pode mudar sem aviso: por isso não vai no código."""
     onde = "capa/datajud"
     cfg_ativo, cfg_chave = _config_datajud()
     ativo = cfg_ativo if ativo is None else ativo
@@ -780,7 +781,7 @@ def consultar_datajud(numero, *, transporte=None, ativo=None, chave=None, relogi
     if not chave:
         return None, [aviso("atencao", "datajud_sem_chave", onde,
                             "DataJud ligado, mas sem a chave pública do CNJ (copie da wiki do DataJud para fontes_externas.datajud.chave).")]
-    alias = alias_datajud(numero)
+    alias = alias or alias_datajud(numero)
     if not alias:
         return None, [aviso("info", "datajud_tribunal_sem_indice", onde, f"O DataJud não tem índice para o tribunal de {numero}.")]
     espera = DATAJUD_INTERVALO_S - (relogio() - _ultima_datajud[0])
@@ -803,3 +804,57 @@ def consultar_datajud(numero, *, transporte=None, ativo=None, chave=None, relogi
         return json.loads(bruto), []
     except (ValueError, TypeError):
         return None, [aviso("atencao", "datajud_resposta_ilegivel", onde, "A resposta do DataJud não é um JSON válido.")]
+
+
+# ---------------------------------------------------------------- graus no DataJud e o TST
+
+def graus_do_datajud(dados, numero=None):
+    """Graus em que o DataJud mostra o processo ("G1", "G2", "SUP", "JE", "TR"...), sem repetir."""
+    fontes = _fontes_datajud(dados)
+    if numero:
+        fontes = [s for s in fontes if _digitos(s.get("numeroProcesso")) == _digitos(numero)]
+    return sorted({s.get("grau") for s in fontes if s.get("grau")})
+
+
+def indica_segundo_grau(dados, numero=None):
+    """True se o DataJud mostra tramitação no 2º grau (G2) para o número."""
+    return "G2" in graus_do_datajud(dados, numero)
+
+
+def consultar_tst(numero, **kw):
+    """O mesmo número CNJ no índice do TST do DataJud. Volta (dados | None, avisos). Só vale para processo da
+    Justiça do Trabalho; o resto volta (None, []). `kw` vai para consultar_datajud (transporte, ativo, chave...).
+    Quem recebe `dados` usa `no_tst` e `movimentos_do_tst`."""
+    validos, _ = cart.numeros_no_texto(str(numero))
+    m = cart.CNJ.search(validos[0][0]) if validos else None
+    if not m or m[4] != "5":
+        return None, []
+    return consultar_datajud(numero, alias="tst", **kw)
+
+
+def no_tst(dados, numero):
+    """True se o índice do TST devolveu o processo (sem sigilo)."""
+    return any(_digitos(s.get("numeroProcesso")) == _digitos(numero) and not s.get("nivelSigilo")
+               for s in _fontes_datajud(dados))
+
+
+def movimentos_do_tst(dados, numero):
+    """Movimentos do TST no formato de ResultadoColeta: {"data": ISO, "texto", "grau": "TST", "chave"}.
+    A chave leva a data com hora do DataJud e o código do movimento: estável entre rodadas."""
+    saida = []
+    for s in _fontes_datajud(dados):
+        if _digitos(s.get("numeroProcesso")) != _digitos(numero) or s.get("nivelSigilo"):
+            continue
+        for m in s.get("movimentos") or []:
+            if not isinstance(m, dict):
+                continue
+            texto = _nome(m.get("nome") or "")
+            for c in m.get("complementosTabelados") or []:
+                if isinstance(c, dict) and c.get("nome"):
+                    texto += f" {_nome(c['nome'])}"
+            data = _data(m.get("dataHora"))
+            if data and texto.strip():
+                saida.append({"data": data, "texto": texto.strip(), "grau": "TST",
+                              "chave": f"tst|{m.get('dataHora')}|{m.get('codigo')}"})
+    saida.sort(key=lambda m: m["data"])
+    return saida

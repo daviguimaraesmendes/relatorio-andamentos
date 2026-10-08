@@ -41,7 +41,26 @@ button.principal{background:var(--acento);color:#fff;border:1px solid var(--acen
 pre.log{background:#111;color:#ddd;padding:12px;border-radius:6px;font-size:12px;max-height:420px;overflow:auto;white-space:pre-wrap}
 .cartoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
 .cartao{background:var(--fundo2);border-radius:6px;padding:10px}.cartao b{font-size:22px;display:block}
+#atencao{position:sticky;top:0;z-index:50;background:#b91c1c;color:#fff;padding:10px 16px;font-weight:700;font-size:15px}
+#atencao small{display:block;font-weight:400;opacity:.9}
 </style>"""
+
+# Faixa vermelha fixa quando a coleta espera uma pessoa (captcha do TRT, login do jus.br). Atualiza sozinha.
+SCRIPT_ATENCAO = """<script>
+(function(){var f=document.getElementById('atencao');if(!f)return;
+function ler(){fetch('/atencao.json',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+if(d&&d.texto){f.textContent=d.texto;f.style.display='block'}else{f.style.display='none'}}).catch(function(){})}
+setInterval(ler,5000)})();
+</script>"""
+
+
+def faixa_de_atencao():
+    """A faixa vermelha (escondida quando não há pedido). O texto inicial vem do servidor; o script a mantém em dia."""
+    import atencao
+    registro = atencao.atual()
+    texto = html.escape(atencao.texto_da_faixa(registro)) if registro else ""
+    return (f"<div id='atencao' role='alert' style='display:{'block' if registro else 'none'}'>{texto}</div>"
+            + SCRIPT_ATENCAO)
 
 SUBABAS = [("fluxo", "/fluxo", "Assistente"), ("atualizar", "/atualizar", "Atualizar"), ("revisar", "/", "Revisar"),
            ("planilha", "/planilha", "Planilha"), ("entregas", "/entregas", "Entregas"),
@@ -63,6 +82,7 @@ def cabecalho(ativa, titulo="Relatório de Andamentos"):
              "código do autenticador). <a href='/acesso'>Configurar agora</a></div>")
     return (f"<!doctype html><html lang='pt-BR'><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'><title>{html.escape(titulo)}</title>{ESTILO}<body>"
+            f"{faixa_de_atencao()}"
             f"<div class='barra'><div class='marca'>Relatório de Andamentos<span class='meta'>{(' · versão ' + html.escape(versao())) if versao() else ''}{rodando}</span>"
             f"<a href='/acesso' style='float:right;font-weight:normal;font-size:14px' "
             f"class='{'ativa' if ativa == 'acesso' else ''}'>Acesso e escritório {'✓' if pronto else '(configurar)'}</a></div>"
@@ -119,7 +139,17 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         disponiveis = [s for s, _ in comum.projetos()]
         if slug in disponiveis and slug != comum.PROJETO:
             comum.usar_projeto(slug)
-        primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper")
+        primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json")
         # o assistente e a migração de modelo criam o primeiro relatório: ficam liberados sem relatório
         if not disponiveis and request.path not in primeiro_uso and not request.path.startswith(("/fluxo", "/migracao")):
             return redirect("/novo")
+
+    @app.get("/atencao.json")
+    def atencao_json():
+        """O que a faixa vermelha mostra agora ({} quando ninguém é esperado)."""
+        import atencao
+        from flask import jsonify
+        registro = atencao.atual()
+        resposta = jsonify({**registro, "texto": atencao.texto_da_faixa(registro)} if registro else {})
+        resposta.headers["Cache-Control"] = "no-store"
+        return resposta

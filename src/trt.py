@@ -4,8 +4,16 @@
 A ordem importa: primeiro o login no jus.br (coletor.logar), depois a consulta.
 Logado, o PJe do TRT mostra os autos completos e deixa baixar documentos; sem
 login, pede captcha e não libera os autos. Se ainda assim aparecer captcha, a
-janela vem para a tela e quem estiver no computador resolve; depois ela volta
-a minimizar.
+janela vem para a tela (em tela cheia), o Mac avisa com notificação e som a
+cada 60 s, o painel mostra a faixa vermelha e quem estiver no computador
+resolve; depois ela volta a minimizar. Se ninguém resolver em
+`coleta.captcha_espera_min` minutos (padrão 10), o processo é adiado: a fila
+segue com os demais e volta ao captcha no fim da rodada.
+
+Uma página de consulta por TRT fica aberta durante toda a rodada: o processo
+seguinte é pesquisado pelo próprio formulário, sem recarregar a consulta (o
+captcha resolvido continua valendo). Documentos e PDFs abrem em outra aba, que
+fecha logo depois, sem tocar na página de consulta.
 
 Esta primeira versão é de EXPLORAÇÃO: grava as telas e as respostas internas
 do portal para que a leitura automática seja escrita sobre o formato real.
@@ -54,28 +62,75 @@ def tem_captcha(page):
         return False
 
 
-def esperar_captcha_humano(page, limite_s=600):
-    """Mostra a janela e espera alguém resolver o captcha (até 10 min)."""
+CONSULTAS = {}   # (id do contexto, host) -> página de consulta, uma por TRT durante a rodada
+CAPTCHAS = {}    # número do TRT -> captchas pedidos nesta rodada
+RECARGAS = {}    # número do TRT -> vezes em que a consulta teve de ser recarregada do zero
+PADRAO_CAPTCHA_ESPERA_MIN = 10
+
+
+class CaptchaNaoResolvido(RuntimeError):
+    """Ninguém resolveu o captcha no prazo. `adiavel`: a fila pode pular o processo e voltar no fim da rodada."""
+    adiavel = True
+
+
+def numero_do_trt(texto):
+    """'pje.trt7.jus.br' (ou a URL da consulta) -> '7'; '?' se não for de TRT."""
+    m = re.search(r"trt(\d+)", texto or "")
+    return m.group(1) if m else "?"
+
+
+def espera_do_captcha_s():
+    """Quanto esperar por uma pessoa (config coleta.captcha_espera_min, padrão 10 minutos)."""
+    try:
+        minutos = float(comum.config().get("coleta", {}).get("captcha_espera_min", PADRAO_CAPTCHA_ESPERA_MIN))
+    except (TypeError, ValueError):
+        minutos = PADRAO_CAPTCHA_ESPERA_MIN
+    return max(minutos, 0.05) * 60
+
+
+def esperar_captcha_humano(page, limite_s=None, tribunal=None):
+    """Chama uma pessoa para resolver o captcha (janela em tela cheia, notificação do Mac com som, faixa vermelha
+    no painel, lembrete a cada 60 s) e espera até `limite_s` (padrão: coleta.captcha_espera_min). Volta True se
+    resolveram, False se o prazo acabou."""
     if not tem_captcha(page):
         return True
-    janela.mostrar(page)
-    print("CAPTCHA na consulta do TRT: resolva na janela que apareceu. A coleta continua sozinha depois.", flush=True)
-    if sys.platform == "darwin":
-        try:
-            import subprocess
-            subprocess.run(["osascript", "-e", 'display notification "Resolva o captcha na janela do TRT" '
-                            'with title "Relatório de Andamentos" sound name "Ping"'], timeout=5, check=False)
-        except Exception:
-            pass
-    else:
-        print("\a", end="", flush=True)  # sinal sonoro do terminal
+    import atencao
+    limite_s = espera_do_captcha_s() if limite_s is None else limite_s
+    tribunal = tribunal or numero_do_trt(getattr(page, "url", ""))
+    CAPTCHAS[tribunal] = CAPTCHAS.get(tribunal, 0) + 1
+    atencao.chamar(page, "captcha", f"Captcha do TRT {tribunal} aguardando.", tribunal=tribunal)
+    print(f"CAPTCHA na consulta do TRT {tribunal}: resolva na janela que apareceu (espero até {int(limite_s // 60)} min). "
+          "A coleta continua sozinha depois.", flush=True)
+    lembrete = atencao.Lembrete(f"Captcha do TRT {tribunal}: precisa de você")
     fim = time.time() + limite_s
     while time.time() < fim:
         page.wait_for_timeout(1500)
         if not tem_captcha(page):
+            atencao.limpar("captcha", tribunal)
             janela.minimizar(page)
             return True
+        lembrete.tick()
+    atencao.limpar("captcha", tribunal)
     return False
+
+
+def resumo_dos_captchas():
+    """'captchas pedidos nesta rodada: 3 no TRT 7, 1 no TRT 9 (consulta recarregada 2 vez(es))' ou a frase
+    'nenhum' - vai para o log, para comparar uma rodada com a outra."""
+    if not CAPTCHAS:
+        texto = "captchas pedidos nesta rodada: nenhum"
+    else:
+        texto = "captchas pedidos nesta rodada: " + ", ".join(f"{n} no TRT {t}" for t, n in sorted(CAPTCHAS.items()))
+    if RECARGAS:
+        texto += " (consulta recarregada do zero: " + ", ".join(f"{n}x no TRT {t}" for t, n in sorted(RECARGAS.items())) + ")"
+    return texto
+
+
+def zerar_rodada(context=None):
+    """Começo de rodada: zera as contagens e fecha as páginas de consulta (de um contexto, ou de todos)."""
+    fechar_consultas(context)
+    CAPTCHAS.clear()
+    RECARGAS.clear()
 
 
 def _campo_numero(page):
@@ -225,7 +280,11 @@ def explorar(numero):
 
 # --- coleta (rodada normal) ---------------------------------------------------
 
-_HOSTS_LOGADOS = set()  # acesso restrito feito nesta rodada
+# Andamentos que indicam recurso (2º grau): só com um desses a coleta tenta ler o 2º grau.
+INDICIO_2_GRAU = re.compile(
+    r"remessa\s.*(tribunal|2[ºo°]\s*grau|segundo\s+grau)|remetid[oa]s?\s.*(tribunal|2[ºo°]\s*grau|segundo\s+grau)|"
+    r"recurso\s+ordin[aá]rio|distribu[ií]d[oa]\s.*(relator|2[ºo°]\s*grau|segundo\s+grau|turma|gabinete)|"
+    r"ac[oó]rd[aã]o|recebid[oa]s?\s+os\s+autos\s+do\s+(tribunal|2[ºo°]\s*grau)|subida\s+(dos\s+)?autos", re.I)
 
 
 def data_br(iso):
@@ -250,28 +309,134 @@ def itens_do_processo(dados):
     return movs, docs
 
 
+def indicio_de_recurso(movimentos, proc=None, reg_proc=None):
+    """Por que vale tentar o 2º grau (texto curto) ou None. Indícios: já foi lido antes; o DataJud indicou grau 2
+    (`proc["indicio_2grau"]`); algum andamento fala em remessa, recurso ordinário, distribuição ao relator, acórdão."""
+    if "2" in (reg_proc or {}):
+        return "o 2º grau já tinha sido lido em rodada anterior"
+    if (proc or {}).get("indicio_2grau"):
+        return "o DataJud indica processo no 2º grau"
+    for _, _, texto in movimentos:
+        if INDICIO_2_GRAU.search(texto or ""):
+            return f"andamento \"{' '.join(texto.split())[:70]}\""
+    return None
+
+
+# --- a página de consulta: uma por TRT, durante toda a rodada -------------------------------------------
+
+def pagina_da_consulta(context, host, guardar=None):
+    """A página de consulta do TRT desta rodada. A primeira chamada abre a página e entra pelo acesso restrito; as
+    seguintes devolvem a MESMA página (o captcha resolvido continua valendo, sem recarregar a consulta)."""
+    chave = (id(context), host)
+    page = CONSULTAS.get(chave)
+    if page is not None:
+        try:
+            if not page.is_closed():
+                return page
+        except Exception:
+            pass
+        CONSULTAS.pop(chave, None)
+    page = janela.nova_pagina(context)
+    try:
+        if not entrar_acesso_restrito(page, host, guardar):
+            raise RuntimeError("Acesso restrito do TRT não abriu a consulta.")
+    except BaseException:
+        try:
+            page.close()
+        except Exception:
+            pass
+        raise
+    CONSULTAS[chave] = page
+    return page
+
+
+def fechar_consultas(context=None):
+    """Fecha as páginas de consulta (de um contexto, ou de todos). Chamado no fim da rodada."""
+    for chave in [c for c in CONSULTAS if context is None or c[0] == id(context)]:
+        page = CONSULTAS.pop(chave)
+        try:
+            page.close()
+        except Exception:
+            pass
+
+
+_VOLTAR_PARA_A_PESQUISA = re.compile(r"nova\s+(consulta|pesquisa)|^\s*pesquisar\s+outro|^\s*voltar\s*$", re.I)
+
+
+def _esperar_consulta(page, segundos=6):
+    for _ in range(segundos):
+        if consulta_pronta(page):
+            return True
+        page.wait_for_timeout(1000)
+    return consulta_pronta(page)
+
+
+def preparar_busca(page, host):
+    """Deixa a consulta com o campo do número à vista SEM recarregar a página, quando possível. Escada:
+    1) o campo já está lá; 2) botão ou link de nova consulta; 3) voltar no histórico (a consulta é uma página
+    de uma aplicação só, voltar não a recarrega); 4) último recurso: carregar a consulta de novo (conta em
+    RECARGAS, e pode pedir captcha outra vez). Devolve como conseguiu."""
+    if consulta_pronta(page):
+        return "pronta"
+    try:
+        for rotulo in (page.get_by_role("button", name=_VOLTAR_PARA_A_PESQUISA), page.get_by_role("link", name=_VOLTAR_PARA_A_PESQUISA)):
+            if rotulo.count() and rotulo.first.is_visible():
+                rotulo.first.click(timeout=3000)
+                if _esperar_consulta(page, 4):
+                    return "nova consulta"
+    except Exception:
+        pass
+    for _ in range(2):
+        try:
+            page.go_back(wait_until="domcontentloaded", timeout=15000)
+        except Exception:
+            break
+        if _esperar_consulta(page, 4):
+            return "voltar"
+    page.goto(f"https://{host}/consultaprocessual/", timeout=45000, wait_until="domcontentloaded")
+    t = numero_do_trt(host)
+    RECARGAS[t] = RECARGAS.get(t, 0) + 1
+    _esperar_consulta(page, 20)
+    return "recarregada"
+
+
+def _ir_para_grau(page, host, numero, grau, capturas):
+    """Abre os autos de um grau na MESMA página: primeiro pela rota da aplicação (sem recarregar), e só se os
+    autos não vierem em ~8 s, carregando o endereço."""
+    rota = f"/consultaprocessual/detalhe-processo/{numero}/{grau}"
+    try:
+        page.evaluate("r => { history.pushState({}, '', r); window.dispatchEvent(new PopStateEvent('popstate', {state: {}})); }", rota)
+        for _ in range(8):
+            if capturas["autos"] is not None or tem_captcha(page):
+                return "rota"
+            page.wait_for_timeout(1000)
+    except Exception:
+        pass
+    page.goto(f"https://{host}{rota}", timeout=45000, wait_until="domcontentloaded")
+    t = numero_do_trt(host)
+    RECARGAS[t] = RECARGAS.get(t, 0) + 1
+    return "recarregada"
+
+
 def _abrir_autos_trt(context, page, host, numero, capturas, grau=None):
-    """Busca (ou abre direto o grau) e espera o JSON dos autos chegar. Captcha: janela para a pessoa."""
+    """Busca o número pelo formulário da consulta (ou abre direto um grau) e espera o JSON dos autos chegar.
+    Captcha: chama uma pessoa; se ninguém resolver a tempo, levanta CaptchaNaoResolvido."""
     capturas["autos"] = None
     if grau is None:
-        page.goto(f"https://{host}/consultaprocessual/", timeout=45000, wait_until="domcontentloaded")
-        for _ in range(20):
-            if consulta_pronta(page):
-                break
-            page.wait_for_timeout(1000)
+        preparar_busca(page, host)
         campo = _campo_numero(page)
         if campo is None:
             raise RuntimeError("Campo do número não apareceu na consulta do TRT.")
         buscar_numero(page, campo, numero)
     else:
-        page.goto(f"https://{host}/consultaprocessual/detalhe-processo/{numero}/{grau}", timeout=45000,
-                  wait_until="domcontentloaded")
+        _ir_para_grau(page, host, numero, grau, capturas)
     fim = time.time() + 40
     while time.time() < fim and capturas["autos"] is None:
         page.wait_for_timeout(1000)
         if tem_captcha(page):
-            if not esperar_captcha_humano(page):
-                raise RuntimeError("Captcha do TRT não resolvido a tempo.")
+            if not esperar_captcha_humano(page, tribunal=numero_do_trt(host)):
+                raise CaptchaNaoResolvido(f"Captcha do TRT {numero_do_trt(host)} não resolvido a tempo "
+                                          f"({int(espera_do_captcha_s() // 60)} min).")
             fim = time.time() + 40
         texto = ""
         try:
@@ -285,10 +450,18 @@ def _abrir_autos_trt(context, page, host, numero, capturas, grau=None):
     return capturas["autos"]
 
 
-def coletar_processo(context, proc, estado, lista, historico, cota, desde=None):
-    """Mesmo papel do coletor.coletar_processo, para a Justiça do Trabalho."""
+def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, relato=None):
+    """Mesmo papel do coletor.coletar_processo, para a Justiça do Trabalho.
+
+    `relato` (dict opcional) recebe o que o ColetorReal repassa ao fluxo: `graus_lidos`, `graus_falhos` (cada falha
+    com o motivo) e `avisos`. O 2º grau só é tentado com indício de recurso; a falha dele nunca é engolida: vira
+    aviso `grau_nao_lido`."""
     import coletor  # evita importação circular
 
+    relato = relato if relato is not None else {}
+    relato.setdefault("graus_lidos", [])
+    relato.setdefault("graus_falhos", [])
+    relato.setdefault("avisos", [])
     numero = proc["numero"]
     host = host_trt(numero)
     capturas = {"autos": None, "pdfs": {}}
@@ -310,12 +483,8 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None):
             pass
 
     context.on("response", ouvir)
-    page = janela.nova_pagina(context)
     try:
-        if host not in _HOSTS_LOGADOS:
-            if not entrar_acesso_restrito(page, host):
-                raise RuntimeError("Acesso restrito do TRT não abriu a consulta.")
-            _HOSTS_LOGADOS.add(host)
+        page = pagina_da_consulta(context, host)
         autos = {"1": _abrir_autos_trt(context, page, host, numero, capturas)}
         if autos["1"] is None:
             coletor.salvar_diagnostico(page, f"trt_autos_nao_vieram_{slug(numero)}")
@@ -323,16 +492,32 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None):
         grau_aberto = re.search(r"/detalhe-processo/[^/]+/(\d)", page.url)
         if grau_aberto and grau_aberto.group(1) != "1":
             autos = {grau_aberto.group(1): autos["1"]}
-        # recurso no 2º grau: mesma consulta, outro grau na URL
-        if "2" not in autos:
-            try:
-                segundo = _abrir_autos_trt(context, page, host, numero, capturas, grau="2")
-                if segundo and segundo.get("id") != next(iter(autos.values())).get("id"):
-                    autos["2"] = segundo
-            except Exception:
-                pass
-
+        relato["graus_lidos"] = list(autos)
         reg_proc = estado.get(numero, {}).get("trt", {})
+        # recurso no 2º grau: mesma página, outro grau; só com indício de recurso
+        if "2" not in autos:
+            movs_1g = itens_do_processo(next(iter(autos.values())))[0]
+            motivo = indicio_de_recurso(movs_1g, proc, reg_proc)
+            if motivo:
+                try:
+                    segundo = _abrir_autos_trt(context, page, host, numero, capturas, grau="2")
+                    if segundo is None:
+                        raise RuntimeError("os autos do 2º grau não chegaram")
+                    if segundo.get("id") != next(iter(autos.values())).get("id"):
+                        autos["2"] = segundo
+                        relato["graus_lidos"] = list(autos)
+                    else:
+                        print("  2º grau: a consulta devolveu os mesmos autos do 1º grau (sem tramitação separada).", flush=True)
+                except CaptchaNaoResolvido:
+                    raise
+                except Exception as e:  # noqa: BLE001 - registrada: o 1º grau já lido segue valendo
+                    falha = f"{type(e).__name__}: {e}"
+                    relato["graus_falhos"].append({"grau": "2", "motivo": falha})
+                    relato["avisos"].append({"nivel": "atencao", "codigo": "grau_nao_lido", "onde": f"trt/{numero}",
+                                             "mensagem": f"O 2º grau não foi lido ({motivo}; falha: {falha}). "
+                                                         "Conferir o recurso à mão."})
+                    print(f"  2º grau NÃO lido ({falha}).", flush=True)
+
         varios = len(autos) > 1
         ids = {e["id"] for e in lista}
         pasta_prints = comum.PRINTS_DIR / slug(proc.get("cliente") or "sem-cliente") / slug(numero)
@@ -342,7 +527,7 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None):
             primeira_vez = reg is None
             reg = reg or {}
             movs, docs = itens_do_processo(dados)
-            nivel = f"{grau}º grau" if varios else None
+            nivel = f"{grau}º grau" if varios or grau != "1" else None
             if varios:
                 print(f"  tramitação: {grau}º grau", flush=True)
             # andamentos
@@ -369,7 +554,7 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None):
                 ev = coletor._evento_base(proc, "documento", f"doc|{d['id']}", nome)
                 if ev["id"] in ids:
                     continue
-                arquivo, foto = _baixar_documento_trt(page, host, numero, grau, d, capturas, pasta_prints, proc)
+                arquivo, foto = _baixar_documento_trt(context, host, numero, grau, d, capturas, pasta_prints, proc)
                 if arquivo:
                     baixados += 1
                 ev.update(tipo=d["tipo"], descricao=d["titulo"], doc_id=d["id"], data=d["data"], grau=nivel,
@@ -383,31 +568,40 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None):
             if primeira_vez or len(novos_docs) <= cota:
                 docs_conhecidos.update(d["id"] for d in docs)
             novo_estado[grau] = {"movimentos": sorted({m[0] for m in movs} | conhecidos), "documentos": sorted(docs_conhecidos)}
+        for grau_antigo, reg_antigo in reg_proc.items():  # grau lido antes e não relido agora: o registro não se perde
+            novo_estado.setdefault(grau_antigo, reg_antigo)
         estado[numero] = {"trt": novo_estado, "ultima_coleta": datetime.datetime.now().isoformat(timespec="seconds")}
+        print(f"  graus lidos: {', '.join(g + 'º' for g in relato['graus_lidos'])}"
+              + (f"; NÃO lidos: {', '.join(f['grau'] + 'º' for f in relato['graus_falhos'])}" if relato["graus_falhos"] else ""), flush=True)
         return baixados
     finally:
         context.remove_listener("response", ouvir)
-        page.close()
 
 
-def _baixar_documento_trt(page, host, numero, grau, doc, capturas, pasta_prints, proc):
-    """Abre o documento no visualizador da consulta (âncora com o id único) e
-    guarda o PDF que o portal entrega, mais o print da tela."""
+def _baixar_documento_trt(context, host, numero, grau, doc, capturas, pasta_prints, proc):
+    """Abre o documento NUMA ABA PRÓPRIA (a página de consulta não é tocada) no visualizador da consulta (âncora
+    com o id único), guarda o PDF que o portal entrega, mais o print da tela, e fecha a aba."""
     capturas["pdfs"].pop(doc["id"], None)
     url = f"https://{host}/consultaprocessual/detalhe-processo/{numero}/{grau}"
-    if page.url.split("#")[0].rstrip("/") == url and doc.get("unico"):
-        page.evaluate(f"location.hash = {json.dumps('#' + doc['unico'])}")
-    else:
-        page.goto(url + (f"#{doc['unico']}" if doc.get("unico") else ""), timeout=45000, wait_until="domcontentloaded")
-    for _ in range(25):
-        if doc["id"] in capturas["pdfs"]:
-            break
-        page.wait_for_timeout(1000)
-    foto = None
+    aba = janela.nova_pagina(context)
     try:
-        foto = janela.print_da_pagina(page, pasta_prints / f"{slug(doc['id'] + '-' + doc['tipo'])}-print.png")
-    except Exception:
-        pass
+        aba.goto(url + (f"#{doc['unico']}" if doc.get("unico") else ""), timeout=45000, wait_until="domcontentloaded")
+        for _ in range(25):
+            if doc["id"] in capturas["pdfs"]:
+                break
+            aba.wait_for_timeout(1000)
+            if tem_captcha(aba) and not esperar_captcha_humano(aba, tribunal=numero_do_trt(host)):
+                raise CaptchaNaoResolvido(f"Captcha do TRT {numero_do_trt(host)} não resolvido a tempo ao abrir um documento.")
+        foto = None
+        try:
+            foto = janela.print_da_pagina(aba, pasta_prints / f"{slug(doc['id'] + '-' + doc['tipo'])}-print.png")
+        except Exception:
+            pass
+    finally:
+        try:
+            aba.close()
+        except Exception:
+            pass
     corpo = capturas["pdfs"].get(doc["id"])
     if not corpo or corpo[:4] != b"%PDF":
         return None, foto

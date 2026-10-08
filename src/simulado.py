@@ -45,6 +45,7 @@ MENSAGENS = {
     "captcha": "O tribunal pediu verificação humana (captcha).",
     "segredo": "Processo em segredo de justiça: sem acesso aos autos.",
     "nao_encontrado": "Processo não localizado no tribunal.",
+    "fisico": "Processo físico (sem autos eletrônicos): o relatório segue pelo DJEN e pelo que for lançado à mão.",
     "timeout": "Tempo esgotado ao consultar o tribunal.",
     "sessao_expirada": "A sessão no tribunal expirou.",
     "outro": "Falha inesperada na consulta ao tribunal.",

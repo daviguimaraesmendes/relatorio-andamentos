@@ -196,6 +196,8 @@ def _rotulo(ev, tipo_evento, data):
 
 
 def _grau_declarado(ev):
+    if re.search(r"\btst\b", str(ev.get("grau") or ""), re.I):
+        return 3                      # Tribunal Superior do Trabalho: acima do 2º grau
     m = re.search(r"(\d+)", str(ev.get("grau") or ""))
     return int(m.group(1)) if m else 1
 

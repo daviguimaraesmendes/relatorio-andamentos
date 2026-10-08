@@ -25,6 +25,45 @@ OTP_SELETORES = "input[name='otp'], input#otp, input[autocomplete='one-time-code
 LOGIN_MARKER = "Sair do portal"
 
 
+# --- o que deu errado no login (lido por coletor.logar, gravado em diagnosticos/ e mostrado no painel) ---
+
+ULTIMO = {}   # {"passo", "mensagem", "o_que_fazer", "pje_office_aberto", "acessibilidade"} da última falha
+
+ORIENTACAO = {
+    "senha": "Cadastre a senha do certificado e o segredo do autenticador em \"Acesso e escritório\".",
+    "botao": "A página do jus.br não mostrou o botão \"Seu certificado digital\". Faça o login você mesmo na janela que "
+             "apareceu (certificado e código) e a coleta continua.",
+    "dialogo": "O PJe Office não abriu o diálogo da senha. Abra o PJe Office (o programa do certificado), deixe-o aberto "
+               "e clique em \"Retomar\".",
+    "preencher": "O Mac não deixou o programa preencher a senha no PJe Office. Em Ajustes do Sistema > Privacidade e "
+                 "Segurança > Acessibilidade, permita o Terminal (ou o aplicativo que abre o painel) e tente de novo.",
+    "totp": "O jus.br pediu o código do autenticador, mas ele não está cadastrado. Cadastre o segredo em \"Acesso e escritório\".",
+    "confirmacao": "O jus.br não confirmou a entrada: o código do autenticador pode ter sido recusado (relógio do Mac "
+                   "desajustado?) ou apareceu uma tela nova. Termine o login na janela que apareceu.",
+}
+
+
+def pje_office_aberto():
+    """True/False se for possível saber se o PJe Office está rodando; None se não der para saber."""
+    try:
+        if MAC:
+            return subprocess.run(["pgrep", "-fi", "pjeoffice"], capture_output=True, timeout=5).returncode == 0
+        if WINDOWS:
+            saida = subprocess.run(["tasklist"], capture_output=True, text=True, timeout=10).stdout.lower()
+            return "pjeoffice" in saida or "pje office" in saida
+    except Exception:
+        pass
+    return None
+
+
+def registrar_falha(passo, mensagem, **extra):
+    """Guarda por que o login automático não concluiu (sem senha, sem código, sem dado pessoal)."""
+    ULTIMO.clear()
+    ULTIMO.update(passo=passo, mensagem=mensagem, o_que_fazer=ORIENTACAO.get(passo, ""),
+                  pje_office_aberto=pje_office_aberto(), **extra)
+    return ULTIMO
+
+
 # --- cofre do sistema --------------------------------------------------------
 
 def obter(chave):
@@ -71,6 +110,8 @@ def _dialogo_aberto():
             return false
         end tell'''
         r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        if r.returncode != 0 and re.search(r"assistive|1002|not allowed|n[ãa]o (est[áa] )?autorizad", r.stderr or "", re.I):
+            ULTIMO["acessibilidade"] = False  # o Mac barrou o controle do System Events
         return r.stdout.strip() == "true"
     if WINDOWS:
         try:
@@ -134,12 +175,15 @@ def _texto(page):
 
 def login_automatico(page, limite_dialogo=90):
     """Certificado + TOTP. Volta True se terminou logado."""
+    ULTIMO.clear()
     senha, segredo = obter("cert_senha"), obter("totp_secret")
     if not senha:
         print("Senha do certificado não configurada (painel > Acesso).", flush=True)
+        registrar_falha("senha", "Senha do certificado não configurada.")
         return False
     if not _clicar_certificado(page):
         print("Não achei o botão 'Seu certificado digital'.", flush=True)
+        registrar_falha("botao", "Não achei o botão \"Seu certificado digital\" na página do jus.br.")
         return False
     print(f"Aguardando o diálogo do PJe Office (até {limite_dialogo}s)...", flush=True)
     fim = time.time() + limite_dialogo
@@ -147,8 +191,13 @@ def login_automatico(page, limite_dialogo=90):
         time.sleep(1)
     if not _dialogo_aberto():
         print("O diálogo do PJe Office não apareceu. Confira se o PJe Office está aberto.", flush=True)
+        extra = {"acessibilidade": False} if ULTIMO.get("acessibilidade") is False else {}
+        registrar_falha("preencher" if extra else "dialogo",
+                        "O Mac barrou o acesso ao PJe Office (Acessibilidade)." if extra
+                        else f"O diálogo \"{TITULO_DIALOGO}\" do PJe Office não apareceu em {limite_dialogo} s.", **extra)
         return False
     if not _preencher_dialogo(senha):
+        registrar_falha("preencher", "Não consegui preencher a senha no diálogo do PJe Office.")
         return False
     print("Senha do certificado enviada ao PJe Office.", flush=True)
     # o campo do código do autenticador demora um tempo variável para aparecer
@@ -160,14 +209,21 @@ def login_automatico(page, limite_dialogo=90):
             if campo.is_visible():
                 if not segredo:
                     print("Segredo TOTP não configurado (painel > Acesso).", flush=True)
+                    registrar_falha("totp", "O jus.br pediu o código do autenticador, que não está cadastrado.")
                     return False
                 campo.click()
                 campo.press_sequentially(codigo_totp_atual(segredo), delay=50)
                 page.keyboard.press("Enter")
                 print("Código do autenticador preenchido.", flush=True)
                 page.wait_for_timeout(2500)
-                return LOGIN_MARKER in _texto(page)
+                if LOGIN_MARKER in _texto(page):
+                    return True
+                registrar_falha("confirmacao", "O código do autenticador foi enviado, mas o jus.br não confirmou a entrada.")
+                return False
         except Exception:
             pass
         page.wait_for_timeout(500)
-    return LOGIN_MARKER in _texto(page)
+    if LOGIN_MARKER in _texto(page):
+        return True
+    registrar_falha("confirmacao", "Depois da senha do certificado o jus.br não pediu o código nem confirmou a entrada em 30 s.")
+    return False

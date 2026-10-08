@@ -43,6 +43,7 @@ ROTULO_ESTADO = {"manual": "precisa de conferência manual", "erro": "deu erro",
 MENSAGEM_DE_CODIGO = {"captcha": "o tribunal pediu verificação (captcha) que não foi resolvida",
                       "segredo": "processo em segredo de justiça",
                       "nao_encontrado": "processo não localizado no tribunal",
+                      "fisico": "processo físico (sem autos eletrônicos): o relatório segue pelo DJEN e pelo que você lançar à mão",
                       "timeout": "o tribunal demorou demais para responder",
                       "sessao_expirada": "a sessão de acesso expirou",
                       "outro": "erro não identificado"}
@@ -149,7 +150,7 @@ def itens_para_conferir(fila=None):
         if it.get("estado") in ("manual", "erro"):
             erro = it.get("erro") or {}
             codigo = erro.get("codigo") if isinstance(erro, dict) else str(erro or "")
-            achados.append({"numero": it.get("numero", ""), "estado": it["estado"],
+            achados.append({"numero": it.get("numero", ""), "estado": it["estado"], "fisico": codigo == "fisico",
                             "motivo": MENSAGEM_DE_CODIGO.get(codigo, (erro.get("mensagem") if isinstance(erro, dict) else "") or "motivo não informado")})
     return sorted(achados, key=lambda a: a["numero"])
 
@@ -292,13 +293,20 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 h.append("</table>")
         h.append("<h2>Conferir manualmente</h2>")
         itens = itens_para_conferir()
-        if itens:
+        eletronicos = [it for it in itens if not it.get("fisico")]
+        fisicos = [it for it in itens if it.get("fisico")]
+        if eletronicos:
             h.append("<p class='dica'>A coleta não conseguiu estes processos. Veja-os no tribunal e complete à mão.</p>"
                      "<table class='t'><tr><th>Processo</th><th>Situação</th><th>Motivo</th></tr>")
-            for it in itens:
+            for it in eletronicos:
                 h.append(f"<tr><td>{e(it['numero'])}</td><td>{e(ROTULO_ESTADO.get(it['estado'], it['estado']))}</td><td>{e(it['motivo'])}</td></tr>")
             h.append("</table>")
-        else:
+        if fisicos:
+            h.append(f"<h3>Processos físicos ({len(fisicos)})</h3><p class='dica'>Sem autos eletrônicos: não são falha da coleta e "
+                     "não entram na taxa de sucesso. O relatório deles segue com as publicações do DJEN e com o que você lançar à mão.</p>"
+                     "<table class='t'><tr><th>Processo</th></tr>"
+                     + "".join(f"<tr><td>{e(it['numero'])}</td></tr>" for it in fisicos) + "</table>")
+        if not itens:
             h.append("<p class='dica'>Nenhum processo para conferir à mão agora.</p>")
         h.append(_html_do_ultimo_ciclo())
         return "".join(h)

@@ -892,7 +892,7 @@ class TestColetorReal(unittest.TestCase):
         n = NUMEROS[0]
         chamadas = []
 
-        def falso(context, proc, estado, lista, historico, cota, desde=None):
+        def falso(context, proc, estado, lista, historico, cota, desde=None, relato=None):
             chamadas.append((proc, historico, cota, desde))
             lista.append({"id": f"{n}:m1", "tipo_evento": "movimento", "numero": n, "data": "01/10/2026",
                           "titulo": "Juntada de petição", "chave": "01/10/2026|Juntada de petição|0", "grau": None,

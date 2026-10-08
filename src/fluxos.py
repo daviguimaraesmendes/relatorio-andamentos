@@ -650,6 +650,7 @@ def processar_resultado(slug, numero, resultado, profundidade=None):
                 principal_de.setdefault(n, f)
         f_principal = principal_de.get(numero)
         profundidade = profundidade or _estado().get("ciclo", {}).get("profundidade")
+        _avisar_no_ciclo(resultado.get("avisos") or [])        # ex.: grau_nao_lido (o 2º grau devia ter sido lido)
         lista = comum.eventos()
         novos = _eventos_do_resultado(numero, f_principal, resultado, profundidade, lista)
         if novos:
@@ -668,6 +669,10 @@ def processar_resultado(slug, numero, resultado, profundidade=None):
                 mudou_capa = 0
             f_principal["ultima_coleta"] = {"em": _agora_iso(), "movimentos": len(resultado.get("movimentos") or []),
                                             "documentos": len(resultado.get("documentos") or []), "profundidade": profundidade}
+            if resultado.get("graus"):             # quais graus foram lidos e quais falharam (aviso grau_nao_lido)
+                f_principal["ultima_coleta"]["graus"] = resultado["graus"]
+            if resultado.get("no_tst"):
+                f_principal["ultima_coleta"]["no_tst"] = True      # tramita no TST (movimentos pelo DataJud)
             ficha.salvar(fichas)
         return {"eventos": len(novos), "capa": mudou_capa}
 

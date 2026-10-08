@@ -661,6 +661,9 @@ def execucao_rodando():
 
 def _progresso(resumo):
     EXEC["resumo"] = resumo
+    if isinstance(resumo, dict) and resumo.get("evento") == "login":
+        _log(f"PRECISA DE VOCÊ: a coleta parou porque o acesso ao jus.br falhou. {resumo.get('mensagem') or ''} "
+             "Resolva e clique em Retomar; o processo volta para a fila sem perder tentativa.")
     if isinstance(resumo, dict):
         _log(f"coletados {resumo.get('coletado', 0)} de {resumo.get('total', 0)}; "
              f"pendentes {resumo.get('pendente', 0)}; erros {resumo.get('erro', 0)}; manuais {resumo.get('manual', 0)}")
@@ -727,7 +730,7 @@ def situacao_da_execucao():
     minha = EXEC["slug"] == comum.PROJETO
     s = {"estado": EXEC["estado"] if minha else "parado", "erro": EXEC["erro"] if minha else None,
          "inicio": EXEC["inicio"] if minha else None, "log": list(EXEC["log"]) if minha else [],
-         "resumo": None, "aviso": None, "cobertura": None}
+         "resumo": None, "aviso": None, "cobertura": None, "taxa": None}
     try:
         s["resumo"] = _fila_da_execucao().resumo()
     except Indisponivel as erro:
@@ -736,6 +739,7 @@ def situacao_da_execucao():
         s["aviso"] = f"Não consegui ler a fila ({erro})."
     try:
         s["cobertura"] = modulo("fila", "A fila de coleta").cobertura(comum.PROJETO)
+        s["taxa"] = modulo("fila", "A fila de coleta").taxa_de_sucesso(comum.PROJETO)
     except Exception:  # noqa: BLE001
         s["cobertura"] = None
     return s
@@ -1104,10 +1108,17 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             h.append(f"<progress max='{max(total, 1)}' value='{feitos}' aria-label='Progresso da coleta'></progress>"
                      f"<p class='dica'>{feitos} de {total} processo(s) tratados. Tempo restante: {_e(duracao_humana(r.get('estimativa_s')))}.</p>"
                      "<div class='cartoes'>"
-                     + "".join(f"<div class='cartao'><b>{r.get(k, 0)}</b>{rot}</div>" for k, rot in
-                               (("pendente", "na fila"), ("coletando", "coletando"), ("coletado", "coletados"),
-                                ("erro", "com erro"), ("manual", "para conferir à mão")))
+                     + "".join(f"<div class='cartao'><b>{n}</b>{rot}</div>" for n, rot in
+                               ((r.get("pendente", 0), "na fila"), (r.get("coletando", 0), "coletando"),
+                                (r.get("coletado", 0), "coletados"), (r.get("erro", 0), "com erro"),
+                                (r.get("manual", 0) - r.get("fisico", 0), "para conferir à mão"),
+                                (r.get("fisico", 0), "físicos (sem autos eletrônicos)")))
                      + "</div>")
+        taxa = s.get("taxa")
+        if taxa and taxa.get("eletronicos"):
+            h.append(f"<p class='dica'>Taxa de sucesso (só processos eletrônicos): {taxa['coletados']} de {taxa['eletronicos']} "
+                     f"({round(100 * taxa['taxa'])}%). Os {taxa['fisicos']} processo(s) físico(s) ficam de fora da conta: "
+                     "o relatório deles segue pelo DJEN e pelo que você lançar à mão.</p>")
         botoes = []
         if estado in ("rodando", "aguardando"):
             botoes += [("pausar", "Pausar"), ("parar", "Parar com segurança")]
@@ -1122,8 +1133,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         if s["log"]:
             h.append("<pre class='log'>" + _e("\n".join(s["log"][-30:])) + "</pre>")
         if s["cobertura"]:
-            h.append("<h2>Cobertura por tribunal</h2><table class='t'><tr><th>Tribunal</th><th>Coletados</th><th>Só publicações (DJEN)</th><th>Conferir à mão</th></tr>"
-                     + "".join(f"<tr><td>{_e(str(t))}</td><td>{c.get('coletado', 0)}</td><td>{c.get('so_djen', 0)}</td><td>{c.get('manual', 0)}</td></tr>"
+            h.append("<h2>Cobertura por tribunal</h2><table class='t'><tr><th>Tribunal</th><th>Coletados</th><th>Só publicações (DJEN)</th><th>Conferir à mão</th><th>Físicos</th></tr>"
+                     + "".join(f"<tr><td>{_e(str(t))}</td><td>{c.get('coletado', 0)}</td><td>{c.get('so_djen', 0)}</td><td>{c.get('manual', 0)}</td><td>{c.get('fisico', 0)}</td></tr>"
                                for t, c in sorted(s["cobertura"].items())) + "</table>")
         if estado in ("concluida", "parada", "pausada") or (total and feitos >= total):
             h.append("<p><a href='/'>Ir para a revisão</a> · <a href='/entregas'>Ver entregas</a></p>")
