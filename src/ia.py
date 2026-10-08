@@ -1,5 +1,6 @@
-"""Provedores de IA: local (Ollama), Claude (API da Anthropic) e API compatível com
-OpenAI, com consentimento por relatório e por cliente.
+"""Provedores de IA: local (Ollama), Claude (API da Anthropic), Claude pelo Claude Code instalado
+neste computador (login da assinatura, sem chave de API) e API compatível com OpenAI, com
+consentimento por relatório e por cliente.
 
 Padrão: **tudo local**. Nada sai do computador sem `true` explícito em
 `perfil["ia"]["consentimento_externo"]` (do relatório) ou em `perfil["ia"]["por_cliente"][cliente]`
@@ -19,7 +20,9 @@ Uso (CONTRATOS §8):
 `motor` é o que **realmente** respondeu: `local:<modelo>`, `externo:<provedor>:<modelo>` ou
 `nenhum` (nem o local respondeu; `texto` vem vazio e há aviso com o motivo).
 
-Provedores externos são cadastrados no painel (/ia): nome, tipo, endereço, modelo e chave. A chave
+Provedores externos são cadastrados no painel (/ia): nome, tipo, endereço, modelo e chave. (O tipo
+`claude_cli` não tem chave nem endereço: usa o Claude Code deste computador, já conectado à conta do
+usuário; ver `ProvedorClaudeCLI`. Continua sendo envio externo: o texto vai à Anthropic.) A chave
 vai para o cofre do sistema (`acesso.guardar`, serviço do jusbr-autologin, nome `ia_chave:<provedor>`);
 o catálogo (sem a chave) fica em `config.json`, na chave `ia_provedores`. A chave nunca é mostrada de
 volta, nunca vai para log, aviso, registro nem HTML.
@@ -41,16 +44,22 @@ Falha (sem chave, sem rede, erro ou recusa do provedor, resposta fora do esquema
 cai no motor local e devolve o aviso. Códigos estáveis dos avisos: `ia_externa_sem_consentimento`,
 `ia_provedor_desconhecido`, `ia_sem_chave`, `ia_chave_invalida`, `ia_falha_rede`, `ia_erro_provedor`,
 `ia_recusa_do_provedor`, `ia_resposta_invalida`, `ia_pacote_ausente`, `ia_conteudo_bloqueado`,
-`ia_registro_falhou`, `ia_local_indisponivel`, `ia_cofre_indisponivel`.
+`ia_registro_falhou`, `ia_local_indisponivel`, `ia_cofre_indisponivel`, `ia_cli_ausente` (Claude Code não
+encontrado), `ia_login_necessario` (Claude Code sem login) e `ia_limite_assinatura` (limite de uso da assinatura).
 
 Testes e ensaios: nada de rede. `provedor(..., transporte=..., fabrica_cliente=...)` troca o HTTP do
-provedor compatível com OpenAI e o cliente do SDK da Anthropic; `ProvedorLocal(ollama=...)` troca o Ollama.
+provedor compatível com OpenAI, o cliente do SDK da Anthropic e a execução do Claude Code (`executar=`);
+`ProvedorLocal(ollama=...)` troca o Ollama.
 O pacote `anthropic` só é importado quando um provedor Anthropic é de fato chamado.
 """
 import copy
 import hashlib
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -62,7 +71,9 @@ from pathlib import Path
 import acesso
 import comum
 
-TIPOS = {"anthropic": "Claude (API da Anthropic)", "openai_compativel": "API compatível com OpenAI"}
+TIPOS = {"anthropic": "Claude (API da Anthropic)",
+         "claude_cli": "Claude pelo Claude Code deste computador (assinatura, sem chave de API)",
+         "openai_compativel": "API compatível com OpenAI"}
 MODELO_ANTHROPIC_PADRAO = "claude-opus-5-5"
 # modelos para os quais o reencaminhamento no servidor da Anthropic (fallbacks) é ligado por padrão
 MODELOS_COM_FALLBACK = {"claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-fable-5-1"}
@@ -70,6 +81,8 @@ BETA_FALLBACK = "server-side-fallback-2026-07-01"
 PREFIXO_CHAVE = "ia_chave:"
 CHAVE_CONFIG = "ia_provedores"
 TIMEOUT_S = 120
+TIMEOUT_CLI_S = 240      # o Claude Code leva alguns segundos só para subir
+VARIAVEIS_DE_API = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")   # fora do ambiente: o login da assinatura é que vale
 MAX_TOKENS = 16000
 MIN_SEGREDO = 6          # tamanho mínimo para um segredo contar como "achado no texto"
 CLIENTE_TESTE = "(teste de conexão)"
@@ -455,6 +468,7 @@ class ProvedorExterno:
     registra, chama (`_chamar`, de cada tipo) e, se algo falhar, cai no motor local."""
 
     tipo = ""
+    precisa_chave = True     # `False`: o provedor se autentica por conta própria (ex.: Claude Code já conectado)
 
     def __init__(self, nome, config, *, perfil, projeto=None, local=None):
         self.nome, self.config, self.perfil, self.projeto = comum.slug(nome), dict(config), perfil, projeto
@@ -476,8 +490,8 @@ class ProvedorExterno:
         permitido, motivo = consentimento(self.perfil, cliente, self.nome)
         if not permitido:
             return None, [aviso("ia_externa_sem_consentimento", motivo)]
-        chave = self._chave()
-        if not chave:
+        chave = self._chave() if self.precisa_chave else None
+        if self.precisa_chave and not chave:
             return None, [aviso("ia_sem_chave", f"O provedor '{self.config.get('nome', self.nome)}' está sem chave "
                                                 "no cofre do sistema (tela IA).")]
         sistema, usuario = str(sistema), str(usuario)
@@ -587,6 +601,105 @@ class ProvedorAnthropic(ProvedorExterno):
         return texto, dados, getattr(resposta, "model", None)
 
 
+def localizar_claude(informado=None):
+    """Caminho do executável do Claude Code neste computador, ou None. Vale primeiro o caminho informado
+    no cadastro; depois o PATH, os lugares usuais de instalação e o Claude Code que acompanha o aplicativo
+    Claude para desktop (a versão mais nova)."""
+    if isinstance(informado, str) and informado.strip():
+        achado = shutil.which(informado.strip())
+        return achado if achado and Path(achado).is_file() else None
+    casa = Path.home()
+    candidatos = [shutil.which("claude"), casa / ".local/bin/claude", casa / ".claude/local/claude",
+                  "/opt/homebrew/bin/claude", "/usr/local/bin/claude", casa / ".local/bin/claude.exe"]
+    for c in candidatos:
+        if c and Path(c).is_file() and os.access(c, os.X_OK):
+            return str(c)
+    app = sorted((casa / "Library/Application Support/Claude/claude-code").glob("*/*/claude.app/Contents/MacOS/claude"),
+                 key=lambda p: [int(x) if x.isdigit() else 0 for x in re.split(r"\D+", p.parts[-6])])
+    return str(app[-1]) if app else None
+
+
+class ProvedorClaudeCLI(ProvedorExterno):
+    """Claude pelo Claude Code instalado neste computador (`claude -p`), usando o login da assinatura do
+    usuário: sem chave de API. **Continua sendo envio externo** (o texto vai à Anthropic), por isso passa
+    pelo mesmo consentimento, pseudonimização, barreira de segredos e registro de envios dos demais.
+
+    Execução enxuta e isolada: sem ferramentas (`--tools ""`), sem configurações de usuário/projeto
+    (`--setting-sources ""`), sem gravar sessão, em uma pasta temporária vazia (não lê CLAUDE.md nem
+    arquivos do relatório) e sem `ANTHROPIC_API_KEY` no ambiente (para valer a assinatura, não a API). O
+    texto dos documentos vai por stdin, nunca pela linha de comando; só a instrução fixa (`sistema`) vai
+    em `--system-prompt`. Config: `modelo` (apelido como `opus`/`sonnet` ou nome completo; vazio = o padrão
+    da conta), `executavel` (caminho do Claude Code; vazio = procurar), `esforco`."""
+
+    tipo = "claude_cli"
+    precisa_chave = False
+
+    def __init__(self, nome, config, *, executar=None, **kw):
+        super().__init__(nome, config, **kw)
+        self._executar = executar or subprocess.run
+
+    def _motor(self, modelo):
+        return f"externo:{self.nome}:{modelo or self.modelo or 'padrao'}"
+
+    def _comando(self, exe, sistema, esquema):
+        cmd = [exe, "-p", "--output-format", "json", "--tools", "", "--no-session-persistence",
+               "--setting-sources", "", "--system-prompt", sistema or "Responda em português, de forma objetiva."]
+        if self.modelo:
+            cmd += ["--model", self.modelo]
+        if self.config.get("esforco"):
+            cmd += ["--effort", str(self.config["esforco"])]
+        if esquema:
+            cmd += ["--json-schema", json.dumps(_esquema_estrito(esquema, False), ensure_ascii=False)]
+        return cmd
+
+    def _chamar(self, chave, sistema, usuario, esquema):
+        exe = localizar_claude(self.config.get("executavel"))
+        if not exe:
+            raise ErroProvedor("ia_cli_ausente", "O Claude Code não foi encontrado neste computador. Instale-o "
+                                                  "(claude.com/claude-code) ou informe o caminho no cadastro do provedor.")
+        ambiente = {k: v for k, v in os.environ.items() if k not in VARIAVEIS_DE_API}
+        with tempfile.TemporaryDirectory(prefix="relatorio-ia-") as pasta:
+            try:
+                r = self._executar(self._comando(exe, sistema, esquema), input=usuario, capture_output=True, text=True,
+                                   encoding="utf-8", cwd=pasta, env=ambiente, timeout=TIMEOUT_CLI_S)
+            except subprocess.TimeoutExpired:
+                raise ErroProvedor("ia_falha_rede", "O Claude Code não respondeu a tempo.")
+            except OSError as e:
+                raise ErroProvedor("ia_cli_ausente", f"Não foi possível executar o Claude Code ({type(e).__name__}).")
+        try:
+            saida = json.loads(r.stdout)
+            if not isinstance(saida, dict):
+                raise ValueError
+        except ValueError:
+            detalhe = _sem_chave((r.stderr or "").strip(), None)
+            raise ErroProvedor("ia_erro_provedor", "O Claude Code não devolveu uma resposta legível"
+                                                    f"{': ' + detalhe if detalhe else ''}.")
+        resultado = str(saida.get("result") or "")
+        if saida.get("is_error") or r.returncode != 0:
+            baixo = resultado.lower()
+            if "not logged in" in baixo or "/login" in baixo or "authentication" in baixo or "invalid api key" in baixo:
+                raise ErroProvedor("ia_login_necessario", "O Claude Code não está conectado à sua conta: abra o Claude "
+                                                           "Code e faça login (comando /login), depois tente de novo.")
+            if "limit" in baixo and ("usage" in baixo or "rate" in baixo or "reached" in baixo):
+                raise ErroProvedor("ia_limite_assinatura", "O limite de uso da assinatura foi atingido. Tente mais tarde.")
+            raise ErroProvedor("ia_erro_provedor", f"O Claude Code devolveu erro: {_sem_chave(resultado, None)}")
+        if saida.get("stop_reason") == "refusal":
+            raise ErroProvedor("ia_recusa_do_provedor", "O provedor recusou a solicitação.")
+        dados = None
+        texto = resultado
+        if esquema:
+            estruturado = saida.get("structured_output")
+            if isinstance(estruturado, dict):
+                dados, texto = estruturado, json.dumps(estruturado, ensure_ascii=False)
+            else:
+                dados = _json_da_resposta(resultado)
+            if dados is None:
+                raise ErroProvedor("ia_resposta_invalida", "A resposta do provedor não veio no formato pedido.")
+        usados = saida.get("modelUsage")
+        modelo = next(iter(usados)) if isinstance(usados, dict) and len(usados) == 1 else None
+        return texto, dados, modelo
+
+
 def _http_post(url, cabecalhos, corpo, timeout):
     """Transporte padrão do provedor compatível com OpenAI: (status, corpo em bytes)."""
     pedido = urllib.request.Request(url, data=corpo, headers=cabecalhos, method="POST")
@@ -652,7 +765,13 @@ def _detalhe_http(bruto, chave):
     return ": " + _sem_chave(msg, chave)
 
 
-CLASSES = {"anthropic": ProvedorAnthropic, "openai_compativel": ProvedorOpenAI}
+CLASSES = {"anthropic": ProvedorAnthropic, "claude_cli": ProvedorClaudeCLI, "openai_compativel": ProvedorOpenAI}
+
+
+def _extras(tipo, transporte, fabrica_cliente, executar):
+    """Substitutos de rede/execução (só para testes) que cada tipo de provedor aceita."""
+    return {"openai_compativel": {"transporte": transporte}, "anthropic": {"fabrica_cliente": fabrica_cliente},
+            "claude_cli": {"executar": executar}}[tipo]
 
 
 # --- catálogo de provedores (tela IA) ----------------------------------------
@@ -691,7 +810,8 @@ def _endereco_ok(endereco):
 def cadastrar(nome, tipo, modelo, endereco="", chave=None, **opcoes):
     """Cadastra ou atualiza um provedor. Devolve lista de avisos; **vazia = salvo**. Chave vazia/None
     mantém a que já está no cofre. `opcoes` aceitas: `fallback_servidor` (bool, Anthropic), `esforco`
-    (Anthropic), `formato_json` (compatível com OpenAI), `max_tokens`."""
+    (Anthropic e Claude Code), `formato_json` (compatível com OpenAI), `max_tokens`, `executavel` (Claude Code).
+    O tipo `claude_cli` não tem chave nem endereço, e o modelo é opcional (vazio = o padrão da conta)."""
     nome = (nome or "").strip()
     chave_id = comum.slug(nome)
     erro = None
@@ -699,19 +819,20 @@ def cadastrar(nome, tipo, modelo, endereco="", chave=None, **opcoes):
         erro = "Dê um nome ao provedor (o nome \"local\" é reservado)."
     elif tipo not in CLASSES:
         erro = "Tipo de provedor desconhecido."
-    elif not (modelo or "").strip():
+    elif not (modelo or "").strip() and tipo != "claude_cli":
         erro = "Informe o modelo."
     elif tipo == "openai_compativel" and not (endereco or "").strip():
         erro = "Informe o endereço da API (ex.: https://api.exemplo.com/v1)."
-    elif (endereco or "").strip():
+    elif (endereco or "").strip() and tipo != "claude_cli":
         erro = _endereco_ok(endereco.strip())
     if erro:
         return [aviso("ia_cadastro_invalido", erro, "erro")]
-    registro = {"nome": nome, "tipo": tipo, "modelo": modelo.strip(), "endereco": (endereco or "").strip()}
-    for k in ("fallback_servidor", "esforco", "formato_json", "max_tokens"):
+    registro = {"nome": nome, "tipo": tipo, "modelo": (modelo or "").strip(),
+                "endereco": "" if tipo == "claude_cli" else (endereco or "").strip()}
+    for k in ("fallback_servidor", "esforco", "formato_json", "max_tokens", "executavel"):
         if opcoes.get(k) not in (None, ""):
             registro[k] = opcoes[k]
-    if chave:
+    if chave and tipo != "claude_cli":
         try:
             acesso.guardar(PREFIXO_CHAVE + chave_id, chave.strip())
         except Exception:
@@ -759,7 +880,7 @@ def _resolver(perfil, cliente):
     return chave_id, config, []
 
 
-def provedor(perfil, cliente, *, projeto=None, local=None, transporte=None, fabrica_cliente=None):
+def provedor(perfil, cliente, *, projeto=None, local=None, transporte=None, fabrica_cliente=None, executar=None):
     """O provedor a usar para este relatório e cliente: o externo escolhido **só com consentimento
     explícito**; em qualquer outro caso, o local (com o aviso de por quê, devolvido no `gerar`).
 
@@ -770,11 +891,11 @@ def provedor(perfil, cliente, *, projeto=None, local=None, transporte=None, fabr
     chave_id, config, avisos = _resolver(perfil, cliente)
     if chave_id is None:
         return local.com_avisos(avisos) if avisos else local
-    extra = {"transporte": transporte} if config["tipo"] == "openai_compativel" else {"fabrica_cliente": fabrica_cliente}
+    extra = _extras(config["tipo"], transporte, fabrica_cliente, executar)
     return CLASSES[config["tipo"]](chave_id, config, perfil=perfil, projeto=projeto, local=local, **extra)
 
 
-def testar(nome, *, projeto=None, transporte=None, fabrica_cliente=None):
+def testar(nome, *, projeto=None, transporte=None, fabrica_cliente=None, executar=None):
     """Botão Testar: manda uma frase fixa (nenhum dado de cliente) ao provedor, **sem** cair no local.
     -> {"ok", "motor", "resposta", "avisos"}. Fica no registro de envios, como qualquer envio."""
     chave_id = comum.slug(nome)
@@ -783,7 +904,7 @@ def testar(nome, *, projeto=None, transporte=None, fabrica_cliente=None):
         return {"ok": False, "motor": None, "resposta": "", "avisos": [aviso("ia_provedor_desconhecido",
                                                                            "Provedor não cadastrado.", "erro")]}
     perfil = {"ia": {"provedor": chave_id, "consentimento_externo": True, "pseudonimizar": False}}
-    extra = {"transporte": transporte} if config["tipo"] == "openai_compativel" else {"fabrica_cliente": fabrica_cliente}
+    extra = _extras(config["tipo"], transporte, fabrica_cliente, executar)
     prov = CLASSES[config["tipo"]](chave_id, config, perfil=perfil, projeto=projeto, **extra)
     resultado, avisos = prov._enviar("Responda somente com a palavra: ok", "Teste de conexão.", None,
                                      CLIENTE_TESTE, (), False)

@@ -1,8 +1,9 @@
 """Tela IA (/ia): provedores de IA, consentimento por relatório e por cliente e registro de envios.
 
-- Cadastro de provedores externos (Claude pela API da Anthropic ou serviço compatível com OpenAI):
-  nome, endereço, modelo e chave. A chave vai direto para o cofre do sistema e **nunca** volta
-  para a tela (o campo fica sempre vazio; em branco, mantém a guardada).
+- Cadastro de provedores externos (Claude pela API da Anthropic, Claude pelo Claude Code deste
+  computador ou serviço compatível com OpenAI): nome, endereço, modelo e chave. A chave vai direto
+  para o cofre do sistema e **nunca** volta para a tela (o campo fica sempre vazio; em branco, mantém
+  a guardada). O Claude pelo Claude Code não usa chave: vale o login da assinatura já feito nele.
 - Botão Testar: manda uma frase fixa, sem dado de cliente, e mostra o resultado.
 - Consentimento: o motor padrão é o local. Para usar provedor externo é preciso escolhê-lo,
   marcar o consentimento (do relatório e/ou de cada cliente) e confirmar que entendeu o que sai
@@ -10,8 +11,8 @@
 - Registro de envios: o que já saiu do computador, quando e para quem (sem o texto).
 
 Rotas: GET /ia, GET /ia/registro, POST /ia/provedor, /ia/remover, /ia/testar, /ia/consentimento.
-A lógica está em ia.py; aqui só há a tela. Para os testes, `TRANSPORTE` e `FABRICA_CLIENTE`
-substituem a rede (padrão: None = real).
+A lógica está em ia.py; aqui só há a tela. Para os testes, `TRANSPORTE`, `FABRICA_CLIENTE` e
+`EXECUTAR` substituem a rede e o Claude Code (padrão: None = real).
 """
 import html
 
@@ -23,9 +24,11 @@ from painel.base import _ir, _msg
 
 TRANSPORTE = None
 FABRICA_CLIENTE = None
+EXECUTAR = None
 _e = html.escape
 CHAVE_OK = "<b style='color:var(--ok)'>guardada ✓</b>"
 CHAVE_FALTA = "<b style='color:var(--alerta)'>sem chave</b>"
+CHAVE_LOGIN = "<b style='color:var(--ok)'>login do Claude Code</b>"
 
 ESTILO_LOCAL = ("<style>table.ia{border-collapse:collapse;width:100%}table.ia td,table.ia th{border:1px solid var(--linha);"
                 "padding:4px 8px;font-size:14px;text-align:left;vertical-align:top}.selo{display:inline-block;padding:1px 8px;"
@@ -67,9 +70,10 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 f"<p><label>Nome (como aparecerá nas telas)<br><input type='text' name='nome' size='30' required "
                 f"value='{_e(atual.get('nome', ''))}'></label></p>"
                 f"<p><label>Tipo<br><select name='tipo'>{opcoes}</select></label></p>"
-                f"<p><label>Modelo<br><input type='text' name='modelo' size='40' required "
+                f"<p><label>Modelo<br><input type='text' name='modelo' size='40' "
                 f"value='{_e(atual.get('modelo', ia.MODELO_ANTHROPIC_PADRAO if tipo == 'anthropic' else ''))}'></label>"
-                f"<br><span class='dica'>Claude: o padrão é <code>{_e(ia.MODELO_ANTHROPIC_PADRAO)}</code>. "
+                f"<br><span class='dica'>Claude (API): o padrão é <code>{_e(ia.MODELO_ANTHROPIC_PADRAO)}</code>. "
+                "Claude Code: um apelido (<code>opus</code>, <code>sonnet</code>...) ou, em branco, o padrão da sua conta. "
                 "Outro serviço: o nome do modelo como o serviço o chama.</span></p>"
                 f"<p><label>Endereço da API<br><input type='text' name='endereco' size='60' "
                 f"value='{_e(atual.get('endereco', ''))}'></label>"
@@ -77,7 +81,14 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 "Para o Claude, deixe em branco. O endereço precisa começar com https.</span></p>"
                 "<p><label>Chave da API<br><input type='password' name='chave' autocomplete='off' size='50'></label>"
                 "<br><span class='dica'>Vai para o cofre do sistema e não volta a aparecer na tela. "
+                "Não se aplica ao Claude pelo Claude Code (usa o login dele). "
                 f"{'Já há uma chave guardada: em branco, mantém.' if atual and ia.chave_configurada(editando) else ''}</span></p>"
+                "<p><label>Caminho do Claude Code (só para o tipo \"Claude pelo Claude Code\")<br>"
+                f"<input type='text' name='executavel' size='60' value='{_e(atual.get('executavel', ''))}'></label>"
+                "<br><span class='dica'>Em branco, a ferramenta procura sozinha. Vale a conta em que o Claude Code já está "
+                "conectado (<code>/login</code>); o consumo entra no limite da sua assinatura. <b>O texto continua indo à "
+                "Anthropic</b>, só que pela assinatura e não pela API: confira os termos da sua conta antes de autorizar "
+                "dados de clientes.</span></p>"
                 f"<p><label><input type='checkbox' name='fallback_servidor' value='1' {'checked' if fallback else ''}> "
                 "Claude: se o modelo recusar o pedido, deixar a Anthropic tentar outro modelo dela (na mesma chamada)</label></p>"
                 "<button class='principal'>Salvar provedor</button></form>")
@@ -104,7 +115,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 linhas.append(
                     f"<tr><td>{_e(p.get('nome', chave_id))}</td><td>{_e(ia.TIPOS.get(p['tipo'], p['tipo']))}</td>"
                     f"<td>{_e(p.get('modelo', ''))}</td><td>{_e(p.get('endereco') or '(padrão do serviço)')}</td>"
-                    f"<td>{CHAVE_OK if ia.chave_configurada(chave_id) else CHAVE_FALTA}</td>"
+                    f"<td>{CHAVE_LOGIN if p['tipo'] == 'claude_cli' else CHAVE_OK if ia.chave_configurada(chave_id) else CHAVE_FALTA}</td>"
                     f"<td><form method='post' action='/ia/testar' style='display:inline'>{oculto}"
                     f"<input type='hidden' name='nome' value='{_e(chave_id)}'><button>Testar</button></form> "
                     f"<a href='/ia?editar={_e(chave_id)}'>editar</a> "
@@ -167,7 +178,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         token_ok()
         f = request.form
         avisos = ia.cadastrar(f.get("nome", ""), f.get("tipo", ""), f.get("modelo", ""), f.get("endereco", ""),
-                              chave=f.get("chave", ""), fallback_servidor=bool(f.get("fallback_servidor")))
+                              chave=f.get("chave", ""), fallback_servidor=bool(f.get("fallback_servidor")),
+                              executavel=f.get("executavel", "").strip())
         return _ir("/ia", " ".join(a["mensagem"] for a in avisos) or f"Provedor \"{f.get('nome', '').strip()}\" salvo.")
 
     @app.post("/ia/remover")
@@ -179,7 +191,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
     @app.post("/ia/testar")
     def testar_provedor():
         token_ok()
-        r = ia.testar(request.form.get("nome", ""), transporte=TRANSPORTE, fabrica_cliente=FABRICA_CLIENTE)
+        r = ia.testar(request.form.get("nome", ""), transporte=TRANSPORTE, fabrica_cliente=FABRICA_CLIENTE,
+                     executar=EXECUTAR)
         if r["ok"]:
             return _ir("/ia", f"Teste concluído: o provedor respondeu \"{r['resposta']}\" (motor {r['motor']}).")
         return _ir("/ia", "O teste falhou: " + " ".join(a["mensagem"] for a in r["avisos"]))

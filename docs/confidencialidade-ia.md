@@ -11,7 +11,8 @@ cliente.** Por padrão, o resumo dos documentos é feito pelo Ollama, no seu pr�
 (Claude, pela API da Anthropic, ou outro serviço com API compatível com a da OpenAI) só é usada se você:
 
 1. cadastrar o provedor na tela **IA** (nome, endereço, modelo e chave; a chave vai para o cofre do sistema e
-   nunca mais aparece na tela);
+   nunca mais aparece na tela). O tipo **"Claude pelo Claude Code deste computador"** dispensa chave e endereço:
+   usa o login da sua assinatura no Claude Code já instalado (ver abaixo);
 2. escolher esse provedor para o relatório; e
 3. marcar o consentimento do relatório ou **de cada cliente** e confirmar que entendeu o que será enviado.
 
@@ -38,6 +39,20 @@ O provedor recebe o texto enviado e o seu endereço de rede, e o trata segundo o
 treinamento, localização dos servidores). Leia esses termos antes de autorizar, e avalie se o contrato com o
 cliente e o dever de sigilo profissional permitem o envio. Esta ferramenta não substitui essa avaliação.
 
+### Claude pelo Claude Code (assinatura, sem chave de API)
+
+É uma alternativa à API, **não** uma IA local: o texto continua sendo enviado à Anthropic, só que pela conta da
+sua assinatura. Os termos de uso e de retenção de dados de uma assinatura podem diferir dos da API comercial;
+confira-os antes de autorizar dados de clientes. Tudo o que vale para provedores externos vale aqui (consentimento
+por relatório e por cliente, pseudonimização, barreira de segredos, registro de envios, selo "externa"). Além disso:
+
+- o Claude Code roda **sem ferramentas**, sem configurações de usuário ou de projeto, sem gravar sessão e em uma
+  **pasta temporária vazia**, que é apagada depois: ele não lê arquivos do computador nem do relatório;
+- o texto dos documentos vai pela **entrada padrão**; na linha de comando vai só a instrução fixa;
+- `ANTHROPIC_API_KEY` e `ANTHROPIC_AUTH_TOKEN` são retiradas do ambiente dessa execução, para valer a assinatura;
+- sem Claude Code instalado, sem login ou com o limite da assinatura esgotado, a ferramenta avisa e volta sozinha
+  para o motor local.
+
 ### Selo e registro
 
 - Cada tela de resumo e de revisão mostra o selo do motor que respondeu: **local** ou **externa: <provedor>**; o
@@ -54,6 +69,6 @@ a busca pública do CNJ.
 
 ## O que foi validado
 
-Tudo com dados fictícios e provedores falsos (transporte HTTP e cliente do SDK substituídos nos testes). O
+Tudo com dados fictícios e provedores falsos (transporte HTTP, cliente do SDK e execução do Claude Code substituídos nos testes). O
 formato do pedido ao SDK da Anthropic foi conferido contra um servidor local de mentira, não contra a API
-real. Não foi testado com a API da Anthropic, com serviço compatível com OpenAI nem com Ollama reais.
+real. Não foi testado com a API da Anthropic, com serviço compatível com OpenAI, com o Claude Code conectado a uma conta nem com Ollama reais (o Claude Code usado nas conferências estava sem login: só o formato do pedido e o tratamento do erro de não conectado foram vistos de verdade).

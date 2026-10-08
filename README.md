@@ -216,9 +216,21 @@ o produziu (local ou externo).
 ## 8. IA: local por padrão, externa só se você ativar
 
 - **Padrão: IA local** (Ollama, no próprio computador). Nada sai do computador.
-- **Opcional: IA externa** (por exemplo Claude, pela API da Anthropic, ou
-  outro serviço com API compatível), para resumir melhor onde o modelo local é
-  fraco. Você cadastra o provedor no painel (nome, endereço, modelo, chave) e
+- **Opcional: IA externa**, para resumir melhor onde o modelo local é fraco.
+  Há três tipos de provedor, e você escolhe qual cadastrar:
+  1. **Claude pela API da Anthropic** (nome, modelo e chave de API);
+  2. **Claude pelo Claude Code deste computador**, **sem chave de API**: usa o
+     Claude Code já instalado e conectado à sua conta (`/login`), e o consumo
+     entra no limite da sua assinatura. Modelo e caminho do programa são
+     opcionais (em branco, a ferramenta procura sozinha e usa o padrão da
+     conta). Roda sem ferramentas, sem ler arquivos seus e sem gravar sessão, e
+     o texto vai pela entrada padrão, não pela linha de comando. **Não é IA
+     local**: o texto continua indo à Anthropic, só que pela assinatura e não
+     pela API, com termos de uso e de retenção que podem ser diferentes. Vale
+     o mesmo aviso de confidencialidade abaixo;
+  3. **Outro serviço com API compatível com a da OpenAI** (endereço, modelo, chave).
+
+  Você cadastra o provedor no painel (tela **IA**) e
   **liga por relatório e, havendo vários clientes, por cliente**. Sem ligar
   explicitamente, **nada** é enviado.
 - **O que sai quando está ligada:** somente o **texto extraído** dos documentos

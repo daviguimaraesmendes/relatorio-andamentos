@@ -43,6 +43,12 @@ pre.log{background:#111;color:#ddd;padding:12px;border-radius:6px;font-size:12px
 .cartao{background:var(--fundo2);border-radius:6px;padding:10px}.cartao b{font-size:22px;display:block}
 #atencao{position:sticky;top:0;z-index:50;background:#b91c1c;color:#fff;padding:10px 16px;font-weight:700;font-size:15px}
 #atencao small{display:block;font-weight:400;opacity:.9}
+.ajuda{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:6px;border-radius:50%;
+  border:1px solid var(--suave);color:var(--suave);font:600 11px/1 serif;font-style:italic;cursor:help;position:relative;vertical-align:middle;user-select:none}
+.ajuda:hover,.ajuda:focus,.ajuda.aberta{background:var(--acento);color:#fff;border-color:var(--acento);outline:none}
+.ajuda:hover::after,.ajuda:focus::after,.ajuda.aberta::after{content:attr(data-ajuda);position:absolute;z-index:60;left:50%;top:calc(100% + 8px);
+  transform:translateX(-50%);width:max-content;max-width:min(320px,80vw);background:#0e1620;color:#fff;padding:8px 10px;border-radius:8px;
+  font:400 13px/1.4 -apple-system,system-ui,sans-serif;font-style:normal;text-align:left;white-space:normal;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 </style>"""
 
 # Faixa vermelha fixa quando a coleta espera uma pessoa (captcha do TRT, login do jus.br). Atualiza sozinha.
@@ -83,12 +89,38 @@ def cabecalho(ativa, titulo="Relatório de Andamentos"):
              "código do autenticador). <a href='/acesso'>Configurar agora</a></div>")
     return (f"<!doctype html><html lang='pt-BR'><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'><title>{html.escape(titulo)}</title>{ESTILO}<body>"
-            f"{faixa_de_atencao()}{aviso_de_painel_desatualizado()}"
+            f"{faixa_de_atencao()}{aviso_de_painel_desatualizado()}{SCRIPT_AJUDA}"
             f"<div class='barra'><div class='marca'>Relatório de Andamentos<span class='meta'>{(' · versão ' + html.escape(versao())) if versao() else ''}{rodando}</span>"
             f"<a href='/acesso' style='float:right;font-weight:normal;font-size:14px' "
             f"class='{'ativa' if ativa == 'acesso' else ''}'>Acesso e escritório {'✓' if pronto else '(configurar)'}</a></div>"
             f"<div class='abas'>{abas}<a href='/novo' class='novo'>+ Novo relatório</a></div></div>"
             f"<div class='sub'>{sub}</div>{aviso}<main>")
+
+
+def ajuda(texto, titulo="O que é isto?"):
+    """Botãozinho (i) com a explicação de um botão, campo ou seção. Vai logo ao lado do elemento explicado:
+
+        f"<button>Atualizar</button>{ajuda('Baixa os andamentos novos dos processos cadastrados.')}"
+
+    Abre ao passar o mouse, ao focar (Tab) e ao clicar/tocar; fecha com Esc ou clicando fora. O texto é
+    escapado aqui (passe texto puro, sem HTML). Estilo: `.ajuda` e `.ajuda-balao` em ESTILO; comportamento:
+    SCRIPT_AJUDA, que o cabeçalho já inclui."""
+    t = html.escape(texto, quote=True)
+    return (f"<span class='ajuda' tabindex='0' role='button' aria-label='{html.escape(titulo, quote=True)}: {t}' "
+            f"data-ajuda='{t}'>i</span>")
+
+
+SCRIPT_AJUDA = """<script>
+(function(){var aberto=null;
+function fechar(){if(aberto){aberto.classList.remove('aberta');aberto=null}}
+function abrir(el){if(aberto===el)return;fechar();el.classList.add('aberta');aberto=el}
+document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('.ajuda');
+if(a){e.preventDefault();e.stopPropagation();aberto===a?fechar():abrir(a)}else fechar()});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')fechar();
+if((e.key==='Enter'||e.key===' ')&&e.target.classList&&e.target.classList.contains('ajuda')){e.preventDefault();
+aberto===e.target?fechar():abrir(e.target)}});
+})();
+</script>"""
 
 
 def _msg():

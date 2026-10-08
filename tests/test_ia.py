@@ -1,6 +1,6 @@
 """Testes dos provedores de IA (src/ia.py) e da tela /ia (src/painel/ia.py).
 
-Sem rede, sem Ollama, sem SDK e sem cofre reais: o Ollama é uma função falsa, o provedor compatível com
+Sem rede, sem Ollama, sem SDK, sem Claude Code e sem cofre reais: o Ollama é uma função falsa, o Claude Code também, o provedor compatível com
 OpenAI recebe um transporte falso, o da Anthropic recebe um cliente de SDK falso e o cofre (acesso.obter /
 acesso.guardar) é um dicionário. Dados fictícios.
 
@@ -8,7 +8,9 @@ acesso.guardar) é um dicionário. Dados fictícios.
 """
 import hashlib
 import json
+import os
 import socket
+import subprocess
 import sys
 import unittest
 import urllib.error
@@ -23,6 +25,7 @@ import acesso  # noqa: E402
 import comum  # noqa: E402
 import ia  # noqa: E402
 
+LOCALIZAR_CLAUDE_REAL = ia.localizar_claude
 CLIENTE = "Cliente Exemplo 01 Ltda"
 CLIENTE_2 = "Cliente Exemplo 02 S.A."
 CONTRARIA = "Pessoa Ficticia 0123"
@@ -387,6 +390,189 @@ class AnthropicTestes(Base):
                 "s", "u", esquema=ESQUEMA, cliente=CLIENTE)
         self.assertTrue(r["motor"].startswith("local:"))
         self.assertEqual(r["avisos"][0]["codigo"], "ia_pacote_ausente")
+
+
+# --- provedor Claude pelo Claude Code (assinatura, sem chave) -------------------
+
+def saida_cli(resultado="ok", estruturado=None, erro=False, modelo="claude-opus-5-5", stop="end_turn"):
+    """Imita o JSON que `claude -p --output-format json` imprime."""
+    corpo = {"type": "result", "is_error": erro, "result": resultado, "stop_reason": stop,
+             "modelUsage": {modelo: {}} if modelo else {}}
+    if estruturado is not None:
+        corpo["structured_output"] = estruturado
+    return json.dumps(corpo)
+
+
+class CLIFalso:
+    """Substitui subprocess.run: guarda comando e opções e devolve o que `saida` (texto ou função) mandar."""
+
+    def __init__(self, saida=None, codigo=0, stderr="", falha=None):
+        self.chamadas, self.saida, self.codigo, self.stderr, self.falha = [], saida, codigo, stderr, falha
+
+    def __call__(self, cmd, **kw):
+        self.chamadas.append((cmd, kw))
+        if self.falha:
+            raise self.falha
+        saida = self.saida(cmd, kw) if callable(self.saida) else self.saida
+        if saida is None:
+            saida = saida_cli(estruturado={"conteudo": "resumo cli", "prazo": "10 dias"})
+        return SimpleNamespace(stdout=saida, stderr=self.stderr, returncode=self.codigo)
+
+
+class ClaudeCLITestes(Base):
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(ia, "localizar_claude", lambda informado=None: "/caminho/ficticio/claude")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def cadastrar_cli(self, nome="claude-code", **kw):
+        self.assertEqual(ia.cadastrar(nome, "claude_cli", kw.pop("modelo", ""), **kw), [])
+
+    def prov(self, cli, nome="claude-code", **kw):
+        return ia.provedor(perfil(nome, **kw), CLIENTE, projeto=self.projeto, local=local_falso(), executar=cli)
+
+    def test_cadastro_sem_chave_sem_endereco_e_modelo_opcional(self):
+        self.assertEqual(ia.cadastrar("Claude Code", "claude_cli", "", endereco="http://nao-https.invalid", chave=CHAVE,
+                                      executavel="/x/claude"), [])
+        (reg,) = ia.provedores().values()
+        self.assertEqual((reg["tipo"], reg["modelo"], reg["endereco"], reg["executavel"]), ("claude_cli", "", "", "/x/claude"))
+        self.assertEqual(self.cofre.dados, {})                       # nenhuma chave guardada
+        self.assertFalse(ia.chave_configurada("Claude Code"))
+        self.assertNotIn(CHAVE, self.config.read_text(encoding="utf-8"))
+        self.assertTrue(ia.cadastrar("x", "anthropic", ""))          # nos outros tipos o modelo segue obrigatório
+
+    def test_pedido_ao_claude_code(self):
+        self.cadastrar_cli(modelo="opus", esforco="low")
+        cli = CLIFalso()
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ficticia-123456", "ANTHROPIC_AUTH_TOKEN": "t-123456",
+                                          "OUTRA_VARIAVEL": "fica"}):
+            r = self.prov(cli, pseudonimizar=False).gerar("Sistema fixo", "Texto do usuário", esquema=ESQUEMA, cliente=CLIENTE)
+        self.assertEqual(r["json"], {"conteudo": "resumo cli", "prazo": "10 dias"})
+        self.assertEqual(r["motor"], "externo:claude-code:claude-opus-5-5")     # o motor é o que respondeu
+        self.assertEqual(ia.selo(r["motor"]), "externa: claude-code")
+        self.assertEqual(r["avisos"], [])
+        (cmd, kw), = cli.chamadas
+        self.assertEqual(cmd[:2], ["/caminho/ficticio/claude", "-p"])
+        self.assertEqual(cmd[cmd.index("--output-format") + 1], "json")
+        self.assertEqual(cmd[cmd.index("--tools") + 1], "")                    # sem ferramentas
+        self.assertEqual(cmd[cmd.index("--setting-sources") + 1], "")          # sem configurações de usuário/projeto
+        self.assertIn("--no-session-persistence", cmd)
+        self.assertEqual(cmd[cmd.index("--system-prompt") + 1], "Sistema fixo")
+        self.assertEqual(cmd[cmd.index("--model") + 1], "opus")
+        self.assertEqual(cmd[cmd.index("--effort") + 1], "low")
+        esquema = json.loads(cmd[cmd.index("--json-schema") + 1])
+        self.assertIs(esquema["additionalProperties"], False)
+        self.assertEqual(kw["input"], "Texto do usuário")                       # o texto vai por stdin
+        self.assertNotIn("Texto do usuário", " ".join(cmd))
+        self.assertNotIn("ANTHROPIC_API_KEY", kw["env"])                        # vale a assinatura, não a API
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", kw["env"])
+        self.assertEqual(kw["env"]["OUTRA_VARIAVEL"], "fica")
+        self.assertNotIn(str(self.projeto), kw["cwd"])                          # pasta neutra, não a do relatório
+        self.assertFalse(Path(kw["cwd"]).exists())                              # e apagada depois
+
+    def test_sem_modelo_nao_manda_model(self):
+        self.cadastrar_cli()
+        cli = CLIFalso(saida_cli("so texto", modelo=None))
+        r = self.prov(cli).gerar("s", "u", cliente=CLIENTE)
+        self.assertNotIn("--model", cli.chamadas[0][0])
+        self.assertNotIn("--json-schema", cli.chamadas[0][0])
+        self.assertEqual((r["texto"], r["json"], r["motor"]), ("so texto", None, "externo:claude-code:padrao"))
+
+    def test_json_no_texto_quando_nao_vem_estruturado(self):
+        self.cadastrar_cli()
+        cli = CLIFalso(saida_cli('```json\n{"conteudo": "c", "prazo": null}\n```'))
+        r = self.prov(cli).gerar("s", "u", esquema=ESQUEMA, cliente=CLIENTE)
+        self.assertEqual(r["json"], {"conteudo": "c", "prazo": None})
+
+    def test_sem_consentimento_nao_executa_nada(self):
+        self.cadastrar_cli()
+        cli = CLIFalso(falha=AssertionError("Claude Code executado sem consentimento"))
+        for p in (perfil("claude-code", consentimento=False), perfil("claude-code", consentimento="true"),
+                  perfil("local"), perfil("claude-code", consentimento=False, por_cliente={CLIENTE: False})):
+            r = ia.provedor(p, CLIENTE, projeto=self.projeto, local=local_falso(), executar=cli).gerar(
+                "s", SEGREDO_TEXTO, esquema=ESQUEMA, cliente=CLIENTE)
+            self.assertTrue(r["motor"].startswith("local:"))
+        self.assertEqual(cli.chamadas, [])
+
+    def test_pseudonimiza_e_restaura_como_os_outros(self):
+        self.cadastrar_cli()
+        cli = CLIFalso(lambda cmd, kw: saida_cli(estruturado={"conteudo": "[PARTE_1] pediu", "prazo": None}))
+        r = self.prov(cli).gerar("s", f"{CONTRARIA} cobra {CPF}", esquema=ESQUEMA, cliente=CLIENTE, partes=[CONTRARIA])
+        enviado = cli.chamadas[0][1]["input"]
+        self.assertNotIn(CONTRARIA, enviado)
+        self.assertNotIn(CPF, enviado)
+        self.assertEqual(r["json"]["conteudo"], f"{CONTRARIA} pediu")
+
+    def test_registro_de_envios_sem_o_texto(self):
+        self.cadastrar_cli()
+        self.prov(CLIFalso()).gerar("s", SEGREDO_TEXTO, esquema=ESQUEMA, cliente=CLIENTE)
+        (envio,) = ia.registro_de_envios(self.projeto)
+        self.assertEqual((envio["provedor"], envio["cliente"], envio["resultado"]), ("claude-code", CLIENTE, "ok"))
+        self.assertNotIn(SEGREDO_TEXTO, self.arquivos_do_relatorio())
+
+    def test_segredos_do_cofre_nao_saem(self):
+        self.cadastrar_cli()
+        self.cofre.dados["cert_senha"] = "SENHA-DO-CERTIFICADO-1"
+        cli = CLIFalso(falha=AssertionError("executado com segredo no texto"))
+        r = self.prov(cli).gerar("s", "texto SENHA-DO-CERTIFICADO-1", cliente=CLIENTE)
+        self.assertEqual(cli.chamadas, [])
+        self.assertEqual(r["avisos"][0]["codigo"], "ia_conteudo_bloqueado")
+
+    def confere(self, cli, codigo):
+        self.cadastrar_cli()
+        local = []
+        r = ia.provedor(perfil("claude-code"), CLIENTE, projeto=self.projeto, local=local_falso(local), executar=cli).gerar(
+            "s", "u", esquema=ESQUEMA, cliente=CLIENTE)
+        self.assertEqual(r["avisos"][0]["codigo"], codigo, r["avisos"])
+        self.assertTrue(r["motor"].startswith("local:"))            # cai no motor local
+        self.assertEqual(len(local), 1)
+        self.assertEqual(ia.registro_de_envios(self.projeto)[-1]["resultado"], f"erro:{codigo}")
+
+    def test_falhas_caem_no_local(self):
+        sem_login = saida_cli("Not logged in · Please run /login", erro=True, modelo=None)
+        self.confere(CLIFalso(sem_login, codigo=1), "ia_login_necessario")
+        self.confere(CLIFalso(saida_cli("5-hour usage limit reached", erro=True, modelo=None), codigo=1), "ia_limite_assinatura")
+        self.confere(CLIFalso(saida_cli("falha qualquer", erro=True, modelo=None), codigo=1), "ia_erro_provedor")
+        self.confere(CLIFalso("isto não é json", stderr="boom"), "ia_erro_provedor")
+        self.confere(CLIFalso("[1, 2]"), "ia_erro_provedor")
+        self.confere(CLIFalso(falha=subprocess.TimeoutExpired("claude", 1)), "ia_falha_rede")
+        self.confere(CLIFalso(falha=PermissionError("sem permissão")), "ia_cli_ausente")
+        self.confere(CLIFalso(saida_cli(stop="refusal")), "ia_recusa_do_provedor")
+        self.confere(CLIFalso(saida_cli("texto solto, sem json")), "ia_resposta_invalida")
+
+    def test_claude_code_nao_encontrado(self):
+        self.cadastrar_cli()
+        with mock.patch.object(ia, "localizar_claude", lambda informado=None: None):
+            r = self.prov(CLIFalso(falha=AssertionError("não deveria executar"))).gerar("s", "u", cliente=CLIENTE)
+        self.assertEqual(r["avisos"][0]["codigo"], "ia_cli_ausente")
+        self.assertTrue(r["motor"].startswith("local:"))
+
+    def test_mensagens_nao_vazam_o_texto_do_cliente(self):
+        self.cadastrar_cli()
+        r = self.prov(CLIFalso("lixo", stderr="x" * 1000)).gerar("s", SEGREDO_TEXTO, cliente=CLIENTE)
+        self.assertLessEqual(len(r["avisos"][0]["mensagem"]), 600)
+        self.assertNotIn(SEGREDO_TEXTO, json.dumps(r["avisos"]))
+
+    def test_testar_sem_chave_e_sem_cair_no_local(self):
+        self.cadastrar_cli()
+        cli = CLIFalso(saida_cli("ok"))
+        t = ia.testar("claude-code", projeto=self.projeto, executar=cli)
+        self.assertEqual((t["ok"], t["resposta"], t["motor"]), (True, "ok", "externo:claude-code:claude-opus-5-5"))
+        self.assertEqual(cli.chamadas[0][1]["input"], "Teste de conexão.")
+        t = ia.testar("claude-code", projeto=self.projeto, executar=CLIFalso(saida_cli("Not logged in", erro=True), codigo=1))
+        self.assertFalse(t["ok"])
+        self.assertEqual(t["avisos"][0]["codigo"], "ia_login_necessario")
+
+    def test_localizar_claude(self):
+        with mock.patch.object(ia, "localizar_claude", LOCALIZAR_CLAUDE_REAL):    # desfaz o patch do setUp
+            falso = TMP / "claude-ficticio"
+            falso.write_text("#!/bin/sh\n", encoding="utf-8")
+            falso.chmod(0o755)
+            self.assertEqual(ia.localizar_claude(str(falso)), str(falso))
+            self.assertIsNone(ia.localizar_claude(str(TMP / "nao-existe")))
+            with mock.patch("shutil.which", return_value=None), mock.patch.object(Path, "home", lambda: TMP / "casa-vazia"):
+                self.assertIsNone(ia.localizar_claude())
 
 
 # --- falhas e fallback para o local -------------------------------------------
@@ -812,7 +998,7 @@ class Tela(Base):
     def tearDownClass(cls):
         for n, v in cls.globais.items():
             setattr(comum, n, v)
-        cls.tela.TRANSPORTE = cls.tela.FABRICA_CLIENTE = None
+        cls.tela.TRANSPORTE = cls.tela.FABRICA_CLIENTE = cls.tela.EXECUTAR = None
 
     def setUp(self):
         super().setUp()
@@ -863,6 +1049,23 @@ class Tela(Base):
                                                         "endereco": "http://api.exemplo.invalid", "chave": "k"}))
         self.assertIn("https", pagina)
         self.assertNotIn("ruim", ia.provedores())
+
+    def test_claude_code_pela_tela(self):
+        resp = self.post("/ia/provedor", {"nome": "Claude Code", "tipo": "claude_cli", "modelo": "", "chave": CHAVE,
+                                          "executavel": "/x/claude"})
+        self.assertIn("salvo", self.seguir(resp))
+        (chave_id,) = ia.provedores()
+        self.assertEqual(self.cofre.dados, {})
+        pagina = self.c.get("/ia").get_data(as_text=True)
+        self.assertIn("login do Claude Code", pagina)
+        self.assertNotIn(">sem chave</b>", pagina)
+        self.assertNotIn(CHAVE, pagina)
+        self.assertIn("/x/claude", self.c.get(f"/ia?editar={chave_id}").get_data(as_text=True))
+        with mock.patch.object(ia, "localizar_claude", lambda informado=None: "/x/claude"):
+            self.tela.EXECUTAR = CLIFalso(saida_cli("ok"))
+            self.assertIn("Teste concluído", self.seguir(self.post("/ia/testar", {"nome": chave_id})))
+            self.tela.EXECUTAR = CLIFalso(saida_cli("Not logged in", erro=True), codigo=1)
+            self.assertIn("faça login", self.seguir(self.post("/ia/testar", {"nome": chave_id})))
 
     def test_testar_pela_tela(self):
         self.cadastrar()
