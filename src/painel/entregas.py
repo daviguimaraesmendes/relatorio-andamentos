@@ -37,7 +37,7 @@ from flask import abort, request, send_file
 import comum
 import ficha
 from painel import perfil as per
-from painel.base import WINDOWS, _dentro, _ir, _msg
+from painel.base import WINDOWS, _dentro, _ir, _msg, ajuda
 
 ROTULO_ESTADO = {"manual": "precisa de conferência manual", "erro": "deu erro", "so_djen": "só publicações (DJEN)"}
 MENSAGEM_DE_CODIGO = {"captcha": "o tribunal pediu verificação (captcha) que não foi resolvida",
@@ -239,7 +239,9 @@ def _html_do_ultimo_ciclo():
     e = html.escape
     linhas = "".join(f"<tr><td>{e(str(a.get('nivel', '')))}</td><td>{e(str(a.get('codigo', '')))}</td><td>{e(str(a.get('onde', '')))}</td>"
                      f"<td>{e(str(a.get('mensagem', '')))}</td></tr>" for a in avisos[:200])
-    return ("<h2>Para conferir do último ciclo</h2><p class='dica'>Nada disto impediu a entrega; são pontos que merecem um olhar "
+    return ("<h2>Para conferir do último ciclo" + ajuda("Avisos que o programa registrou na última rodada completa (andamento que já "
+                                                        "constava, edição manual sobrescrita, número repetido, processo novo ou sumido...). "
+                                                        "Nenhum impediu a entrega.") + "</h2><p class='dica'>Nada disto impediu a entrega; são pontos que merecem um olhar "
             "antes de enviar ao cliente.</p><table class='t'><tr><th>Nível</th><th>Aviso</th><th>Onde</th><th>O que houve</th></tr>"
             + linhas + "</table>" + (f"<p class='dica'>E mais {len(avisos) - 200}.</p>" if len(avisos) > 200 else ""))
 
@@ -256,32 +258,54 @@ def registrar(app, TOKEN, cabecalho, token_ok):
     def entregas_ver_entregas():
         h = [cabecalho("entregas"), ESTILO_FLUXO, "<h1>Entregas</h1>", _msg()]
         if not comum.PROJETO:
-            return "".join(h) + "<p>Crie ou importe um relatório primeiro.</p>"
+            return "".join(h) + "<div class='vazio'>Crie ou importe um relatório primeiro (botão \"+ Novo relatório\").</div>"
         p = per.carregar()
+        h.append("<div class='caixa'><b>O que fazer agora</b><p>Depois de aprovar os andamentos em <a href='/'>Revisar</a>, "
+                 "marque o que quer receber e clique em <b>Gerar entregas</b>. Os arquivos aparecem logo abaixo, em \"Arquivos "
+                 "entregues\". Antes de mandar ao cliente, rode a <b>verificação de qualidade</b> e olhe a lista \"Conferir "
+                 "manualmente\".</p></div>")
         h.append(f"<p class='dica'>Arquivos que você enviou ficam em <b>{e(str(pasta_entrada()))}</b>; os que o programa entrega, em "
                  f"<b>{e(str(pasta_saida()))}</b>. Nada aqui sai do seu computador.</p>")
         h.append(f"<form class='caixa' method='post' action='/entregas/gerar'>{oculto}<b>Gerar agora</b>"
-                 "<p class='dica'>Monta os arquivos com os andamentos já aprovados em Revisar. O arquivo que você enviou nunca é "
+                 + ajuda("Monta os arquivos marcados a partir dos andamentos que você já aprovou. Cada geração cria uma pasta nova em "
+                         "saida/ e nunca apaga nem sobrescreve as anteriores nem o arquivo que você enviou. Os andamentos aprovados "
+                         "que entram no arquivo passam a constar como \"já relatado\". Nada sai do computador.")
+                 + "<p class='dica'>Monta os arquivos com os andamentos já aprovados em Revisar. O arquivo que você enviou nunca é "
                  "sobrescrito: o programa grava uma versão nova.</p>")
+        dicas_entrega = {
+            "docx_a": "Um arquivo Word por cliente, com os andamentos aprovados em linguagem simples.",
+            "xlsx_b": "A planilha do relatório: uma linha por processo, com as colunas definidas no Perfil.",
+            "dashboard": "Uma página (HTML) com gráficos, montada a partir da planilha; por isso a planilha também é gerada."}
         for chave, rotulo in per.ENTREGAS.items():
-            h.append(f"<p><label><input type='checkbox' name='entregas' value='{chave}' {'checked' if chave in p['entregas'] else ''}> {e(rotulo)}</label></p>")
-        h.append("<button class='principal'>Gerar entregas</button> "
-                 "<span class='dica'>(muda em <a href='/perfil'>Perfil</a>)</span></form>")
+            h.append(f"<p><label><input type='checkbox' name='entregas' value='{chave}' {'checked' if chave in p['entregas'] else ''}> {e(rotulo)}</label>"
+                     + ajuda(dicas_entrega.get(chave, rotulo)) + "</p>")
+        h.append("<button class='principal'>Gerar entregas</button>"
+                 + ajuda("Cria agora os arquivos marcados numa pasta nova de saida/. Pode levar alguns instantes; o resultado "
+                         "aparece na mensagem no alto e em \"Arquivos entregues\". Se nada estiver marcado, nada é gerado.")
+                 + " <span class='dica'>(a seleção padrão muda em <a href='/perfil'>Perfil</a>)</span></form>")
         rodadas = listar_saida()
-        h.append("<h2>Arquivos entregues</h2>")
+        h.append("<h2>Arquivos entregues"
+                 + ajuda("Tudo o que o programa já gerou, uma pasta por geração (data e hora no nome), da mais nova para a mais "
+                         "antiga. Clique no nome do arquivo para baixar uma cópia.") + "</h2>")
         if not rodadas:
-            h.append("<p class='dica'>Nada entregue ainda.</p>")
+            h.append("<div class='vazio'>Nada entregue ainda. Marque o que quer acima e clique em \"Gerar entregas\".</div>")
         for r in rodadas:
             h.append(f"<div class='caixa'><b>{e(r['rodada'])}</b>"
                      f"<form style='display:inline;float:right' method='post' action='/entregas/mostrar'>{oculto}"
-                     f"<input type='hidden' name='p' value='{e(r['rodada'])}'><button>Mostrar a pasta</button></form><ul>")
+                     f"<input type='hidden' name='p' value='{e(r['rodada'])}'><button>Mostrar a pasta</button>"
+                     + ajuda("Abre esta pasta no Finder (Mac) ou no Explorer (Windows), no seu computador, para você copiar ou anexar "
+                             "os arquivos. Não altera nada.") + "</form><ul>")
             for a in r["arquivos"]:
                 h.append(f"<li><a href='/entregas/baixar?p={e(a['rel'])}'>{e(a['nome'])}</a> <span class='dica'>({_tamanho(a['tamanho'])})</span></li>")
             h.append("</ul></div>" if r["arquivos"] else "<span class='dica'>Pasta vazia.</span></div>")
-        h.append("<h2>Qualidade da base</h2>")
+        h.append("<h2>Qualidade da base"
+                 + ajuda("Uma conferência automática das fichas dos processos antes de você entregar. É só uma lista de sugestões: não "
+                         "muda nenhum dado.") + "</h2>")
         h.append(f"<form class='caixa' method='post' action='/entregas/qualidade'>{oculto}"
                  "<p class='dica'>Procura processo repetido, rótulo fora do padrão, acordo sem valor, datas incoerentes e outros "
-                 "problemas, antes de você entregar.</p><button>Verificar agora</button></form>")
+                 "problemas, antes de você entregar.</p><button>Verificar agora</button>"
+                 + ajuda("Roda a conferência agora e mostra os achados abaixo. Não altera nenhum dado e nada sai do computador; para "
+                         "corrigir um achado, ajuste a ficha ou o cadastro do processo e verifique de novo.") + "</form>")
         achados = _ULTIMA_QUALIDADE.get(comum.PROJETO)
         if achados is not None:
             h.append(f"<p><b>{len(achados)}</b> achado(s) na última verificação.</p>")
@@ -291,7 +315,10 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                     h.append(f"<tr><td>{e(str(a.get('gravidade', '')))}</td><td>{e(', '.join(a.get('numeros') or []))}</td>"
                              f"<td>{e(str(a.get('mensagem', '')))}</td><td>{e(str(a.get('sugestao', '')))}</td></tr>")
                 h.append("</table>")
-        h.append("<h2>Conferir manualmente</h2>")
+        h.append("<h2>Conferir manualmente"
+                 + ajuda("Processos que a coleta automática não conseguiu ler (verificação do tribunal, segredo de justiça, processo não "
+                         "localizado, erro...). Abra-os no tribunal e complete à mão: o relatório deles fica incompleto até você fazer isso.")
+                 + "</h2>")
         itens = itens_para_conferir()
         eletronicos = [it for it in itens if not it.get("fisico")]
         fisicos = [it for it in itens if it.get("fisico")]
@@ -307,7 +334,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                      "<table class='t'><tr><th>Processo</th></tr>"
                      + "".join(f"<tr><td>{e(it['numero'])}</td></tr>" for it in fisicos) + "</table>")
         if not itens:
-            h.append("<p class='dica'>Nenhum processo para conferir à mão agora.</p>")
+            h.append("<div class='vazio'>Nenhum processo para conferir à mão agora.</div>")
         h.append(_html_do_ultimo_ciclo())
         return "".join(h)
 

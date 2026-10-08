@@ -13,6 +13,7 @@ from flask import redirect, request
 import carteira as cart
 import comum
 from comum import load_json, save_json
+from painel.base import ajuda
 POLOS = [("", "não informado"), ("ativo", "autor"), ("passivo", "réu")]
 
 ESTILO = """<style>
@@ -24,6 +25,7 @@ input[type=text],select{width:100%;box-sizing:border-box;font:inherit;padding:4p
 .msg{background:#eef6ee;color:var(--ok);padding:8px 10px;border-radius:4px;margin:12px 0;white-space:pre-line}
 .nav a{margin-right:16px}
 .dica{color:var(--suave);font-size:13px}
+tr[hidden]{display:none}
 .linha{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 @media (max-width:640px){.linha{grid-template-columns:1fr}}
 </style>"""
@@ -61,12 +63,36 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         h = [cabecalho("cadastro"), ESTILO, "<h1>Clientes e processos</h1>"]
         if request.args.get("msg"):
             h.append(f"<div class='msg'>{_e(request.args['msg'])}</div>")
+        h.append("<div class='caixa'><b>O que fazer agora</b><ol>"
+                 "<li><b>Clientes</b>: cadastre cada cliente com a razão social como aparece nos processos.</li>"
+                 "<li><b>Importar processos</b>: cole os números ou envie uma planilha. Eles entram na carteira (a lista de processos "
+                 "acompanhados).</li>"
+                 "<li><b>Carteira</b>: confira se cada processo tem cliente, lado (autor ou réu) e parte contrária; o botão "
+                 "\"Completar pelo DJEN\" ajuda a preencher.</li>"
+                 "<li>Opcional: a <b>Descoberta no DJEN</b> sugere processos dos seus clientes que ainda não estão na carteira.</li></ol>"
+                 "<p class='dica'>Sem cliente e sem o lado dele, o resumo dos documentos pode ficar com o ponto de vista errado.</p></div>")
 
         # 1. clientes
-        h.append("<h2>1. Clientes</h2><p class='dica'>Razão social exatamente como aparece nos processos. "
+        h.append("<h2>1. Clientes"
+                 + ajuda("Quem são os seus clientes. O nome (e as variações) serve para o programa reconhecer o cliente nas partes dos "
+                         "processos e saber de que lado ele está. Fica só neste computador.")
+                 + "</h2><p class='dica'>Razão social exatamente como aparece nos processos. "
                  "Variações: nome fantasia, sigla, grafia sem LTDA, separadas por vírgula. "
                  "O responsável vale para todos os processos do cliente.</p>"
-                 "<table><tr><th>Razão social</th><th>Variações</th><th>Contato</th><th>Responsável</th><th></th></tr>")
+                 "<table><tr><th>Razão social"
+                 + ajuda("O nome do cliente como aparece nas partes dos processos. Mudar o nome aqui muda também nos processos da carteira.")
+                 + "</th><th>Variações"
+                 + ajuda("Outros jeitos de o cliente aparecer nos processos (nome fantasia, sigla, sem \"LTDA\"), separados por vírgula. "
+                         "Quanto melhor a lista, mais processos o programa reconhece sozinho.")
+                 + "</th><th>Contato"
+                 + ajuda("E-mail ou WhatsApp de quem recebe o relatório. É só uma anotação sua; o programa não envia nada para ele.")
+                 + "</th><th>Responsável"
+                 + ajuda("O advogado ou a pessoa do escritório responsável por este cliente. Vale para todos os processos dele e "
+                         "aparece nos filtros da triagem.")
+                 + "</th><th>"
+                 + ajuda("\"Salvar\" grava as alterações da linha. \"Remover\" apaga o cliente da lista (pede confirmação); só "
+                         "é permitido se nenhum processo da carteira estiver ligado a ele. \"Adicionar\" cadastra o cliente da última linha.")
+                 + "</th></tr>")
         for i, c in enumerate(clientes):
             fid = f"c{i}"
             h.append(f"<tr><td><form id='{fid}' method='post' action='/cadastro/cliente'>{oculto}"
@@ -76,36 +102,69 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                      f"<td><input form='{fid}' type='text' name='contato' value='{_e(c.get('contato'))}'></td>"
                      f"<td><input form='{fid}' type='text' name='responsavel' value='{_e(c.get('responsavel'))}'></td>"
                      f"<td><button form='{fid}' name='acao' value='salvar'>Salvar</button>"
-                     f"<button form='{fid}' name='acao' value='remover' onclick=\"return confirm('Remover este cliente?')\">Remover</button></td></tr>")
+                     f"<button form='{fid}' name='acao' value='remover' onclick=\"return confirm('Remover este cliente da lista? Os processos dele não são apagados, mas o programa só deixa remover se não houver nenhum ligado a ele.')\">Remover</button></td></tr>")
         h.append(f"<tr><td><form id='cnovo' method='post' action='/cadastro/cliente'>{oculto}"
                  "<input type='hidden' name='indice' value='novo'></form>"
                  "<input form='cnovo' type='text' name='nome' placeholder='EMPRESA EXEMPLO COMERCIO LTDA' required></td>"
                  "<td><input form='cnovo' type='text' name='variacoes' placeholder='EMPRESA EXEMPLO, EXEMPLO'></td>"
                  "<td><input form='cnovo' type='text' name='contato' placeholder='e-mail ou WhatsApp'></td>"
                  "<td><input form='cnovo' type='text' name='responsavel' placeholder='Davi'></td>"
-                 "<td><button form='cnovo' name='acao' value='salvar'>Adicionar</button></td></tr></table>")
+                 "<td><button form='cnovo' name='acao' value='salvar' class='principal'>Adicionar</button></td></tr></table>")
 
         # 2. importar processos
-        h.append(f"<h2>2. Importar processos</h2><form class='caixa' method='post' action='/cadastro/importar' enctype='multipart/form-data'>{oculto}"
+        h.append("<h2>2. Importar processos"
+                 + ajuda("Coloca processos na carteira a partir de uma lista sua. Processo que já está na carteira não é duplicado. "
+                         "Nada é enviado pela internet nesta etapa, a menos que você marque a opção do DJEN.")
+                 + f"</h2><form class='caixa' method='post' action='/cadastro/importar' enctype='multipart/form-data'>{oculto}"
                  "<p class='dica'>Cole números de processo (lista, e-mail, qualquer texto) ou envie uma planilha (.xlsx, .csv) "
                  "com as colunas processo, cliente, polo, parte contrária, responsável. Número com dígito verificador errado é recusado.</p>"
-                 "<label>Texto colado<textarea name='texto' rows='5' placeholder='0000000-00.0000.0.00.0000'></textarea></label>"
-                 "<p><label>ou arquivo <input type='file' name='arquivo' accept='.xlsx,.csv,.txt,.md'></label></p>"
+                 "<label>Texto colado"
+                 + ajuda("Cole qualquer texto que contenha números de processo (uma lista, um e-mail...). O programa acha os números "
+                         "sozinho e recusa os que têm dígito verificador errado.")
+                 + "<textarea name='texto' rows='5' placeholder='0000000-00.0000.0.00.0000'></textarea></label>"
+                 "<p><label>ou arquivo <input type='file' name='arquivo' accept='.xlsx,.csv,.txt,.md'></label>"
+                 + ajuda("Uma planilha (.xlsx ou .csv) ou texto com os processos. Se tiver colunas processo, cliente, polo, parte contrária "
+                         "e responsável, elas são aproveitadas. Se escolher arquivo, o texto colado é ignorado.") + "</p>"
                  "<p class='dica'>Os campos abaixo valem para os processos importados que vierem sem essa informação.</p>"
-                 f"<div class='linha'><label>Cliente<select name='cliente'>{opcoes_cli('')}</select></label>"
-                 f"<label>Polo do cliente<select name='polo'>{opcoes_polo('')}</select></label>"
-                 "<label>Parte contrária<input type='text' name='parte_contraria'></label>"
-                 "<label>Responsável<input type='text' name='responsavel'></label></div>"
+                 f"<div class='linha'><label>Cliente{ajuda('O cliente de todos os processos importados que vierem sem cliente. Deixe em branco se a lista já traz o cliente ou se vai identificar depois.')}"
+                 f"<select name='cliente'>{opcoes_cli('')}</select></label>"
+                 f"<label>Polo do cliente{ajuda('O lado do cliente nesses processos: autor (ativo) ou réu (passivo). Importante para o resumo ter o ponto de vista certo.')}"
+                 f"<select name='polo'>{opcoes_polo('')}</select></label>"
+                 f"<label>Parte contrária{ajuda('Quem está do outro lado. Só preenche os processos que vierem sem essa informação.')}"
+                 "<input type='text' name='parte_contraria' placeholder='ex.: João da Silva'></label>"
+                 f"<label>Responsável{ajuda('Quem do escritório cuida desses processos. Só preenche os que vierem sem responsável.')}"
+                 "<input type='text' name='responsavel' placeholder='ex.: Davi'></label></div>"
                  "<p><label><input type='checkbox' name='djen' value='1'> Completar polo e parte contrária pelo DJEN "
-                 "(cerca de 3 segundos por processo)</label></p><button>Importar</button></form>")
+                 "(cerca de 3 segundos por processo)</label>"
+                 + ajuda("Depois de importar, consulta o DJEN (base pública do CNJ) pelo número de cada processo para descobrir o lado do "
+                         "cliente e a parte contrária. Só os números dos processos saem do computador; só preenche o que está vazio. "
+                         "Processos sem cliente ficam de fora.")
+                 + "</p><button class='principal'>Importar</button>"
+                 + ajuda("Lê os números do texto ou do arquivo, coloca na carteira os que ainda não estão e mostra um resumo (quantos entraram "
+                         "e quais foram recusados). Não apaga nada da carteira.") + "</form>")
 
         # 3. carteira
         ativos = sum(p.get("ativo", True) for p in carteira)
-        h.append(f"<h2>3. Carteira ({ativos} ativo(s) de {len(carteira)})</h2>"
-                 "<table><tr><th>Processo</th><th>Cliente</th><th>Polo</th><th>Parte contrária</th><th>Responsável</th><th>Ativo</th><th></th></tr>")
+        h.append(f"<h2>3. Carteira ({ativos} ativo(s) de {len(carteira)})"
+                 + ajuda("A lista dos processos que o programa acompanha. Só os marcados como \"Ativo\" são atualizados e contados. "
+                         "Aqui você corrige cliente, lado e parte contrária de cada um.") + "</h2>")
+        if len(carteira) > 8:
+            h.append("<p><label>Buscar na carteira <input type='search' id='busca-cart' size='34' "
+                     "placeholder='número, cliente, parte contrária ou responsável'></label>"
+                     + ajuda("Esconde, só aqui na tela, os processos que não combinam com o que você digitou. Não muda nada nos dados.")
+                     + "</p>")
+        h.append("<table id='tab-cart'><tr><th>Processo</th><th>Cliente</th><th>Polo"
+                 + ajuda("O lado do seu cliente no processo: autor (ativo) ou réu (passivo). Define o ponto de vista dos resumos.")
+                 + "</th><th>Parte contrária</th><th>Responsável</th><th>Ativo"
+                 + ajuda("Desmarcado, o processo deixa de ser acompanhado (não é mais atualizado nem contado), mas o cadastro não é apagado.")
+                 + "</th><th>"
+                 + ajuda("\"Salvar\" grava as alterações da linha. \"Remover\" tira o processo da carteira (pede confirmação); os andamentos "
+                         "já coletados continuam guardados.")
+                 + "</th></tr>")
         for i, p in enumerate(carteira):
             n, fid = _e(p["numero"]), f"p{i}"
-            h.append(f"<tr><td class='num'><form id='{fid}' method='post' action='/cadastro/processo'>{oculto}"
+            busca = _e(" ".join(str(p.get(c) or "") for c in ("numero", "cliente", "parte_contraria", "responsavel", "tribunal")).lower())
+            h.append(f"<tr data-busca=\"{busca}\"><td class='num'><form id='{fid}' method='post' action='/cadastro/processo'>{oculto}"
                      f"<input type='hidden' name='numero' value='{n}'></form>"
                      f"{n}<br><span class='dica'>{_e(p.get('tribunal'))}</span></td>"
                      f"<td><select form='{fid}' name='cliente'>{opcoes_cli(p.get('cliente', ''))}</select></td>"
@@ -114,22 +173,37 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                      f"<td><input form='{fid}' type='text' name='responsavel' value='{_e(p.get('responsavel'))}'></td>"
                      f"<td><input form='{fid}' type='checkbox' name='ativo' value='1' {'checked' if p.get('ativo', True) else ''}></td>"
                      f"<td><button form='{fid}' name='acao' value='salvar'>Salvar</button>"
-                     f"<button form='{fid}' name='acao' value='remover' onclick=\"return confirm('Remover o processo da carteira?')\">Remover</button></td></tr>")
+                     f"<button form='{fid}' name='acao' value='remover' onclick=\"return confirm('Remover este processo da carteira? Os andamentos já coletados continuam guardados, mas ele deixa de ser acompanhado.')\">Remover</button></td></tr>")
         if not carteira:
-            h.append("<tr><td colspan='7' class='dica'>Carteira vazia.</td></tr>")
+            h.append("<tr><td colspan='7' class='dica'>Carteira vazia. Importe processos na etapa 2 acima.</td></tr>")
         h.append("</table>")
+        if len(carteira) > 8:
+            h.append("<script>(function(){var b=document.getElementById('busca-cart');if(!b)return;"
+                     "b.addEventListener('input',function(){var q=b.value.trim().toLowerCase();"
+                     "document.querySelectorAll('#tab-cart tr[data-busca]').forEach(function(r){"
+                     "r.hidden=!!q&&r.getAttribute('data-busca').indexOf(q)<0})})})();</script>")
         sem_cli = sum(1 for p in carteira if not p.get("cliente"))
         if carteira and sem_cli:
             opcoes_lote = "".join(f"<option value='{_e(n)}'></option>" for n in nomes)
             h.append(f"<div class='caixa'><b>{sem_cli} processo(s) sem cliente: resolva de uma vez.</b>"
-                     f"<form method='post' action='/cadastro/lote' style='margin:8px 0'>{oculto}"
-                     "<button name='acao' value='identificar'>Identificar os clientes pelas partes dos processos</button> "
-                     "<span class='dica'>usa os clientes cadastrados acima (nome e variações) e define também o polo e a parte contrária.</span></form>"
+                     + ajuda("Processo sem cliente fica sem ponto de vista nos resumos e sem responsável nos filtros. Os dois caminhos abaixo "
+                             "preenchem o cliente de vários processos de uma vez.")
+                     + f"<form method='post' action='/cadastro/lote' style='margin:8px 0'>{oculto}"
+                     "<button name='acao' value='identificar'>Identificar os clientes pelas partes dos processos</button>"
+                     + ajuda("Compara o nome e as variações dos clientes cadastrados com as partes de cada processo sem cliente e, "
+                             "quando acha, preenche o cliente, o lado dele e a parte contrária. Tudo no seu computador; só preenche "
+                             "processos que ainda estão sem cliente.")
+                     + " <span class='dica'>usa os clientes cadastrados acima (nome e variações) e define também o polo e a parte contrária.</span></form>"
                      f"<form method='post' action='/cadastro/lote'>{oculto}"
                      "<label>Ou coloque o mesmo cliente em todos os que estão sem cliente: "
                      f"<input type='text' name='cliente' list='clientes-lote' size='40' placeholder='nome do cliente' required></label>"
                      f"<datalist id='clientes-lote'>{opcoes_lote}</datalist> "
-                     "<button name='acao' value='todos_sem_cliente'>Aplicar a todos os sem cliente</button></form></div>")
+                     "<button name='acao' value='todos_sem_cliente' "
+                     f"onclick=\"return confirm('Colocar este cliente em todos os {sem_cli} processos que estão sem cliente?')\">"
+                     "Aplicar a todos os sem cliente</button>"
+                     + ajuda("Coloca o cliente digitado em todos os processos que estão sem cliente (e cadastra o cliente, se for novo). "
+                             "Não mexe nos que já têm cliente. Use só se todos os processos sem cliente são desse mesmo cliente.")
+                     + "</form></div>")
         faltando = sum(1 for p in carteira if p.get("cliente") and not (p.get("polo_cliente") and p.get("parte_contraria")))
         sem_cliente = sum(1 for p in carteira if not p.get("cliente"))
         if carteira:
@@ -137,16 +211,31 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                      f"<p class='dica'>{faltando} processo(s) com cliente e sem polo ou parte contrária; "
                      f"{sem_cliente} sem cliente (escolha o cliente na linha e salve antes). "
                      "A busca leva cerca de 3 segundos por processo.</p>"
-                     f"<button {'disabled' if not faltando else ''}>Completar pelo DJEN</button></form>")
+                     f"<button {'disabled' if not faltando else ''}>Completar pelo DJEN</button>"
+                     + ajuda("Consulta o DJEN (base pública do CNJ) pelo número de cada processo para descobrir o lado do cliente e a "
+                             "parte contrária. Só os números dos processos saem do computador; só preenche o que está vazio. Pode "
+                             "levar alguns minutos (cerca de 3 segundos por processo). Fica apagado quando não há o que completar.")
+                     + "</form>")
 
         # 4. descoberta
-        h.append(f"<h2>4. Descoberta no DJEN</h2><form class='caixa' method='post' action='/cadastro/descobrir'>{oculto}"
+        h.append("<h2>4. Descoberta no DJEN"
+                 + ajuda("Ajuda a achar processos dos seus clientes que ainda não estão na carteira, procurando o nome deles nas "
+                         "publicações oficiais (DJEN, do CNJ). É opcional.")
+                 + f"</h2><form class='caixa' method='post' action='/cadastro/descobrir'>{oculto}"
                  "<p class='dica'>Procura publicações pelo nome de cada cliente e lista processos que não estão na carteira. "
                  "Só aparece processo com publicação no período. Nada entra sozinho.</p>"
-                 "<label>Últimos <input type='text' name='dias' value='180' style='width:60px'> dias</label> "
-                 "<button>Procurar</button></form>")
+                 "<label>Últimos <input type='text' name='dias' value='180' style='width:60px'> dias</label>"
+                 + ajuda("Quantos dias para trás procurar publicações (de 1 a 730). Quanto mais dias, mais demora.")
+                 + " <button>Procurar</button>"
+                 + ajuda("Consulta o DJEN (base pública do CNJ) pelo nome de cada cliente cadastrado e das variações dele. O nome do "
+                         "cliente sai do computador nessa busca. Nada entra na carteira sozinho: os achados aparecem logo abaixo para "
+                         "você incluir ou ignorar. Pode levar alguns minutos.")
+                 + "</form>")
         if pendentes:
-            h.append("<table><tr><th>Processo</th><th>Cliente</th><th>Polo</th><th>Outras partes</th><th>Última publicação</th><th></th></tr>")
+            h.append("<table><tr><th>Processo</th><th>Cliente</th><th>Polo</th><th>Outras partes</th><th>Última publicação</th><th>"
+                     + ajuda("\"Incluir\" coloca o processo na carteira (com o cliente e o lado que o DJEN indicou). \"Ignorar\" some "
+                             "com ele e ele não volta a ser sugerido. Cuidado com homônimos: confira se o processo é mesmo do seu cliente.")
+                     + "</th></tr>")
             for d in pendentes:
                 h.append(f"<tr><td>{_e(d['numero'])}<br><span class='dica'>{_e(d['tribunal'])}</span></td>"
                          f"<td>{_e(d['cliente'])}</td><td>{_e(d.get('polo_cliente') or '?')}</td>"

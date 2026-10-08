@@ -33,7 +33,7 @@ import ficha
 from painel import assistente as ass
 from painel import entregas as ent
 from painel import perfil as per
-from painel.base import _ir, _msg
+from painel.base import _ir, _msg, ajuda
 from painel.entregas import ESTILO_FLUXO, Indisponivel, modulo
 
 EXTENSOES_MIGRACAO = (".xlsx", ".csv", ".docx", ".txt", ".md")
@@ -113,9 +113,22 @@ def html_do_mapeamento(dados, selecionado, previa, oculto, lote, nome):
              f"{arq['processos']} processo(s)"
              + ("" if editavel else "<p class='dica'>Este arquivo já está num formato conhecido: as colunas são reconhecidas "
                                     "automaticamente. Confira abaixo e escolha o modelo de destino.</p>") + "</div>")
+    h.append("<div class='caixa'><b>O que fazer agora</b><ol><li>Confira, coluna por coluna, para qual campo do programa ela vai "
+             "(a sugestão automática costuma acertar, mas confira).</li><li>Escolha os modelos de destino e dê um nome ao novo "
+             "relatório.</li><li>Clique em <b>Ver como ficou</b> para uma prévia e, estando bem, em <b>Converter</b>.</li></ol>"
+             "<p class='dica'>O arquivo original não é alterado em nenhum momento.</p></div>")
     h.append(f"<form class='caixa' method='post' action='/migracao/converter'>{oculto}<input type='hidden' name='lote' value='{_e(lote)}'>")
-    h.append("<h2>Mapeamento das colunas</h2><table class='t'><tr><th>Coluna do arquivo</th><th>Exemplos</th><th>Vai para o campo</th>"
-             "<th>Confiança</th><th>Na planilha (B)</th><th>No texto (A)</th></tr>")
+    h.append("<h2>Mapeamento das colunas"
+             + ajuda("Aqui você diz o que cada coluna do seu arquivo significa para o programa (por exemplo, \"Nº Processo\" é o número do "
+                     "processo). É a parte que mais pede a sua conferência: um campo errado vira informação errada no relatório novo.")
+             + "</h2><table class='t'><tr><th>Coluna do arquivo</th><th>Exemplos"
+             + ajuda("Os primeiros valores de verdade que o programa leu nessa coluna, para você reconhecer o que ela contém.")
+             + "</th><th>Vai para o campo"
+             + ajuda("O campo do programa que essa coluna vai alimentar. \"(não usar)\" deixa a coluna de fora do relatório novo, mas ela "
+                     "não se perde: vai para a aba \"Campos não migrados\" da planilha.")
+             + "</th><th>Confiança"
+             + ajuda("O quanto o programa tem certeza da sugestão automática. Quanto menor o número, mais vale conferir.")
+             + "</th><th>Na planilha (B)</th><th>No texto (A)</th></tr>")
     opcoes = opcoes_de_campo()
     validos = {v for v, _ in opcoes}
     for i, l in enumerate(dados["colunas"]):
@@ -133,28 +146,46 @@ def html_do_mapeamento(dados, selecionado, previa, oculto, lote, nome):
                  f"<td>{seletor}</td><td>{conf}</td><td>{_e(planilha)}</td><td>{_e(texto)}</td></tr>")
     h.append("</table>")
     sem = [l for l in dados["colunas"] if not (selecionado.get(l["coluna"], l["campo"]) or "")]
-    h.append(f"<h2>Sem destino ({len(sem)})</h2>")
+    h.append(f"<h2>Sem destino ({len(sem)})"
+             + ajuda("Colunas do seu arquivo que não foram ligadas a nenhum campo. Nada se perde: elas seguem para a aba \"Campos não "
+                     "migrados\" da planilha nova.") + "</h2>")
     if sem:
         h.append("<p class='dica'>Nada se perde: estas colunas vão para a aba \"Campos não migrados\" da planilha.</p><ul>"
                  + "".join(f"<li>{_e(l['coluna'])}</li>" for l in sem) + "</ul>")
     else:
         h.append("<p class='dica'>Todas as colunas têm destino.</p>")
     if previa:
-        h.append(f"<h2>Prévia: {previa['total']} processo(s)</h2><table class='t'><tr><th>Processo</th><th>Cliente</th><th>Momento atual</th><th>Valor da causa</th></tr>"
+        h.append(f"<h2>Prévia: {previa['total']} processo(s)" + ajuda("Os primeiros processos como ficariam com o mapeamento "
+                 "atual. Serve só para conferir: nada foi criado ainda.") + f"</h2><table class='t'><tr><th>Processo</th><th>Cliente</th><th>Momento atual</th><th>Valor da causa</th></tr>"
                  + "".join(f"<tr><td>{_e(f['numero'])}</td><td>{_e(str(ficha.obter(f, 'cliente') or ''))}</td>"
                            f"<td>{_e(str(ficha.obter(f, 'momento_atual') or ''))}</td><td>{_e(ficha.dinheiro_br(ficha.obter(f, 'valor_causa')))}</td></tr>"
                            for f in previa["amostra"]) + "</table>"
                  + (f"<p>{previa['avisos']} aviso(s) na leitura (aparecem na tela de conferência da migração se você importar o arquivo).</p>" if previa["avisos"] else ""))
-    h.append("<h2>Para onde converter</h2>")
+    h.append("<h2>Para onde converter"
+             + ajuda("Os formatos que o programa vai gerar a partir do seu arquivo. Pode marcar mais de um.") + "</h2>")
+    dicas_modelo = {"docx_a": "Um arquivo Word com os andamentos em texto corrido por processo.",
+                    "xlsx_b": "A planilha padrão do programa, com uma linha por processo.",
+                    "dashboard": "Uma página com gráficos, montada a partir da planilha (a planilha é gerada junto)."}
     for k, v in MODELOS_DE_DESTINO.items():
-        h.append(f"<label><input type='checkbox' name='modelos' value='{k}' checked> {_e(v)}</label><br>")
+        h.append(f"<label><input type='checkbox' name='modelos' value='{k}' checked> {_e(v)}</label>"
+                 + ajuda(dicas_modelo.get(k, v)) + "<br>")
     h.append("<p><label>Estilo do texto <select name='estilo_texto'>"
-             + "".join(f"<option value='{k}'>{_e(v)}</option>" for k, v in per.ESTILOS.items()) + "</select></label></p>"
-             f"<p><label>Nome do novo relatório<br><input type='text' name='nome' size='50' value='{_e(nome)}' required></label></p>"
+             + "".join(f"<option value='{k}'>{_e(v)}</option>" for k, v in per.ESTILOS.items()) + "</select></label>"
+             + ajuda("Só vale para o relatório em texto (Word): o estilo A é mais completo; o B é compacto.") + "</p>"
+             f"<p><label>Nome do novo relatório<br><input type='text' name='nome' size='50' value='{_e(nome)}' required "
+             "placeholder='ex.: Grupo Exemplo (convertido)'></label>"
+             + ajuda("A conversão cria um relatório novo no painel (uma aba nova), com este nome. O relatório atual e o arquivo "
+                     "original ficam como estão.") + "</p>"
              "<p class='dica'>O arquivo original não é alterado. O resultado entra num relatório novo, com relatório de qualidade da base "
              "para você conferir antes de adotar o formato.</p>"
-             "<button name='acao' value='prever'>Ver como ficou</button> "
-             "<button class='principal' name='acao' value='converter'>Converter</button> <a href='/migracao'>Cancelar</a></form>")
+             "<button name='acao' value='prever'>Ver como ficou</button>"
+             + ajuda("Aplica o mapeamento escolhido e mostra uma prévia dos primeiros processos nesta mesma tela. Não cria nada e não "
+                     "gera arquivo; pode repetir quantas vezes quiser até acertar.")
+             + " <button class='principal' name='acao' value='converter'>Converter</button>"
+             + ajuda("Cria o relatório novo com os processos lidos e gera os arquivos dos modelos marcados (você os vê em Entregas). "
+                     "Nada sai do computador e o arquivo original não é alterado. Para desfazer, basta não usar o relatório novo.")
+             + " <a href='/migracao'>Cancelar</a>"
+             + ajuda("Abandona esta conversão e volta para a escolha do arquivo. Nada é criado.") + "</form>")
     return "".join(h)
 
 
@@ -168,12 +199,18 @@ def registrar(app, TOKEN, cabecalho, token_ok):
     def migracao_migracao():
         return pagina("Migrar de modelo",
                       f"<form class='caixa' method='post' action='/migracao/enviar' enctype='multipart/form-data'>{oculto}"
+                      "<p><b>O que fazer agora</b>: escolha o arquivo do seu relatório antigo e clique em <b>Ler o arquivo</b>. "
+                      "Na próxima tela você confere como as colunas viram campos do programa antes de converter.</p>"
                       "<p>Use quando o seu relatório está num formato diferente do programa (outra planilha, outro texto) e você quer "
                       "convertê-lo. Para só acompanhar um relatório que já está no formato do programa, use "
                       "<a href='/fluxo/importar'>Importar relatórios existentes</a>.</p>"
                       "<div class='zona'><input type='file' name='arquivo' accept='.xlsx,.csv,.docx,.txt,.md' required aria-label='Arquivo a converter'></div>"
-                      "<p class='dica'>Em seguida você confere como as colunas do arquivo vão para os campos do programa.</p>"
-                      "<button class='principal'>Ler o arquivo</button></form>")
+                      + ajuda("O relatório que você quer converter: planilha (.xlsx ou .csv), Word (.docx) ou texto (.txt, .md). Só um "
+                              "arquivo por vez. Ele é copiado para uma pasta de trabalho deste computador; nada é enviado pela internet.")
+                      + "<p class='dica'>Em seguida você confere como as colunas do arquivo vão para os campos do programa.</p>"
+                      "<button class='principal'>Ler o arquivo</button>"
+                      + ajuda("Lê o arquivo e abre a tela de mapeamento das colunas. Ainda não converte nada nem cria relatório.")
+                      + "</form>")
 
     @app.post("/migracao/enviar")
     def migracao_enviar():
@@ -242,10 +279,19 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         selecionado = {l["coluna"]: l["campo"] for l in linhas}      # a proposta inteira vem marcada; a pessoa corrige
         opcoes = opcoes_de_campo()
         h = [f"<form class='caixa' method='post' action='/fluxo/mapear'>{oculto}<input type='hidden' name='lote' value='{_e(pasta.name)}'>",
+             "<p><b>O que fazer agora</b>: para cada coluna, escolha o campo do programa que ela alimenta; é obrigatório indicar qual "
+             "coluna traz o <b>número do processo</b>. Depois clique em <b>Aplicar e voltar à conferência</b>."
+             + ajuda("O mapeamento diz ao programa o que cada coluna da sua planilha significa. Um campo errado vira informação errada "
+                     "nas fichas, por isso confira. Nada é gravado ainda: só depois que você confirmar na conferência.") + "</p>",
              f"<p><b>{_e(arq['nome'])}</b>: {rel.get('processos') and len(rel['processos']) or 0} processo(s) com este mapeamento. "
              "Escolha, para cada coluna, o campo do programa que ela alimenta. O que ficar em \"(não usar)\" não entra no relatório "
              "novo, mas nada se perde: vai para a aba \"Campos não migrados\" quando você converter.</p>",
-             "<table class='t'><tr><th>Coluna do arquivo</th><th>Exemplos</th><th>Vai para o campo</th><th>Confiança</th></tr>"]
+             "<table class='t'><tr><th>Coluna do arquivo</th><th>Exemplos</th><th>Vai para o campo"
+             + ajuda("O campo do programa que a coluna vai alimentar. \"(não usar)\" deixa a coluna de fora; ela não se perde e "
+                     "pode ir para a aba \"Campos não migrados\" quando você converter.")
+             + "</th><th>Confiança"
+             + ajuda("O quanto o programa tem certeza da sugestão automática. Quanto menor o número, mais vale conferir.")
+             + "</th></tr>"]
         for i, l in enumerate(linhas):
             atual = selecionado.get(l["coluna"]) or ""
             extra = [] if atual in {v for v, _ in opcoes} else [(atual, atual)]
@@ -254,8 +300,10 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                      f"<td class='dica'>{_e(' | '.join(map(str, l.get('amostra', [])[:3])))}</td><td><select name='map_{i}'>"
                      + "".join(f"<option value='{_e(v)}' {'selected' if v == atual else ''}>{_e(r)}</option>" for v, r in [*opcoes, *extra])
                      + f"</select></td><td>{conf}</td></tr>")
-        h.append("</table><button class='principal'>Aplicar e voltar à conferência</button> "
-                 f"<a href='{_e(_volta(dados, pasta))}'>Cancelar</a></form>")
+        h.append("</table><button class='principal'>Aplicar e voltar à conferência</button>"
+                 + ajuda("Guarda este mapeamento, relê o arquivo com ele e volta à tela de conferência. Ainda não grava nada nas fichas.")
+                 + f" <a href='{_e(_volta(dados, pasta))}'>Cancelar</a>"
+                 + ajuda("Volta à conferência sem mudar o mapeamento.") + "</form>")
         return pagina("Mapeamento das colunas", "".join(h))
 
     @app.post("/fluxo/mapear")

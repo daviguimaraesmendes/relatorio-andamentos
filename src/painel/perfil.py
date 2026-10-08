@@ -31,7 +31,7 @@ from pathlib import Path
 from flask import request
 
 import comum
-from painel.base import _ir, _msg
+from painel.base import _ir, _msg, ajuda
 
 ENTREGAS = {"docx_a": "Relatório em texto (modelo A, arquivo .docx)",
             "xlsx_b": "Planilha (modelo B, arquivo .xlsx)",
@@ -204,52 +204,91 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         import ficha
         h = [cabecalho("perfil"), "<h1>Perfil do relatório</h1>", _msg()]
         if not comum.PROJETO:
-            return "".join(h) + "<p>Crie ou importe um relatório primeiro.</p>"
+            return "".join(h) + "<div class='vazio'>Crie ou importe um relatório primeiro (botão \"+ Novo relatório\").</div>"
         p = carregar()
         marca = lambda cond: "checked" if cond else ""
         sel = lambda atual, valor: "selected" if atual == valor else ""
         h.append(f"<form class='caixa' method='post' action='/perfil/salvar'>{oculto}"
-                 "<p class='dica'>Aqui você diz o que este relatório entrega e como a coleta deve rodar. "
-                 "Pode mudar quando quiser; vale para as próximas coletas e entregas.</p>")
-        h.append("<h2>O que entregar</h2>")
+                 "<p><b>O que fazer agora</b></p>"
+                 "<p class='dica'>Aqui você diz o que este relatório entrega e como a coleta deve rodar. Se você não tem certeza, "
+                 "o que já está marcado serve para a maioria dos casos: confira só o que entregar e a profundidade da coleta e "
+                 "clique em <b>Salvar perfil</b> no fim da página. Pode mudar quando quiser; vale para as próximas coletas e entregas.</p>")
+        h.append("<h2>O que entregar" + ajuda("Os arquivos que o botão \"Gerar entregas\" (tela Entregas) cria com os andamentos "
+                                               "que você aprovou. Marque pelo menos um.") + "</h2>")
+        dicas_entrega = {
+            "docx_a": "Um arquivo Word por cliente, com os andamentos aprovados em linguagem simples. Se houver um .docx seu na "
+                      "pasta entrada/ e o relatório tiver um só cliente, ele serve de molde; o seu arquivo nunca é sobrescrito.",
+            "xlsx_b": "A planilha do relatório, com uma linha por processo e as colunas escolhidas mais abaixo. Também alimenta o painel.",
+            "dashboard": "Uma página (HTML) com gráficos, montada a partir da planilha. Por isso a planilha é gerada junto "
+                         "sempre que você pede o painel."}
         for chave, rotulo in ENTREGAS.items():
-            h.append(f"<p><label><input type='checkbox' name='entregas' value='{chave}' {marca(chave in p['entregas'])}> {e(rotulo)}</label></p>")
+            h.append(f"<p><label><input type='checkbox' name='entregas' value='{chave}' {marca(chave in p['entregas'])}> {e(rotulo)}</label>"
+                     + ajuda(dicas_entrega[chave]) + "</p>")
         h.append("<p><label>Planilha: partir de<br><select name='molde_planilha'>"
                  + "".join(f"<option value='{k}' {sel(p['molde_planilha'], k)}>{e(v)}</option>" for k, v in MOLDES.items())
-                 + "</select></label></p>")
+                 + "</select></label>"
+                 + ajuda("\"Modelo padrão\": o programa monta a planilha do zero. \"Planilha enviada pelo cliente\": usa como base o "
+                         "arquivo .xlsx mais recente da pasta entrada/ e grava uma versão nova atualizada; o arquivo original "
+                         "nunca é sobrescrito.") + "</p>")
         h.append("<p><label>Texto: estilo<br><select name='estilo_texto'>"
                  + "".join(f"<option value='{k}' {sel(p['estilo_texto'], k)}>{e(v)}</option>" for k, v in ESTILOS.items())
-                 + "</select></label></p>")
-        h.append("<h2>Coleta</h2><p><label>Profundidade<br><select name='profundidade'>"
+                 + "</select></label>"
+                 + ajuda("Como o relatório em texto (Word) fica: o estilo A é mais completo; o B é compacto. Só muda a "
+                         "aparência do .docx.") + "</p>")
+        h.append("<h2>Coleta" + ajuda("Como o programa busca os andamentos nos tribunais. A coleta só lê (nunca peticiona nem mexe "
+                                      "no processo).") + "</h2><p><label>Profundidade<br><select name='profundidade'>"
                  + "".join(f"<option value='{k}' {sel(p['profundidade'], k)}>{e(v)}</option>" for k, v in PROFUNDIDADES.items())
-                 + "</select></label></p>")
+                 + "</select></label>"
+                 + ajuda("Quanto do processo o programa abre. Rápido é o mais veloz, mas não lê o conteúdo dos documentos. Completo lê "
+                         "todos e demora mais (e, com IA externa autorizada, envia mais texto). O padrão serve para a maioria.") + "</p>")
         h.append("<p><label>Modo<br><select name='modo_coleta'>"
                  + "".join(f"<option value='{k}' {sel(p['modo_coleta'], k)}>{e(v)}</option>" for k, v in MODOS.items())
-                 + "</select></label></p>")
+                 + "</select></label>"
+                 + ajuda("Contínuo: a coleta só anda dentro da janela de horário abaixo (por exemplo, à noite) e espera fora dela; o "
+                         "computador e o painel precisam estar ligados. Imediato: roda na hora, ignorando a janela, e avisa quanto "
+                         "tempo deve levar.") + "</p>")
         j = p["janela_coleta"]
         h.append(f"<p>No modo contínuo, coletar entre <input type='text' name='janela_inicio' size='5' value='{e(j['inicio'])}'> "
                  f"e <input type='text' name='janela_fim' size='5' value='{e(j['fim'])}'> (HH:MM; "
-                 "se o fim for menor que o início, a janela passa da meia-noite).</p>")
-        h.append("<h2>Dados do cliente</h2>")
+                 "se o fim for menor que o início, a janela passa da meia-noite)."
+                 + ajuda("O horário em que a coleta contínua pode trabalhar, no formato 24 horas (20:00 até 06:00 vai da noite à "
+                         "manhã seguinte). Só vale no modo contínuo.") + "</p>")
+        h.append("<h2>Dados do cliente" + ajuda("Informações que a planilha e o painel usam para calcular indicadores. São opcionais.")
+                 + "</h2>")
         par = p["parametros"]
         h.append(f"<p><label>Número de funcionários (para os indicadores por 100 funcionários)<br>"
-                 f"<input type='text' name='headcount' size='8' value='{e(str(par.get('headcount') or ''))}'></label></p>"
+                 f"<input type='text' name='headcount' size='8' placeholder='ex.: 1200' value='{e(str(par.get('headcount') or ''))}'></label>"
+                 + ajuda("Quantos funcionários o cliente tem. Serve só para o indicador \"processos por 100 funcionários\" da planilha e do "
+                         "painel. Só números inteiros; em branco, o indicador fica sem cálculo.") + "</p>"
                  "<p><label>Empresas do grupo (uma por linha; o painel usa para saber o que é \"da empresa\")<br>"
-                 f"<textarea name='empresas_do_grupo' rows='4'>{e(chr(10).join(par.get('empresas_do_grupo') or []))}</textarea></label></p>")
-        h.append("<h2>Colunas da planilha</h2><p class='dica'>As 29 colunas do modelo B já vêm marcadas; desmarque as que este cliente não usa.</p><div class='colunas'>")
+                 f"<textarea name='empresas_do_grupo' rows='4' placeholder='uma razão social por linha'>"
+                 f"{e(chr(10).join(par.get('empresas_do_grupo') or []))}</textarea></label>"
+                 + ajuda("Os nomes das empresas do mesmo grupo econômico, para o painel separar o que é do grupo do que é de terceiros. "
+                         "Escreva como aparecem nos processos, uma por linha; repetidas são ignoradas.") + "</p>")
+        h.append("<details><summary><b>Colunas da planilha</b>"
+                 + ajuda("Quais colunas a planilha terá. As 29 do modelo B já vêm marcadas; desmarque as que este cliente não usa. "
+                         "Precisa sobrar pelo menos uma.")
+                 + "</summary><p class='dica'>As 29 colunas do modelo B já vêm marcadas; desmarque as que este cliente não usa. "
+                   "<button type='button' onclick=\"document.querySelectorAll('.colunas input').forEach(function(c){c.checked=true})\">"
+                   "Marcar todas</button><button type='button' onclick=\"document.querySelectorAll('.colunas input').forEach(function(c){c.checked=false})\">"
+                   "Desmarcar todas</button></p><div class='colunas'>")
         todas = list(COLUNAS_MODELO_B) + [c for c in ficha.CAMPOS if c not in COLUNAS_MODELO_B]
         for c in todas:
             h.append(f"<label><input type='checkbox' name='colunas_ativas' value='{e(c)}' {marca(c in p['colunas_ativas'])}> "
                      f"{e(rotulo_da_coluna(c))}</label>")
-        h.append("</div><h2>Pasta de trabalho</h2>"
-                 f"<p class='dica'>Os arquivos que você envia ficam em <b>entrada/</b> e os que o programa entrega em <b>saida/</b>. "
+        h.append("</div></details><details><summary><b>Pasta de trabalho</b>"
+                 + ajuda("Onde ficam os arquivos que você envia (entrada/) e os que o programa entrega (saida/). Normalmente não precisa "
+                         "mudar. A pasta indicada precisa já existir.")
+                 + f"</summary><p class='dica'>Os arquivos que você envia ficam em <b>entrada/</b> e os que o programa entrega em <b>saida/</b>. "
                  f"Por padrão, dentro da pasta do relatório ({e(str(comum.PROJETO_DIR))}). Para sincronizar com o Drive para Desktop, "
                  "indique aqui uma pasta dentro do Drive.</p>"
                  f"<p><input type='text' name='pasta_de_trabalho' size='70' value='{e(p.get('pasta_de_trabalho') or '')}' "
-                 "placeholder='deixe em branco para usar a pasta do relatório'></p>")
+                 "placeholder='deixe em branco para usar a pasta do relatório'></p></details>")
         ia = p.get("ia") or {}
         externa = ia.get("consentimento_externo") is True   # só o true explícito conta (CONTRATOS §7)
-        h.append("<h2>Inteligência artificial</h2><p>Motor atual: <b>"
+        h.append("<h2>Inteligência artificial" + ajuda("Mostra qual motor faz os resumos deste relatório. Por padrão, é a IA local, no seu "
+                                                       "computador. Para mudar, vá à tela IA; esta página não altera isso.")
+                 + "</h2><p>Motor atual: <b>"
                  + (f"externo ({e(str(ia.get('provedor')))})" if externa else "local (nada sai do seu computador)")
                  + "</b>. ")
         if any(r.rule == "/ia" for r in app.url_map.iter_rules()):
@@ -262,7 +301,11 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 h.append(ponto(p))
             except Exception:   # um bloco de extensão com defeito não derruba a tela
                 pass
-        h.append("<p><button class='principal'>Salvar perfil</button></p></form>"
+        h.append("<p><button class='principal'>Salvar perfil</button>"
+                 + ajuda("Grava estas escolhas no perfil deste relatório. Vale para as próximas coletas e entregas; arquivos já gerados "
+                         "não mudam. Nada sai do computador. Se algo estiver errado (por exemplo, nenhuma entrega marcada), nada é "
+                         "salvo e a tela diz o que corrigir.")
+                 + "</p></form>"
                  "<style>.colunas{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px}</style>")
         return "".join(h)
 
