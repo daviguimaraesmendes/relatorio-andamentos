@@ -7,13 +7,60 @@ from pathlib import Path
 from flask import request
 
 import comum
-from painel.base import TAREFA, _ir, _msg, _tarefa_rodando, ajuda
+from painel.base import TAREFA, _ir, _msg, _tarefa_rodando, ajuda, volta_para
 
 
-def _bloco_pdpj(oculto, pdpj, log_html):
-    """Testes do login no PDPJ: sempre UMA tentativa, e nenhuma nova depois de falha com credencial enviada."""
+def salvar_acesso(form):
+    """Salva o que veio do formulário de acesso (usada por /acesso e por /configurar). Devolve `(mensagens, erro)`.
+
+    Primeiro confere TUDO; se algo for inválido, não grava nada e devolve `([], texto do que fazer)`. Campo de segredo em
+    branco mantém o que já está no cofre. Senhas e segredos vão só para o cofre do sistema (nunca para arquivo, log ou
+    mensagem); os nomes do escritório e o do revisor vão para o config.json."""
+    import acesso
+    senha = form.get("cert_senha", "")
+    segredo = re.sub(r"\s", "", form.get("totp_secret", "")).upper()
+    cpf = form.get("pdpj_cpf", "").strip()
+    senha_pdpj = form.get("pdpj_senha", "")
+    segredo_pdpj = re.sub(r"\s", "", form.get("pdpj_totp", "")).upper()
+    if cpf and not acesso.cpf_valido(cpf):
+        return [], "O CPF não é válido (11 dígitos). Nada foi salvo."
+    if segredo_pdpj and not acesso.segredo_totp_valido(segredo_pdpj):
+        return [], ("O segredo do autenticador do PDPJ não é válido (letras A-Z e números 2-7). Nada foi salvo.\n"
+                    "Copie de novo o código em texto que o PDPJ mostra ao cadastrar o autenticador e cole inteiro.")
+    if segredo and not acesso.segredo_totp_valido(segredo):
+        return [], ("O segredo do autenticador não é válido (letras A-Z e números 2-7). Nada foi salvo.\n"
+                    "Copie de novo o código que o jus.br mostra em \"Não foi possível ler o QR Code?\" e cole inteiro, sem o QR Code.")
+    msgs = []
+    if senha:
+        acesso.guardar("cert_senha", senha)
+        msgs.append("Senha do certificado guardada no cofre do sistema.")
+    if cpf:
+        acesso.guardar("pdpj_cpf", re.sub(r"\D", "", cpf))
+        msgs.append("CPF do PDPJ guardado no cofre do sistema.")
+    if senha_pdpj:
+        acesso.guardar("pdpj_senha", senha_pdpj)
+        msgs.append("Senha do PDPJ guardada no cofre do sistema.")
+    if segredo_pdpj:
+        acesso.guardar("pdpj_totp", segredo_pdpj)
+        msgs.append("Segredo do autenticador do PDPJ guardado no cofre do sistema.")
+    if segredo:
+        acesso.guardar("totp_secret", segredo)
+        msgs.append("Segredo do autenticador guardado no cofre do sistema.")
+    cfg = comum.config()  # config.json ou, na primeira vez, o exemplo
+    cfg["identificadores_escritorio"] = [l.strip() for l in form.get("identificadores", "").splitlines() if l.strip()]
+    cfg["revisor"] = form.get("revisor", "").strip()
+    comum.save_json(comum.CONFIG_FILE, cfg)
+    msgs.append("Dados do escritório salvos.")
+    return msgs, None
+
+
+def _bloco_pdpj(oculto, pdpj, log_html, embutido=False, pronto=True):
+    """Testes do login no PDPJ: sempre UMA tentativa, e nenhuma nova depois de falha com credencial enviada.
+    `embutido`: sem moldura própria (para dentro de outra caixa); `pronto=False`: faltam dados, o teste fica desligado."""
     t = pdpj.trava()
-    bloqueado = "disabled" if _tarefa_rodando() or t else ""
+    bloqueado = "disabled" if _tarefa_rodando() or t or not pronto else ""
+    faltam = ("" if pronto else "<p class='dica'><b>Teste desligado:</b> falta salvar o CPF, a senha e o segredo do autenticador "
+                                "do PDPJ (passo 2).</p>")
     aviso = ""
     if t:
         aviso = (f"<div class='alerta'><b>Nova tentativa bloqueada.</b> A última falhou em {html.escape(str(t.get('quando', '?')))} "
@@ -23,7 +70,7 @@ def _bloco_pdpj(oculto, pdpj, log_html):
                  "<button>Liberar nova tentativa</button>"
                  + ajuda("Remove o bloqueio de segurança. Faça isso só depois de conferir os dados do PDPJ: uma senha errada repetida "
                          "pode bloquear a sua conta.") + "</form>")
-    return (f"<div class='caixa'><b>Testar o login no PDPJ (PJe do TRT7)</b>"
+    return (f"<div class='{'sub' if embutido else 'caixa'}'><b>Testar o login no PDPJ (PJe do TRT7)</b>"
             + ajuda("Abre o navegador do programa, entra no PJe do TRT7 com o CPF, a senha e o autenticador do PDPJ e abre a Consulta "
                     "Processual pelo menu. Só lê: não consulta processo, não protocola, não assina. Os dados vão só ao PDPJ.")
             + "<p class='dica'>O teste faz <b>uma única tentativa</b>. Se falhar depois de enviar as credenciais, o programa para e "
@@ -39,7 +86,7 @@ def _bloco_pdpj(oculto, pdpj, log_html):
             f"<button class='principal' {bloqueado}>Testar login (uma tentativa)</button>"
             + ajuda("Faz o login de verdade, uma vez. Se der certo, termina com \"ACESSO PDPJ OK\". Se falhar, para e bloqueia novas "
                     "tentativas até você liberar. Acompanhe pela janela do navegador que abre.")
-            + f"</form>{aviso}{log_html}</div>")
+            + f"</form>{faltam}{aviso}{log_html}</div>")
 
 
 def registrar(app, TOKEN, cabecalho, token_ok):
@@ -50,7 +97,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         token_ok()
         import pdpj
         pdpj.liberar()
-        return _ir("/acesso", "Nova tentativa de login no PDPJ liberada. Confira os dados antes de testar de novo.")
+        return _ir(volta_para("/acesso"), "Nova tentativa de login no PDPJ liberada. Confira os dados antes de testar de novo.")
 
     @app.route("/acesso", methods=["GET", "POST"])
     def pagina_acesso():
@@ -58,41 +105,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         cfg = comum.config()  # config.json ou, na primeira vez, o exemplo
         if request.method == "POST":
             token_ok()
-            msgs = []
-            senha = request.form.get("cert_senha", "")
-            segredo = re.sub(r"\s", "", request.form.get("totp_secret", "")).upper()
-            if senha:
-                acesso.guardar("cert_senha", senha)
-                msgs.append("Senha do certificado guardada no cofre do sistema.")
-            cpf = request.form.get("pdpj_cpf", "").strip()
-            senha_pdpj = request.form.get("pdpj_senha", "")
-            if cpf:
-                if not acesso.cpf_valido(cpf):
-                    return _ir("/acesso", "O CPF não é válido (11 dígitos). Nada foi salvo.")
-                acesso.guardar("pdpj_cpf", re.sub(r"\D", "", cpf))
-                msgs.append("CPF do PDPJ guardado no cofre do sistema.")
-            if senha_pdpj:
-                acesso.guardar("pdpj_senha", senha_pdpj)
-                msgs.append("Senha do PDPJ guardada no cofre do sistema.")
-            segredo_pdpj = re.sub(r"\s", "", request.form.get("pdpj_totp", "")).upper()
-            if segredo_pdpj:
-                if not acesso.segredo_totp_valido(segredo_pdpj):
-                    return _ir("/acesso", "O segredo do autenticador do PDPJ não é válido (letras A-Z e números 2-7). Nada foi salvo.\n"
-                                          "Copie de novo o código em texto que o PDPJ mostra ao cadastrar o autenticador e cole inteiro.")
-                acesso.guardar("pdpj_totp", segredo_pdpj)
-                msgs.append("Segredo do autenticador do PDPJ guardado no cofre do sistema.")
-            if segredo:
-                if not acesso.segredo_totp_valido(segredo):
-                    return _ir("/acesso", "O segredo do autenticador não é válido (letras A-Z e números 2-7). Nada foi salvo.\n"
-                                          "Copie de novo o código que o jus.br mostra em \"Não foi possível ler o QR Code?\" e cole inteiro, sem o QR Code.")
-                acesso.guardar("totp_secret", segredo)
-                msgs.append("Segredo do autenticador guardado no cofre do sistema.")
-            nomes = [l.strip() for l in request.form.get("identificadores", "").splitlines() if l.strip()]
-            cfg["identificadores_escritorio"] = nomes
-            cfg["revisor"] = request.form.get("revisor", "").strip()
-            comum.save_json(comum.CONFIG_FILE, cfg)
-            msgs.append("Dados do escritório salvos.")
-            return _ir("/acesso", " ".join(msgs))
+            msgs, erro = salvar_acesso(request.form)
+            return _ir("/acesso", erro or " ".join(msgs))
         st = acesso.situacao()
         pdpj = acesso.situacao_pdpj()
         codigo = acesso.codigo_totp_atual() if st["totp_secret"] else None
@@ -120,7 +134,9 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 f"<div class='caixa'><b>O que fazer agora</b>"
                 + ajuda("Esta tela vale para todos os relatórios. Só você mexe nela. As senhas ficam no cofre do seu computador e "
                         "só são usadas para entrar no jus.br e nos TRTs; a ferramenta apenas lê, nunca protocola nem assina.")
-                + f"<p>{agora}</p></div>"
+                + f"<p>{agora}</p>"
+                "<p class='dica'>Prefere ser guiado, passo a passo? Use a tela <a class='pilula' href='/configurar'>Configurar tudo</a>. "
+                "Esta tela é para ajustes avançados.</p></div>"
                 f"<form class='caixa' method='post'>{oculto}"
                 "<p class='dica'>Os dois segredos abaixo vão direto para o cofre do sistema (Keychain no Mac, Gerenciador "
                 "de Credenciais no Windows). Não ficam em arquivo e não voltam a aparecer na tela. Para trocar, digite de novo; "

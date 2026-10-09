@@ -12,7 +12,7 @@ from pathlib import Path
 from flask import abort, redirect, request
 
 import comum
-from painel.base import TAREFA, WINDOWS, _ir, _msg, _tarefa_rodando, ajuda
+from painel.base import TAREFA, WINDOWS, _ir, _msg, _tarefa_rodando, ajuda, volta_para
 
 
 def registrar(app, TOKEN, cabecalho, token_ok):
@@ -103,7 +103,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
     def tarefa():
         token_ok()
         if _tarefa_rodando():
-            return _ir("/atualizar", "Já há uma tarefa em andamento. Aguarde ou interrompa.")
+            return _ir(volta_para("/atualizar"), "Já há uma tarefa em andamento. Aguarde ou interrompa.")
         tipo = request.form.get("tipo")
         raiz = comum.RAIZ
         py = [sys.executable, "-u"]
@@ -121,7 +121,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             import pdpj
             bloqueio = pdpj.trava() if tipo == "teste_pdpj" else None
             if bloqueio:  # nunca tenta de novo sozinho: a conta do PDPJ pode bloquear
-                return _ir("/acesso", f"Teste não iniciado: a última tentativa falhou em {bloqueio.get('quando', '?')}. "
+                return _ir(volta_para("/acesso"), f"Teste não iniciado: a última tentativa falhou em {bloqueio.get('quando', '?')}. "
                                       "Confira os dados e use \"Liberar nova tentativa\" antes de testar de novo.")
             if tipo == "teste_pdpj":
                 args, descricao = py + [str(raiz / "src" / "pdpj.py"), "--testar"], "Teste de login no PDPJ (uma tentativa)"
@@ -148,7 +148,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         TAREFA.clear()
         TAREFA.update(proc=proc, log=str(log), descricao=descricao, nome=comum.projeto().get("nome", comum.PROJETO or "-"),
                       inicio=f"{datetime.datetime.now():%H:%M}")
-        return redirect({"teste_acesso": "/acesso", "teste_pdpj": "/acesso", "ver_login_pdpj": "/acesso", "ia": "/ia"}.get(tipo, "/atualizar"))
+        return redirect(volta_para(None) or {"teste_acesso": "/acesso", "teste_pdpj": "/acesso", "ver_login_pdpj": "/acesso",
+                                              "ia": "/ia"}.get(tipo, "/atualizar"))
 
     @app.post("/interromper")
     def interromper():

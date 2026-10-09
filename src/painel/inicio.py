@@ -268,9 +268,10 @@ def proximas_acoes(d):
     """Os passos sugeridos, o mais importante primeiro: [(título, explicação, link, botão, ajuda)]."""
     a = []
     if not d["acesso_pronto"]:
-        a.append(("Configurar o acesso ao jus.br", "Falta a senha do certificado e/ou o código do autenticador.",
-                  "/acesso", "Configurar", "Guarda a senha do certificado e o segredo do autenticador no cofre do seu "
-                  "computador (Chaveiro/Gerenciador de Credenciais). Nada disso sai do computador nem aparece em tela."))
+        a.append(("Configurar o acesso", "Falta a senha do certificado e/ou o código do autenticador.",
+                  "/configurar", "Configurar tudo", "Abre a tela guiada onde você informa seus dados, o PDPJ, o jus.br e a IA. "
+                  "Senhas e códigos vão para o cofre do seu computador (Chaveiro/Gerenciador de Credenciais). Nada disso sai "
+                  "do computador nem aparece em tela."))
     if d["processos"] == 0:
         a.append(("Cadastrar clientes e processos", "O relatório ainda não tem processos para acompanhar.", "/cadastro",
                   "Cadastrar", "Abre a tela onde você digita ou importa a lista de clientes e de números de processo. "
@@ -343,6 +344,9 @@ def _hero(d, agora):
             frase = "Nada espera por você agora."
         nota = "Os resumos só entram no relatório depois que você aprova."
         pilula = f"<span class='ini-pilula'>{_e(_plural(d['processos'], 'processo acompanhado', 'processos acompanhados'))}</span>"
+    if not d["acesso_pronto"]:
+        pilula += ("<p style='margin:12px 0 0'><a class='ini-botao principal' href='/configurar'>Configurar tudo</a>"
+                   f"{ajuda('Abre a tela guiada onde você informa seus dados, o PDPJ, o jus.br, a IA e faz os testes. Falta preencher o acesso.')}</p>")
     if d["relatorio"]:
         blocos = (
             ("ambar", d["rascunhos"], "para revisar", "Resumos feitos pela IA que esperam a sua leitura e aprovação. É o "
@@ -365,9 +369,9 @@ def _hero(d, agora):
 def _primeiros_passos(d):
     relatorio = d["relatorio"]
     passos = [
-        ("Configurar o acesso", "Cadastre a senha do certificado digital e o código do autenticador, e o seu nome para as "
-         "aprovações.", "/acesso", "Configurar acesso", d["acesso_pronto"],
-         "Guarda os dados de entrada no jus.br no cofre do seu computador. Eles nunca aparecem em tela, arquivo ou log "
+        ("Configurar tudo", "Uma tela guiada para o seu nome, o PDPJ (Justiça do Trabalho), o jus.br com certificado digital, "
+         "a IA e os testes.", "/configurar", "Configurar tudo", d["acesso_pronto"],
+         "Guarda os dados de entrada nos tribunais no cofre do seu computador. Eles nunca aparecem em tela, arquivo ou log "
          "e não saem daqui."),
         ("Criar o relatório", "Cada relatório é independente: tem clientes, processos e andamentos próprios (por exemplo, "
          "um por grupo econômico).", "/novo", "Criar relatório", relatorio,
@@ -467,8 +471,8 @@ def _cartao_proximas(d):
 def _atalhos():
     return ("<div class='ini-atalhos'>"
             f"{_botao('Atualizar andamentos', '/atualizar', True)}"
-            f"{_botao('Revisar', '/')}{_botao('Gerar planilha', '/entregas')}"
-            f"{ajuda('Atualizar busca andamentos novos no jus.br com o seu certificado. Revisar abre os resumos para você aprovar. Gerar planilha monta os arquivos só com o que você aprovou.')}"
+            f"{_botao('Revisar', '/')}{_botao('Gerar planilha', '/entregas')}{_botao('Configurar tudo', '/configurar')}"
+            f"{ajuda('Atualizar busca andamentos novos no jus.br com o seu certificado. Revisar abre os resumos para você aprovar. Gerar planilha monta os arquivos só com o que você aprovou. Configurar tudo abre a tela guiada de dados, senhas, IA e testes.')}"
             "</div>")
 
 
