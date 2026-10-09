@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from isolamento import TMP  # noqa: E402  (antes de tudo)
 import acesso  # noqa: E402
 import comum  # noqa: E402
+import pdpj  # noqa: E402
 
 GLOBAIS = ("PROJETOS_DIR", "ATUAL_FILE", "CONFIG_FILE", "PROJETO", "PROJETO_DIR", "PROJETO_FILE", "DATA",
            "CARTEIRA_FILE", "CLIENTES_FILE", "EVENTOS_FILE", "ESTADO_FILE", "DOCS_DIR", "TEXTOS_DIR",
@@ -44,12 +45,12 @@ class Tela(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from flask import Flask
-        from painel import acesso_tela, base
+        from painel import acesso_tela, atualizar, base
         cls.salvo = {n: getattr(comum, n) for n in GLOBAIS}
         cls.app = Flask(__name__)
         cls.app.config["TESTING"] = True
         cls.token = "token-de-teste"
-        for tela in (acesso_tela, base):
+        for tela in (acesso_tela, atualizar, base):
             tela.registrar(cls.app, cls.token, base.cabecalho, base.criar_token_ok(cls.token))
         cls.c = cls.app.test_client()
 
@@ -124,6 +125,34 @@ class Tela(unittest.TestCase):
         self.cofre.update(pdpj_cpf=CPF_DIGITOS, pdpj_senha=VALOR_A)
         self.post({"pdpj_cpf": "", "pdpj_senha": ""})
         self.assertEqual((self.cofre["pdpj_cpf"], self.cofre["pdpj_senha"]), (CPF_DIGITOS, VALOR_A))
+
+    def test_bloco_de_teste_do_login_e_a_trava(self):
+        p = self.pagina()
+        self.assertIn("Testar login (uma tentativa)", p)
+        self.assertNotIn("Nova tentativa bloqueada", p)
+        pdpj.travar("recusado", "Credenciais inválidas")
+        self.addCleanup(pdpj.liberar)
+        p = self.pagina()
+        self.assertIn("Nova tentativa bloqueada", p)
+        self.assertIn("Liberar nova tentativa", p)
+        self.assertIn("recusado", p)
+
+    def test_teste_com_trava_nao_dispara_nada(self):
+        pdpj.travar("recusado", "x")
+        self.addCleanup(pdpj.liberar)
+        with mock.patch("subprocess.Popen", side_effect=AssertionError("não deveria iniciar o teste")):
+            r = self.post_tarefa("teste_pdpj")
+        self.assertIn("Teste não iniciado", self.c.get(r.headers["Location"]).get_data(as_text=True))
+
+    def test_liberar_pela_tela(self):
+        pdpj.travar("recusado", "x")
+        self.addCleanup(pdpj.liberar)
+        self.c.post("/acesso/pdpj/liberar", data={"token": self.token})
+        self.assertIsNone(pdpj.trava())
+        self.assertEqual(self.c.post("/acesso/pdpj/liberar", data={}).status_code, 403)       # exige token
+
+    def post_tarefa(self, tipo):
+        return self.c.post("/tarefa", data={"token": self.token, "tipo": tipo})
 
     def test_exige_token(self):
         self.assertEqual(self.c.post("/acesso", data={"pdpj_cpf": CPF_OK}).status_code, 403)

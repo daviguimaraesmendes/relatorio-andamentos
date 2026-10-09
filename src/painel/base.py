@@ -510,7 +510,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             comum.usar_projeto(slug)
         primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json", "/versao.json", "/ia")
         # o assistente e a migração de modelo criam o primeiro relatório: ficam liberados sem relatório
-        if not disponiveis and request.path not in primeiro_uso and not request.path.startswith(("/fluxo", "/migracao")):
+        if not disponiveis and request.path not in primeiro_uso and not request.path.startswith(("/fluxo", "/migracao", "/acesso")):
             return redirect("/novo")
 
     @app.get("/versao.json")

@@ -10,8 +10,47 @@ import comum
 from painel.base import TAREFA, _ir, _msg, _tarefa_rodando, ajuda
 
 
+def _bloco_pdpj(oculto, pdpj, log_html):
+    """Testes do login no PDPJ: sempre UMA tentativa, e nenhuma nova depois de falha com credencial enviada."""
+    t = pdpj.trava()
+    bloqueado = "disabled" if _tarefa_rodando() or t else ""
+    aviso = ""
+    if t:
+        aviso = (f"<div class='alerta'><b>Nova tentativa bloqueada.</b> A última falhou em {html.escape(str(t.get('quando', '?')))} "
+                 f"({html.escape(str(t.get('etapa', '?')))}: {html.escape(str(t.get('mensagem', '')))}). Para não bloquear a conta do "
+                 "PDPJ, nada será tentado sozinho. Confira CPF, senha e autenticador acima, salve, e só então libere.</div>"
+                 f"<form method='post' action='/acesso/pdpj/liberar' style='display:inline'>{oculto}"
+                 "<button>Liberar nova tentativa</button>"
+                 + ajuda("Remove o bloqueio de segurança. Faça isso só depois de conferir os dados do PDPJ: uma senha errada repetida "
+                         "pode bloquear a sua conta.") + "</form>")
+    return (f"<div class='caixa'><b>Testar o login no PDPJ (PJe do TRT7)</b>"
+            + ajuda("Abre o navegador do programa, entra no PJe do TRT7 com o CPF, a senha e o autenticador do PDPJ e abre a Consulta "
+                    "Processual pelo menu. Só lê: não consulta processo, não protocola, não assina. Os dados vão só ao PDPJ.")
+            + "<p class='dica'>O teste faz <b>uma única tentativa</b>. Se falhar depois de enviar as credenciais, o programa para e "
+              "bloqueia novas tentativas até você liberar, para não bloquear a sua conta.</p>"
+            f"<form method='post' action='/tarefa' style='display:inline'>{oculto}<input type='hidden' name='tipo' value='ver_login_pdpj'>"
+            f"<button {'disabled' if _tarefa_rodando() else ''}>Só ver a tela de login (não digita nada)</button>"
+            + ajuda("Abre a página de login do PDPJ e anota quais campos ela tem, sem digitar nada. Serve para conferir que a página "
+                    "abre neste computador, antes de testar com as suas credenciais. Não há risco de bloqueio.")
+            + "</form> "
+            f"<form method='post' action='/tarefa' style='display:inline' onsubmit=\"return confirm('Testar o login agora? "
+            "Será feita UMA tentativa com o CPF, a senha e o autenticador salvos. Se falhar, nada será repetido.')\">"
+            f"{oculto}<input type='hidden' name='tipo' value='teste_pdpj'>"
+            f"<button class='principal' {bloqueado}>Testar login (uma tentativa)</button>"
+            + ajuda("Faz o login de verdade, uma vez. Se der certo, termina com \"ACESSO PDPJ OK\". Se falhar, para e bloqueia novas "
+                    "tentativas até você liberar. Acompanhe pela janela do navegador que abre.")
+            + f"</form>{aviso}{log_html}</div>")
+
+
 def registrar(app, TOKEN, cabecalho, token_ok):
     oculto = f"<input type='hidden' name='token' value='{TOKEN}'>"
+
+    @app.post("/acesso/pdpj/liberar")
+    def liberar_pdpj():
+        token_ok()
+        import pdpj
+        pdpj.liberar()
+        return _ir("/acesso", "Nova tentativa de login no PDPJ liberada. Confira os dados antes de testar de novo.")
 
     @app.route("/acesso", methods=["GET", "POST"])
     def pagina_acesso():
@@ -58,12 +97,18 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         pdpj = acesso.situacao_pdpj()
         codigo = acesso.codigo_totp_atual() if st["totp_secret"] else None
         codigo_pdpj = acesso.codigo_totp_atual(acesso.obter("pdpj_totp")) if pdpj["pdpj_totp"] else None
-        log_teste = ""
-        if TAREFA and TAREFA.get("descricao", "").startswith("Teste de acesso"):
+        import pdpj as pdpj_login
+        log_teste = log_teste_pdpj = ""
+        desc = TAREFA.get("descricao", "") if TAREFA else ""
+        if desc.startswith(("Teste de acesso", "Teste de login no PDPJ", "Tela de login do PDPJ")):
             texto = Path(TAREFA["log"]).read_text(encoding="utf-8", errors="replace")[-3000:] if Path(TAREFA["log"]).exists() else ""
             rodando = _tarefa_rodando()
-            log_teste = (f"<pre class='log'>{html.escape(texto)}</pre>"
-                         + ("<script>setTimeout(()=>location.reload(),3000)</script>" if rodando else ""))
+            log = (f"<pre class='log'>{html.escape(texto)}</pre>"
+                   + ("<script>setTimeout(()=>location.reload(),3000)</script>" if rodando else ""))
+            if desc.startswith("Teste de acesso"):
+                log_teste = log
+            else:
+                log_teste_pdpj = log
         ok = lambda b: "<b style='color:var(--ok)'>configurada ✓</b>" if b else "<b style='color:var(--alerta)'>não configurada</b>"
         if all(st.values()):
             agora = ("Tudo configurado. Confira o código abaixo e clique em <b>Testar acesso</b> uma vez (com o PJe Office aberto) "
@@ -133,6 +178,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                         "O que está vazio nas duas primeiras caixas continua como estava; os nomes e o seu nome são sempre trocados pelo que "
                         "estiver nas caixas.")
                 + "</form>"
+                + _bloco_pdpj(oculto, pdpj_login, log_teste_pdpj) +
                 f"<form class='caixa' method='post' action='/tarefa'>{oculto}<input type='hidden' name='tipo' value='teste_acesso'>"
                 "<b>Testar acesso</b>"
                 + ajuda("Abre um navegador minimizado, entra no jus.br com o certificado e o autenticador e fecha. É só um login de teste: "

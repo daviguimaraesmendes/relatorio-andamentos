@@ -37,27 +37,27 @@
   "tipo": "text/html"
  },
  "GET /acesso com teste concluído": {
-  "sha256": "1af191cb0a9f522f",
+  "sha256": "adcfa66a5b5c9941",
   "status": 200,
-  "tamanho": 41065,
+  "tamanho": 43458,
   "tipo": "text/html"
  },
  "GET /acesso com teste em andamento": {
-  "sha256": "d98dc79cf331897a",
+  "sha256": "3d2215d21082455f",
   "status": 200,
-  "tamanho": 41269,
+  "tamanho": 43678,
   "tipo": "text/html"
  },
  "GET /acesso nada configurado": {
-  "sha256": "601ef7ce6fe57995",
+  "sha256": "fb0d9f97af5c9250",
   "status": 200,
-  "tamanho": 41072,
+  "tamanho": 43465,
   "tipo": "text/html"
  },
  "GET /acesso sem relatório": {
-  "sha256": "e708ce933735ba5f",
+  "sha256": "1d569e40c4484b5d",
   "status": 200,
-  "tamanho": 40966,
+  "tamanho": 43359,
   "tipo": "text/html"
  },
  "GET /atualizar conferência concluída": {
@@ -731,21 +731,21 @@
   ]
  ],
  "mensagem /acesso salva": {
-  "sha256": "d1389920bd73ceb0",
+  "sha256": "cd59d38237fca286",
   "status": 200,
-  "tamanho": 41775,
+  "tamanho": 44168,
   "tipo": "text/html"
  },
  "mensagem /acesso segredo inválido": {
-  "sha256": "4c81cb7dac8fcc29",
+  "sha256": "270159a21201a597",
   "status": 200,
-  "tamanho": 41298,
+  "tamanho": 43691,
   "tipo": "text/html"
  },
  "mensagem /acesso só dados": {
-  "sha256": "78b95169f0ad79f0",
+  "sha256": "21d17b54bee4048f",
   "status": 200,
-  "tamanho": 41618,
+  "tamanho": 44011,
   "tipo": "text/html"
  },
  "mensagem /cadastro após criar": {
@@ -952,6 +952,7 @@
  "rotas": [
   "/ GET -> inicio",
   "/acesso GET,POST -> pagina_acesso",
+  "/acesso/pdpj/liberar POST -> liberar_pdpj",
   "/atencao.json GET -> atencao_json",
   "/atualizar GET -> atualizar",
   "/busca GET -> busca_tela",

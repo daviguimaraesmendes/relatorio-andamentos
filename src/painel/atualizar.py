@@ -117,6 +117,16 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             descricao = "Atualização no jus.br"
         elif tipo == "teste_acesso":
             args, descricao = py + [str(raiz / "src" / "coletor.py"), "--testar-login"], "Teste de acesso ao jus.br"
+        elif tipo in ("teste_pdpj", "ver_login_pdpj"):
+            import pdpj
+            bloqueio = pdpj.trava() if tipo == "teste_pdpj" else None
+            if bloqueio:  # nunca tenta de novo sozinho: a conta do PDPJ pode bloquear
+                return _ir("/acesso", f"Teste não iniciado: a última tentativa falhou em {bloqueio.get('quando', '?')}. "
+                                      "Confira os dados e use \"Liberar nova tentativa\" antes de testar de novo.")
+            if tipo == "teste_pdpj":
+                args, descricao = py + [str(raiz / "src" / "pdpj.py"), "--testar"], "Teste de login no PDPJ (uma tentativa)"
+            else:
+                args, descricao = py + [str(raiz / "src" / "pdpj.py"), "--inspecionar"], "Tela de login do PDPJ (sem digitar nada)"
         elif tipo == "ia":
             args, descricao = py + [str(raiz / "src" / "ia_local.py"), "--instalar"], "Instalação da IA local"
         elif tipo == "conferencia":
@@ -138,7 +148,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         TAREFA.clear()
         TAREFA.update(proc=proc, log=str(log), descricao=descricao, nome=comum.projeto().get("nome", comum.PROJETO or "-"),
                       inicio=f"{datetime.datetime.now():%H:%M}")
-        return redirect({"teste_acesso": "/acesso", "ia": "/ia"}.get(tipo, "/atualizar"))
+        return redirect({"teste_acesso": "/acesso", "teste_pdpj": "/acesso", "ver_login_pdpj": "/acesso", "ia": "/ia"}.get(tipo, "/atualizar"))
 
     @app.post("/interromper")
     def interromper():
