@@ -60,6 +60,10 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                          "<a href='/'>Ir para a revisão</a>")
             h.append("</div>")
         bloqueado = "disabled" if _tarefa_rodando() else ""
+        from painel.base import _ia_local_pronta
+        if not _ia_local_pronta():
+            h.append("<div class='alerta'>A IA local ainda não está instalada: a atualização coleta tudo normalmente, mas os "
+                     "documentos entram na revisão sem resumo. <a href='/ia'>Instalar a IA local</a></div>")
         h.append(f"<form class='caixa' method='post' action='/tarefa' onsubmit=\"return confirm('Começar a buscar andamentos agora? "
                  "O programa vai entrar no jus.br com o seu certificado e pode levar vários minutos. O PJe Office precisa estar aberto.')\">"
                  f"{oculto}<input type='hidden' name='tipo' value='rodada'>"
@@ -113,6 +117,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             descricao = "Atualização no jus.br"
         elif tipo == "teste_acesso":
             args, descricao = py + [str(raiz / "src" / "coletor.py"), "--testar-login"], "Teste de acesso ao jus.br"
+        elif tipo == "ia":
+            args, descricao = py + [str(raiz / "src" / "ia_local.py"), "--instalar"], "Instalação da IA local"
         elif tipo == "conferencia":
             dias = re.sub(r"\D", "", request.form.get("dias", "7")) or "7"
             args = py + [str(raiz / "src" / "conferencia.py"), "--projeto", comum.PROJETO, "--dias", dias, "--sem-abrir"]
@@ -132,7 +138,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         TAREFA.clear()
         TAREFA.update(proc=proc, log=str(log), descricao=descricao, nome=comum.projeto().get("nome", comum.PROJETO or "-"),
                       inicio=f"{datetime.datetime.now():%H:%M}")
-        return redirect("/acesso" if tipo == "teste_acesso" else "/atualizar")
+        return redirect({"teste_acesso": "/acesso", "ia": "/ia"}.get(tipo, "/atualizar"))
 
     @app.post("/interromper")
     def interromper():

@@ -22,7 +22,9 @@ from flask import request
 
 import comum
 import ia
-from painel.base import _ir, _msg, ajuda
+from pathlib import Path
+
+from painel.base import TAREFA, _ir, _msg, _tarefa_rodando, ajuda
 
 TRANSPORTE = None
 FABRICA_CLIENTE = None
@@ -153,6 +155,43 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                         "o botão Testar na tabela acima.")
                 + "</form>" + SCRIPT_TIPOS)
 
+    def _bloco_ia_local():
+        """IA local (Ollama + modelo): estado e botão para instalar sob demanda (vale para todos os relatórios)."""
+        import ia_local
+        import resumir
+        modelo = resumir.modelo_escolhido()
+        try:
+            st = ia_local.situacao(modelo)
+        except Exception:  # noqa: BLE001 - a verificação nunca derruba a tela de IA
+            st = {"instalado": False, "modelo_baixado": False}
+        rodando = _tarefa_rodando()
+        ok = lambda b: "<b style='color:var(--ok)'>pronto ✓</b>" if b else "<b style='color:var(--alerta)'>falta</b>"
+        log = ""
+        if TAREFA and TAREFA.get("descricao", "").startswith("Instalação da IA"):
+            texto = Path(TAREFA["log"]).read_text(encoding="utf-8", errors="replace")[-6000:] if Path(TAREFA["log"]).exists() else ""
+            log = (f"<pre class='log' id='log'>{_e(texto)}</pre>"
+                   "<script>const l=document.getElementById('log');l.scrollTop=l.scrollHeight;</script>"
+                   + ("<script>setTimeout(()=>location.reload(),3000)</script>" if rodando else ""))
+        completo = st["instalado"] and st["modelo_baixado"]
+        botao = ("" if completo else
+                 f"<form method='post' action='/tarefa'>{oculto}<input type='hidden' name='tipo' value='ia'>"
+                 f"<button class='principal' {'disabled' if rodando else ''}>Instalar IA local</button>"
+                 + ajuda("Baixa da internet o Ollama (se faltar) e o modelo de resumo, de 2 a 3,5 GB. Só baixa programas: nenhum "
+                         "documento seu sai do computador. Pode levar vários minutos; se a conexão cair, clique de novo e ele continua.")
+                 + "</form>")
+        return ("<h2>IA local (neste computador)"
+                + ajuda("É a IA que resume os documentos sem tirá-los do computador. Ela usa o Ollama e um modelo de linguagem, "
+                        "que são baixados uma vez e ficam guardados aqui. Se você preferir um serviço externo, escolha-o mais abaixo.")
+                + "</h2><div class='caixa'><p class='dica'>A IA que resume os documentos roda "
+                "<b>neste computador</b>: nenhum documento de cliente é enviado para a internet. Ela é opcional, e não vem junto "
+                "com o programa porque ocupa de 2 a 3,5 GB. Sem ela, os andamentos são coletados normalmente e os documentos "
+                "entram na revisão sem resumo.</p>"
+                f"<p>Motor (Ollama): {ok(st['instalado'])}<br>Modelo <b>{_e(modelo)}</b>: {ok(st['modelo_baixado'])}</p>"
+                + ("<p><b>Tudo pronto.</b> Os próximos resumos já usam esta IA.</p>" if completo else
+                   "<p class='dica'>O botão baixa o motor (se faltar) e o modelo, com a internet do computador. "
+                   "Pode levar vários minutos; se a conexão cair, clique de novo que continua de onde parou.</p>")
+                + botao + log + "</div>")
+
     @app.get("/ia")
     def pagina_ia():
         perfil = ia.carregar_perfil()
@@ -173,6 +212,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
              "entendeu o que será enviado. Sem os três passos, nada sai do computador.</p>"
              "<p class='dica'>O Claude Code é um serviço externo, <b>não</b> uma IA local: o texto autorizado vai à Anthropic pela sua "
              "assinatura, em vez da API.</p></div>"]
+
+        h.append(_bloco_ia_local())
 
         # 1. provedores cadastrados
         h.append("<h2>1. Provedores cadastrados"

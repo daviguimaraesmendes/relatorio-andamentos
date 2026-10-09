@@ -300,6 +300,16 @@ GRUPOS = {"inicio": 0, "fluxo": 0, "atualizar": 0, "revisar": 0, "planilha": 0,
 NOME_DO_PAINEL = "Relatório de Andamentos"
 
 
+def _ia_local_pronta():
+    """O motor local (Ollama) está instalado? Verificação barata (sem rede nem subprocesso), usada em todo cabeçalho; o
+    detalhe (modelo baixado) fica na tela /ia. Qualquer erro vale 'não': o cabeçalho nunca quebra a tela."""
+    try:
+        import ia_local
+        return ia_local.ollama_exe() is not None
+    except Exception:
+        return False
+
+
 def cabecalho(ativa, titulo=NOME_DO_PAINEL):
     """Devolve o HTML da página até abrir o <main>; cada tela escreve o conteúdo e o navegador fecha o resto."""
     import acesso
@@ -312,14 +322,17 @@ def cabecalho(ativa, titulo=NOME_DO_PAINEL):
 
     # barra lateral: itens agrupados, ícone de linha, rótulo no title/aria-label e no balão ao passar o mouse
     itens, grupo_anterior = [], None
+    ia_pronta = _ia_local_pronta()
     for chave, url, rotulo in (SUBABAS if tem_relatorio else []):
+        if chave == "ia" and not ia_pronta:
+            rotulo = "IA (instalar a IA local)"
         if grupo_anterior is not None and GRUPOS.get(chave) != grupo_anterior:
             itens.append("<div class='sep' role='separator'></div>")
         grupo_anterior = GRUPOS.get(chave)
         eh_ativa = chave == ativa
         itens.append(f"<a class='item{' ativo' if eh_ativa else ''}' href='{url}' title='{e(rotulo, quote=True)}' "
                      f"aria-label='{e(rotulo, quote=True)}'{' aria-current=page' if eh_ativa else ''}>"
-                     f"{_icone(chave)}<span class='rot'>{e(rotulo)}</span></a>")
+                     f"{_icone(chave)}{'' if chave != 'ia' or ia_pronta else '<span class=ponto></span>'}<span class='rot'>{e(rotulo)}</span></a>")
     rotulo_acesso = f"Acesso e escritório {'✓' if pronto else '(configurar)'}"
     acesso_ativo = ativa == "acesso"
     rodape = (f"<div class='rodape-lateral'><a class='item{' ativo' if acesso_ativo else ''}' href='/acesso' "
@@ -495,7 +508,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             slug = rodando                  # coleta em andamento: o relatório não muda até terminar
         if slug in disponiveis and slug != comum.PROJETO:
             comum.usar_projeto(slug)
-        primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json", "/versao.json")
+        primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json", "/versao.json", "/ia")
         # o assistente e a migração de modelo criam o primeiro relatório: ficam liberados sem relatório
         if not disponiveis and request.path not in primeiro_uso and not request.path.startswith(("/fluxo", "/migracao")):
             return redirect("/novo")

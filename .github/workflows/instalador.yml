@@ -1,0 +1,94 @@
+name: Instalador do Windows
+
+# Gera dist/Instalar-Relatorio-de-Andamentos-<versao>.exe (Python embutido; a IA local
+# é baixada depois, por um botão do painel). Publica o .exe numa release em tags v* ou ao disparar
+# manualmente com a versão digitada (cria a tag).
+on:
+  push:
+    branches: [main, "claude/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publicar_versao:
+        description: "Para publicar uma release, digite a versão (ex.: 1.0.0). Em branco, só gera o instalador."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Testes automáticos
+        shell: pwsh
+        run: |
+          python -m pip install -q -r requirements.txt
+          python -m unittest tests.test_ia_local tests.test_pipeline tests.test_abrir_painel -v
+
+      - name: Versão
+        id: versao
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") { $v = "${{ github.ref_name }}".TrimStart("v") }
+          elseif ("${{ inputs.publicar_versao }}") { $v = "${{ inputs.publicar_versao }}".TrimStart("v") }
+          else { $v = "0.1.${{ github.run_number }}" }
+          "v=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Montar Python embutido e pacote
+        shell: pwsh
+        run: ./instalador/montar.ps1
+
+      - name: Compilar o instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DAppVersion=${{ steps.versao.outputs.v }}" instalador\relatorio-andamentos.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC falhou" }
+
+      - name: Teste do instalador (instala em silêncio e abre o painel)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist\Instalar-Relatorio-de-Andamentos-*.exe | Select-Object -First 1
+          $destino = Join-Path $env:RUNNER_TEMP "app"
+          $p = Start-Process $exe.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$destino" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Instalador saiu com codigo $($p.ExitCode)" }
+          $py = "$destino\python\python.exe"
+          & $py -c "import flask, playwright, keyring, pyotp, openpyxl, pypdf, pywinauto; print('importacoes ok')"
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao importar os pacotes no Python embutido" }
+          $painel = Start-Process $py -ArgumentList "`"$destino\src\revisao.py`"" -WorkingDirectory "$destino\src" -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput "$env:RUNNER_TEMP\painel.log" -RedirectStandardError "$env:RUNNER_TEMP\painel.err"
+          $ok = $false
+          foreach ($i in 1..30) {
+            Start-Sleep 1
+            try { $r = Invoke-WebRequest http://127.0.0.1:5072/ia -UseBasicParsing; if ($r.Content -match "IA local") { $ok = $true; break } } catch {}
+          }
+          Stop-Process -Id $painel.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { Get-Content "$env:RUNNER_TEMP\painel.log","$env:RUNNER_TEMP\painel.err" -ErrorAction SilentlyContinue; throw "O painel nao abriu" }
+          Write-Host "Painel abriu e a pagina IA local respondeu."
+          $un = Get-ChildItem $destino -Filter "unins*.exe" | Select-Object -First 1
+          Start-Process $un.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
+          Start-Sleep 3
+          if (Test-Path "$destino\python") { throw "O desinstalador nao removeu o Python embutido" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instalador-windows
+          path: dist/Instalar-Relatorio-de-Andamentos-*.exe
+
+      - name: Publicar na release (em tags ou com a versão digitada no disparo manual)
+        if: github.ref_type == 'tag' || inputs.publicar_versao != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ steps.versao.outputs.v }}"
+          gh release create $tag dist/Instalar-Relatorio-de-Andamentos-*.exe --target "${{ github.sha }}" --title $tag --generate-notes

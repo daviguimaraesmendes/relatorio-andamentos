@@ -60,6 +60,8 @@ Primeira análise com os dados reais. Descoberta de contexto: a rodada do usuár
 | Captcha sem aviso | bipe `beep 2` independente da permissão de notificações; `trazer_navegador_para_frente` só no navegador da automação |
 | `/planilha` com planilha de contingências → 500 | mensagem e atalho para `/fluxo/atualizar` e `/migracao`; aba "Migrar de modelo" na navegação |
 
+Windows: o branch `claude/cool-keller-qbrszm` (instalador Inno Setup + Python embutido, workflow `instalador.yml`, botão de instalar a IA local) foi integrado em 09/10/2026; o módulo dele virou `src/ia_local.py` (`tests/test_ia_local.py`). Nada disso foi executado num Windows real. O workflow roda a cada push na `main`/`claude/**` e publica release em tags `v*`.
+
 Pendências: validar tudo isso numa rodada real; reescrever o histórico do git para tirar o nome de cliente do commit `eccac26` **não foi feito** (exige push forçado; decisão do usuário); o tempo por etapa (`tempo:`) só existe a partir de uma rodada com o beta5; o coletor de documentos do TST continua não escrito (a consulta do TRT já lista o TST: ver o acesso real antes).
 
 ## Beta 2.0.0-beta4 (08/10/2026): planilha de contingências, data-base e painel desatualizado
