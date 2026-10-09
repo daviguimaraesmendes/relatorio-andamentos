@@ -100,8 +100,8 @@ class Tela(unittest.TestCase):
     def test_sem_relatorio_mostra_primeiros_passos(self):
         t = self.pagina("/inicio")
         for trecho in ("BOA NOITE · QUINTA-FEIRA, 08 DE OUTUBRO", "<h1>Olá!</h1>", "RADAR IMEDIATO", "Primeiros passos",
-                       "Configurar o acesso", "Criar o relatório", "Cadastrar clientes e processos", "Rodar o Assistente",
-                       "href='/acesso'", "href='/novo'", "href='/cadastro'", "href='/fluxo'", "class='ajuda'"):
+                       "Configurar tudo", "Criar o relatório", "Cadastrar clientes e processos", "Rodar o Assistente",
+                       "href='/configurar'", "href='/novo'", "href='/cadastro'", "href='/fluxo'", "class='ajuda'"):
             self.assertIn(trecho, t)
         self.assertNotIn("Demandam ação agora", t)
 

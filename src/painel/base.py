@@ -59,6 +59,8 @@ html.expandida .lateral{--lateral-w:244px}
 .item .ic{flex:none}
 .item:hover{background:var(--marinho-2);color:#fff}
 .item.ativo{background:var(--teal-2);color:#fff;font-weight:600}
+.item.destaque:not(.ativo){background:rgba(79,165,152,.2);color:#fff;font-weight:600}
+.item.destaque:not(.ativo):hover{background:var(--teal-2)}
 .item .ponto{position:absolute;left:30px;top:8px;width:10px;height:10px;border-radius:50%;background:#e8a33d;border:2px solid var(--marinho)}
 .item .ponto.ok{background:#4ade80}
 .sep{height:1px;background:rgba(255,255,255,.1);margin:8px 6px;flex:none}
@@ -255,6 +257,7 @@ ICONES = {
     "perfil": "<circle cx='12' cy='8' r='4'/><path d='M4 21c0-4 3.6-7 8-7s8 3 8 7'/>",
     "ia": "<rect x='6' y='6' width='12' height='12' rx='2'/><path d='M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4'/><path d='M10 10h4v4h-4z'/>",
     "config": "<path d='M4 6h9M19 6h1M4 12h3M13 12h7M4 18h9M19 18h1'/><circle cx='16' cy='6' r='2'/><circle cx='10' cy='12' r='2'/><circle cx='16' cy='18' r='2'/>",
+    "configurar": "<path d='M4 20 16 8'/><path d='M14 6l4 4'/><path d='M18 2.5v3M16.5 4h3M7 3.5v2M6 4.5h2M20 14v2M19 15h2'/>",
     "acesso": "<circle cx='8' cy='15' r='4'/><path d='M11 12 20 3M16 7l3 3'/>",
     "menu": "<path d='M4 6h16M4 12h16M4 18h16'/>",
     "busca": "<circle cx='11' cy='11' r='7'/><path d='m20 20-4-4'/>",
@@ -335,7 +338,12 @@ def cabecalho(ativa, titulo=NOME_DO_PAINEL):
                      f"{_icone(chave)}{'' if chave != 'ia' or ia_pronta else '<span class=ponto></span>'}<span class='rot'>{e(rotulo)}</span></a>")
     rotulo_acesso = f"Acesso e escritório {'✓' if pronto else '(configurar)'}"
     acesso_ativo = ativa == "acesso"
-    rodape = (f"<div class='rodape-lateral'><a class='item{' ativo' if acesso_ativo else ''}' href='/acesso' "
+    configurar_ativo = ativa == "configurar"
+    rotulo_cfg = "Configurar tudo"
+    rodape = (f"<div class='rodape-lateral'><a class='item destaque{' ativo' if configurar_ativo else ''}' href='/configurar' "
+              f"title='{rotulo_cfg}' aria-label='{rotulo_cfg}'{' aria-current=page' if configurar_ativo else ''}>"
+              f"{_icone('configurar')}<span class='rot'>{rotulo_cfg}</span></a>"
+              f"<a class='item{' ativo' if acesso_ativo else ''}' href='/acesso' "
               f"title='{e(rotulo_acesso, quote=True)}' aria-label='{e(rotulo_acesso, quote=True)}'{' aria-current=page' if acesso_ativo else ''}>"
               f"{_icone('acesso')}<span class='ponto{' ok' if pronto else ''}'></span><span class='rot'>{e(rotulo_acesso)}</span></a>"
               f"{('<div class=versao>versão ' + e(ver) + '</div>') if ver else ''}</div>")
@@ -363,7 +371,7 @@ def cabecalho(ativa, titulo=NOME_DO_PAINEL):
             f"<button type='button' class='pilula' id='abrir-ajuda' aria-expanded='false' aria-controls='ajuda-tela'>"
             f"{_icone('ajuda', 18)}<span class='txt'>Ajuda</span></button></div></header>")
 
-    rotulo_da_tela = next((r for c, _, r in SUBABAS if c == ativa), "Acesso e escritório" if acesso_ativo else titulo)
+    rotulo_da_tela = next((r for c, _, r in SUBABAS if c == ativa), "Acesso e escritório" if acesso_ativo else "Configurar tudo" if configurar_ativo else titulo)
     ajuda_da_tela = (f"<section class='painel-ajuda' id='ajuda-tela' tabindex='-1' hidden aria-label='Como usar esta tela'>"
                      f"<h2>Como usar esta tela</h2><p>Você está em <b>{e(rotulo_da_tela)}</b>.</p><ul>"
                      f"<li>Os ícones da barra à esquerda levam a cada etapa. Passe o mouse (ou use a tecla Tab) para ver o nome; "
@@ -374,9 +382,9 @@ def cabecalho(ativa, titulo=NOME_DO_PAINEL):
                      f"<p><a href='/inicio'>Ir para o Início</a> <button type='button' class='pilula' id='fechar-ajuda' style='margin-left:12px'>Fechar</button></p></section>")
 
     titulo_da_aba = NOME_DO_PAINEL if titulo.strip() in ("", NOME_DO_PAINEL) else f"{titulo.strip()} · {NOME_DO_PAINEL}"
-    avisos = ("" if pronto or acesso_ativo else
+    avisos = ("" if pronto or acesso_ativo or configurar_ativo else
               "<div class='alerta aviso-topo'>Falta configurar o acesso (senha do certificado e "
-              "código do autenticador). <a href='/acesso'>Configurar agora</a></div>")
+              "código do autenticador). <a href='/configurar'>Configurar tudo</a></div>")
     return (f"<!doctype html><html lang='pt-BR'><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
             f"<title>{e(titulo_da_aba)}</title>"
@@ -438,6 +446,12 @@ def _msg():
 def _ir(caminho, msg=""):
     from urllib.parse import quote
     return redirect(caminho + (("&" if "?" in caminho else "?") + "msg=" + quote(msg) if msg else ""))
+
+
+def volta_para(padrao):
+    """Para onde voltar depois de um botão que dispara tarefa: a tela "Configurar tudo" se foi de lá que veio
+    (campo `volta`; só esse endereço é aceito); senão, o `padrao` da tela de origem."""
+    return "/configurar" if request.form.get("volta") == "/configurar" else padrao
 
 
 def criar_token_ok(TOKEN):
@@ -510,7 +524,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             comum.usar_projeto(slug)
         primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json", "/versao.json", "/ia")
         # o assistente e a migração de modelo criam o primeiro relatório: ficam liberados sem relatório
-        if not disponiveis and request.path not in primeiro_uso and not request.path.startswith(("/fluxo", "/migracao", "/acesso")):
+        if not disponiveis and request.path not in primeiro_uso and not request.path.startswith(("/fluxo", "/migracao", "/acesso", "/configurar")):
             return redirect("/novo")
 
     @app.get("/versao.json")

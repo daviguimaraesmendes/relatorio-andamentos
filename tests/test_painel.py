@@ -415,7 +415,7 @@ class Painel(unittest.TestCase):
         self.get("/acesso", nome="GET /acesso nada configurado", contem=(
             "<h1>Acesso e escritório</h1>", "não configurada", "name='cert_senha'", "name='totp_secret'",
             "name='identificadores'", "name='revisor'", "(configurar)"), ausente=("✓", "Falta configurar o acesso"))
-        self.get("/", nome="GET / com aviso de acesso", contem=("Falta configurar o acesso", "<a href='/acesso'"))
+        self.get("/", nome="GET / com aviso de acesso", contem=("Falta configurar o acesso", "<a href='/configurar'", "Configurar tudo"))
         self.seguir(self.post("/acesso", {"totp_secret": "1!1"}, nome="POST /acesso segredo inválido"),
                     "mensagem /acesso segredo inválido", contem=("O segredo do autenticador não é válido",))
         self.assertEqual(self.cofre, {})
