@@ -36,6 +36,12 @@ import acesso
 import comum
 
 URL_LOGIN = "https://pje.trt{n}.jus.br/primeirograu/login.seam"
+URL_LOGIN_2G = "https://pje.trt{n}.jus.br/segundograu/login.seam"
+
+
+def url_login(trt, grau=1):
+    """Página de login do PJe do TRT: o 1º e o 2º grau são sistemas separados, com a mesma conta do PDPJ."""
+    return (URL_LOGIN_2G if int(grau) == 2 else URL_LOGIN).format(n=trt)
 OTP_SELETORES = "input[name='otp'], input#otp, input[autocomplete='one-time-code']"
 USUARIO_SELETORES = ("input[name='username'], input#username, input[autocomplete='username'], "
                      "input[name='cpf'], input#cpf, input[name='login']")
@@ -124,13 +130,22 @@ def _liberar_se_minha(token):
         liberar()
 
 
+_JANELA_USADA = [None]     # a janela de 30 s do último código enviado nesta execução
+
+
 def pausa_para_janela_do_totp(minimo_s=6, agora=time.time, dormir=time.sleep):
-    """Espera a próxima janela de 30 s se o código atual vence em menos de `minimo_s` segundos."""
-    restante = 30 - (agora() % 30)
-    if restante < minimo_s:
+    """Espera a próxima janela de 30 s se o código atual vence em menos de `minimo_s` segundos OU se um código desta
+    mesma janela já foi enviado (dois logins seguidos, 1º e 2º grau): o PDPJ recusa código repetido."""
+    t = agora()
+    restante = 30 - (t % 30)
+    if restante < minimo_s or int(t // 30) == _JANELA_USADA[0]:
         dormir(restante + 1)
         return True
     return False
+
+
+def marcar_totp_usado(agora=time.time):
+    _JANELA_USADA[0] = int(agora() // 30)
 
 
 # --- o navegador (Playwright) atrás de uma interface pequena, para os testes ---
@@ -259,8 +274,12 @@ def _diag(nav, etapa, mensagem, extra=None):
 
 
 def _logado(nav):
+    """Dentro do PJe (1º ou 2º grau), fora das telas de login e do SSO."""
     u = nav.url()
-    return "/pjekz/" in u and "acesso-negado" not in u
+    partes = u.split("/")
+    host = partes[2] if len(partes) > 2 else ""
+    return (("/pjekz/" in u or "/segundograu/" in u) and "login.seam" not in u and "acesso-negado" not in u
+            and not host.startswith("sso."))
 
 
 def inspecionar(nav, trt=7):
@@ -288,8 +307,8 @@ def _credenciais():
     return cpf, senha, segredo
 
 
-def entrar(nav, trt=7, consulta=True, relogio=time.time, dormir=time.sleep):
-    """Uma tentativa de login no PDPJ e, se `consulta`, a entrada pela Consulta Processual.
+def entrar(nav, trt=7, consulta=True, relogio=time.time, dormir=time.sleep, grau=1):
+    """Uma tentativa de login no PDPJ (PJe do `grau`: 1 ou 2; mesma conta) e, se `consulta`, a entrada pela Consulta Processual.
     Devolve {"ok", "etapa", "mensagem", "captcha"}; levanta PdpjErro quando falha (com `trava` se enviou credencial)."""
     t = trava()
     if t:
@@ -321,7 +340,7 @@ def entrar(nav, trt=7, consulta=True, relogio=time.time, dormir=time.sleep):
         raise PdpjErro(etapa, mensagem, trava=bool(enviou))
 
     try:
-        nav.abrir(URL_LOGIN.format(n=trt))
+        nav.abrir(url_login(trt, grau))
         nav.esperar(2500)
     except Exception as e:
         falhar("abrir", f"Não consegui abrir a página do TRT ({type(e).__name__}).")
@@ -359,6 +378,7 @@ def _fazer_login(nav, cpf, senha, segredo, enviou, falhar, relogio, dormir, envi
         if "otp" not in enviou and nav.campo(OTP_SELETORES) is not None:
             pausa_para_janela_do_totp(dormir=dormir)
             codigo = acesso.codigo_totp_atual(segredo)     # gerado DEPOIS da pausa, com folga na janela de 30 s
+            marcar_totp_usado()
             digitados.append(codigo)
             enviar("otp")                    # marcado ANTES de digitar: nunca reenvia
             if not nav.digitar(OTP_SELETORES, codigo):

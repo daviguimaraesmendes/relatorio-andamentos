@@ -488,3 +488,42 @@ class Totp(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SegundoGrau(Base):
+    def test_url_de_login_por_grau(self):
+        self.assertEqual(pdpj.url_login(7), "https://pje.trt7.jus.br/primeirograu/login.seam")
+        self.assertEqual(pdpj.url_login(7, 2), "https://pje.trt7.jus.br/segundograu/login.seam")
+        self.assertEqual(pdpj.url_login(11, "2"), "https://pje.trt11.jus.br/segundograu/login.seam")
+
+    def test_logado_no_1_e_no_2_grau_mas_nao_nas_telas_de_login(self):
+        class N:
+            def __init__(self, u):
+                self._u = u
+
+            def url(self):
+                return self._u
+        for u in ("https://pje.trt7.jus.br/pjekz/painel/usuario-externo", "https://pje.trt7.jus.br/segundograu/painel/x"):
+            self.assertTrue(pdpj._logado(N(u)), u)
+        for u in ("https://pje.trt7.jus.br/primeirograu/login.seam", "https://pje.trt7.jus.br/segundograu/login.seam",
+                  "https://sso.cloud.pje.jus.br/auth/realms/pje/protocol/openid-connect/auth?redirect=/pjekz/",
+                  "https://pje.trt7.jus.br/pjekz/acesso-negado"):
+            self.assertFalse(pdpj._logado(N(u)), u)
+
+    def test_entrar_no_2_grau_abre_o_login_do_2_grau(self):
+        nav = NavFalso([tela("https://pje.trt7.jus.br/segundograu/login.seam"),
+                        tela("https://sso.exemplo.invalid/auth", usuario=True, senha=True), tela("https://sso.exemplo.invalid/otp", otp=True),
+                        tela("https://pje.trt7.jus.br/segundograu/painel/x")])
+        self.assertTrue(pdpj.entrar(nav, consulta=False, grau=2)["ok"])
+        self.assertEqual(nav.aberturas, ["https://pje.trt7.jus.br/segundograu/login.seam"])
+        self.assertEqual(nav.digitado, ["usuario", "senha", "otp"])
+
+    def test_codigo_do_autenticador_nao_e_reutilizado_na_mesma_janela(self):
+        dormiu = []
+        pdpj._JANELA_USADA[0] = None
+        pdpj.marcar_totp_usado(agora=lambda: 90 + 10)             # enviado na janela que começa em 90 s
+        self.assertTrue(PAUSA_REAL(agora=lambda: 90 + 12, dormir=dormiu.append))        # mesma janela: espera a próxima
+        self.assertEqual(dormiu, [19.0])
+        self.assertFalse(PAUSA_REAL(agora=lambda: 120 + 12, dormir=dormiu.append))      # janela seguinte: segue
+        pdpj._JANELA_USADA[0] = None
+

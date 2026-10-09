@@ -25,9 +25,12 @@ PDF = b"%PDF-1.4 conteudo ficticio"
 CLIENTE = "Cliente Exemplo 01 Ltda"
 
 
-def item(i, data, titulo, documento=False, tipo=None, sigiloso=False):
-    return {"id": i, "idUnicoDocumento": f"u{i}", "titulo": titulo, "tipo": tipo or ("Petição" if documento else ""),
-            "data": data, "documento": documento, "documentoSigiloso": sigiloso}
+def item(i, data, titulo, documento=False, tipo=None, sigiloso=False, cod=None):
+    d = {"id": i, "idUnicoDocumento": f"u{i}", "titulo": titulo, "tipo": tipo or ("Petição" if documento else ""),
+         "data": data, "documento": documento, "documentoSigiloso": sigiloso}
+    if cod is not None:
+        d["codigoInstancia"] = cod
+    return d
 
 
 TIMELINE = [item(101, "2026-10-08T10:00:00.100", "Juntada de petição"),
@@ -463,6 +466,135 @@ class SessaoCaiNoMeio(Base):
         pje_trt.coletar_processo(s, self.proc, {}, [], 5, 10, None, relato)
         self.assertEqual([a["codigo"] for a in relato["avisos"]], ["antigo", "grau_nao_lido"])
         self.assertEqual(relato["graus_lidos"], ["1"])
+
+
+TL2 = [item(201, "2026-10-09T10:00:00.000", "Recebidos os autos no 2º grau", cod=0),
+       item(202, "2026-10-09T10:05:00.000", "Acórdão", documento=True, tipo="Acórdão", cod=2),
+       item(104, "2026-08-01T09:00:00.000", "Contestação", documento=True, tipo="Contestação", cod=1)]      # do 1º grau: não repete
+SOBE = item(111, "2026-10-09T09:30:00.000", "Remetidos os autos para Órgão jurisdicional competente para processar recurso")
+
+
+class SegundoGrau(Base):
+    def lido(self, tl2=None, achar2=True, segunda="sessao", relato=None, estado=None, lista=None, cota=10):
+        s1, ch1 = sessao(timeline=TIMELINE + [SOBE], outra=False)
+        s2, ch2 = sessao(timeline=TL2 if tl2 is None else tl2, acervo=achar2, instancia=2, outra=True)
+        s2.grau = 2
+        estado = {} if estado is None else estado
+        lista = [] if lista is None else lista
+        relato = {} if relato is None else relato
+        chamada = {"sessao": lambda: s2, "nenhuma": lambda: None, "sem": None}[segunda]
+        n = pje_trt.coletar_processo(s1, self.proc, estado, lista, 5, cota, None, relato, segunda=chamada)
+        return n, estado, lista, relato, (ch1, ch2)
+
+    def test_le_os_dois_graus_com_o_rotulo_de_cada_um(self):
+        n, estado, lista, relato, _ = self.lido()
+        self.assertEqual(relato["graus_lidos"], ["1", "2"])
+        self.assertEqual(relato["avisos"], [])
+        graus = {e.get("grau") for e in lista}
+        self.assertEqual(graus, {"1º grau", "2º grau"})
+        do_2g = [e for e in lista if e.get("grau") == "2º grau"]
+        self.assertEqual(sorted(e["tipo_evento"] for e in do_2g), ["documento", "movimento"])
+        self.assertEqual(sorted(estado[N1]["trt"]), ["1", "2"])
+        self.assertEqual(estado[N1]["trt"]["2"]["documentos"], ["202"])               # só o documento do 2º grau
+        self.assertEqual(relato["instancia_2g"]["atual"], 2)
+
+    def test_documento_do_1_grau_visto_no_2_grau_nao_duplica(self):
+        _, _, lista, _, _ = self.lido()
+        ids_doc = [e["doc_id"] for e in lista if e["tipo_evento"] == "documento"]
+        self.assertEqual(sorted(ids_doc), ["102", "104", "202"])
+        self.assertEqual(len(ids_doc), len(set(ids_doc)))
+
+    def test_pdf_do_2_grau_e_pedido_com_grau_2(self):
+        _, _, _, _, (ch1, ch2) = self.lido()
+        self.assertTrue(all("grau=1" in p for p in ch1.pedidos if "/conteudo" in p))
+        self.assertTrue(all("grau=2" in p for p in ch2.pedidos if "/conteudo" in p))
+        self.assertEqual(sum("/conteudo" in p for p in ch2.pedidos), 1)
+
+    def test_segunda_rodada_nao_repete_nada(self):
+        _, estado, lista, _, _ = self.lido()
+        antes = len(lista)
+        n, _, lista, _, (_, ch2) = self.lido(estado=estado, lista=lista)
+        self.assertEqual((n, len(lista)), (0, antes))
+        self.assertFalse([p for p in ch2.pedidos if "/conteudo" in p])
+
+    def test_sem_login_do_2_grau_avisa_e_le_so_o_1(self):
+        n, estado, lista, relato, _ = self.lido(segunda="nenhuma")
+        self.assertEqual(relato["graus_lidos"], ["1"])
+        self.assertEqual([a["codigo"] for a in relato["avisos"]], ["grau_nao_lido"])
+        self.assertIn("login do 2º grau", relato["avisos"][0]["mensagem"])
+        self.assertEqual(sorted(estado[N1]["trt"]), ["1"])
+
+    def test_processo_fora_do_acervo_do_2_grau(self):
+        _, _, _, relato, _ = self.lido(achar2=False)
+        self.assertEqual(relato["graus_lidos"], ["1"])
+        self.assertIn("não está no acervo do 2º grau", relato["avisos"][0]["mensagem"])
+
+    def test_sem_segunda_sessao_configurada_mantem_o_aviso_antigo(self):
+        _, _, _, relato, _ = self.lido(segunda="sem")
+        self.assertIn("O 2º grau não foi lido pelo PJe do advogado", relato["avisos"][0]["mensagem"])
+
+    def test_nao_busca_o_2_grau_sem_indicio_de_recurso(self):
+        s1, _ = sessao(outra=False)
+        chamadas = []
+        relato = {}
+        pje_trt.coletar_processo(s1, self.proc, {}, [], 5, 10, None, relato, segunda=lambda: chamadas.append(1))
+        self.assertEqual(chamadas, [])
+        self.assertEqual(relato["graus_lidos"], ["1"])
+
+    def test_aviso_de_tribunal_superior_quando_o_2_grau_remete_ao_tst(self):
+        tst = TL2 + [item(210, "2026-10-09T11:00:00.000", "Remetidos os autos ao TST para julgamento de recurso de revista", cod=0)]
+        _, _, _, relato, _ = self.lido(tl2=tst)
+        self.assertEqual(relato["graus_lidos"], ["1", "2"])
+        self.assertTrue(any("TST" in a["mensagem"] for a in relato["avisos"]))
+
+    def test_cota_vale_para_os_dois_graus_juntos(self):
+        n, _, lista, _, _ = self.lido(cota=2)
+        self.assertEqual(n, 2)
+        self.assertEqual(sum(1 for e in lista if e["tipo_evento"] == "documento" and e["arquivo"]), 2)
+
+
+class SessaoDaRodada2Grau(Base):
+    def entrar_falso(self, falha_no_2=None):
+        chamadas = []
+
+        def entrar(nav, trt, consulta=True, grau=1):
+            chamadas.append((trt, grau))
+            if falha_no_2 and grau == 2:
+                raise falha_no_2
+        entrar.chamadas = chamadas
+        return entrar
+
+    def test_cada_grau_tem_o_seu_login_e_so_uma_vez(self):
+        e, ctx = self.entrar_falso(), object()
+        s1 = pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e)
+        s2 = pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e, grau=2)
+        pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e, grau=2)
+        self.assertEqual((s1.grau, s2.grau), (1, 2))
+        self.assertEqual(e.chamadas, [(7, 1), (7, 2)])
+
+    def test_o_2_grau_usa_um_contexto_de_navegador_proprio(self):
+        """Caso real: o login do 2º grau no mesmo contexto sobrescrevia os cookies do 1º e os PDFs do 1º falhavam."""
+        navegador = mock.MagicMock()
+        ctx = mock.MagicMock()
+        ctx.browser = navegador
+        usados = []
+        e = self.entrar_falso()
+        pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: (usados.append(c), PaginaFalsa())[1], entrar=e)
+        pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: (usados.append(c), PaginaFalsa())[1], entrar=e, grau=2)
+        self.assertIs(usados[0], ctx)                                  # 1º grau: o contexto da rodada
+        self.assertIs(usados[1], navegador.new_context.return_value)    # 2º grau: outro, isolado
+        self.assertIsNot(usados[1], ctx)
+        navegador.new_context.assert_called_once()
+        pje_trt.zerar_rodada()                                          # fecha o contexto do 2º grau no fim da rodada
+        navegador.new_context.return_value.close.assert_called_once()
+
+    def test_falha_no_2_grau_nao_repete_e_nao_afeta_o_1(self):
+        e, ctx = self.entrar_falso(pdpj.PdpjErro("recusado", "x", trava=True)), object()
+        s1 = pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e)
+        self.assertIsNone(pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e, grau=2))
+        self.assertIsNone(pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e, grau=2))
+        self.assertIs(pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e), s1)
+        self.assertEqual(e.chamadas, [(7, 1), (7, 2)])
 
 
 if __name__ == "__main__":

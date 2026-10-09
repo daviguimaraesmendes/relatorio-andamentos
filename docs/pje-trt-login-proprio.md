@@ -39,6 +39,21 @@ A linha do tempo também marca cada item (`instancia`, `codigoInstancia`). O nú
 dígitos são a unidade de origem (1º grau) mesmo no 2º grau. Ainda a fazer: ler o PJe do 2º grau
 (`/segundograu`, mesmo login do PDPJ), que falta mapear.
 
+## 2º grau (testado em 2026-10-09)
+
+Mesma conta, mesmo caminho, só muda o link de entrada: `https://pje.trt7.jus.br/segundograu/login.seam` -> "Entrar com PDPJ".
+O PDPJ **não reaproveita** a sessão do 1º grau: pede CPF, senha e autenticador de novo (por isso o código do autenticador
+não pode ser repetido na mesma janela de 30 s: `pdpj.marcar_totp_usado`). Depois do login cai no mesmo `/pjekz/painel/...`
+e as chamadas são as mesmas (`/pje-comum-api/api/...`), com `grau=2` no PDF. No 2º grau o processo vem com `instancia: 2`,
+`outraInstancia: true`, relator e órgão colegiado. A linha do tempo traz os documentos dos dois graus (campo
+`codigoInstancia`: 1 ou 2) mas só os andamentos do 2º grau; o leitor pega do 2º grau apenas os documentos `codigoInstancia 2`.
+
+**Os dois graus precisam de contextos de navegador separados:** no mesmo contexto o login do 2º grau sobrescreve os cookies do
+1º e os PDFs do 1º passam a falhar (visto na coleta real). `pje_trt._contexto_para` abre um contexto próprio para o 2º grau.
+
+**Tribunal Superior (TST):** o PJe do TRT não lê o TST. Quando o 2º grau registra remessa ao TST (ou recurso de revista),
+o leitor avisa (`grau_nao_lido`, "conferir no TST à mão"). O TST é outro sistema (falta mapear).
+
 A parte abaixo ("Resultado em uma frase" e adiante) descreve o caminho pela Consulta Processual, que **deixou de
 servir**; fica como registro histórico.
 
