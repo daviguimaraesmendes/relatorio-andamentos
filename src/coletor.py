@@ -169,6 +169,20 @@ def _orientacao_do_login():
     return f"{ultimo.get('mensagem') or 'O login automático não concluiu.'} {oque}".strip()
 
 
+_LOGADOS = set()      # contextos em que o login no jus.br já foi feito (ids)
+
+
+def garantir_login(context):
+    """Login no jus.br só quando um processo precisa dele (processo fora da Justiça do Trabalho, ou trabalhista sem o PJe
+    próprio). Feito uma vez por navegador; quem só coleta pelo PJe do advogado nem chega a usar o certificado."""
+    if id(context) not in _LOGADOS:
+        logar(context)
+
+
+def esquecer_login(context):
+    _LOGADOS.discard(id(context))
+
+
 def logar(context):
     """Login no jus.br. Automático com os segredos do painel (Acesso); se não concluir, a janela aparece
     (em tela cheia) e a pessoa termina o login, com faixa vermelha no painel e aviso repetido a cada 60 s.
@@ -210,6 +224,7 @@ def logar(context):
         page.wait_for_timeout(1500)
     atencao.limpar("login")
     page.close()
+    _LOGADOS.add(id(context))
     print("Login concluído.", flush=True)
 
 
@@ -609,9 +624,10 @@ def _tramitacoes_salvas(reg):
 
 def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, relato=None):
     numero = proc["numero"]
-    if re.search(r"\d{7}-\d{2}\.\d{4}\.5\.", numero):  # Justiça do Trabalho: consulta do próprio TRT
+    if re.search(r"\d{7}-\d{2}\.\d{4}\.5\.", numero):  # Justiça do Trabalho: PJe do advogado ou consulta do próprio TRT
         import trt
         return trt.coletar_processo(context, proc, estado, lista, historico, cota, desde, relato)
+    garantir_login(context)
     reg_proc = estado.get(numero, {})
     salvas = _tramitacoes_salvas(reg_proc)
     # a cada 7 dias refaz a busca: é como se descobre um recurso (tramitação nova)

@@ -550,6 +550,7 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
         except pje_trt.SessaoExpirada as e:
             pje_trt.encerrar_sessao(context, numero)
             print(f"  {e} Usando a consulta pública no resto da rodada.", flush=True)
+    coletor.garantir_login(context)       # a consulta pública exige o login no jus.br antes
     host = host_trt(numero)
     capturas = {"autos": None, "pdfs": {}}
     digitos = re.sub(r"\D", "", numero)

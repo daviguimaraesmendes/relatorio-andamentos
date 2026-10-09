@@ -330,14 +330,19 @@ class TestLogin(unittest.TestCase):
         self.assertEqual((r["erro"]["codigo"], r["erro"]["fatal"]), ("sessao_expirada", True))
 
     def test_os_dois_caminhos_usam_o_mesmo_login(self):
-        """A aba Atualizar (coletor.rodar) e a fila (ColetorReal.abrir) logam por coletor.logar."""
+        """A aba Atualizar (coletor.rodar) loga por coletor.logar; a fila (ColetorReal) só loga quando um processo precisa
+        (coletor.garantir_login, que também passa por coletor.logar): abrir o navegador sozinho não loga."""
         chamadas = []
         fake_pw = mock.MagicMock()
-        with mock.patch.object(coletor, "logar", side_effect=lambda ctx: chamadas.append("logar")), \
+        with mock.patch.object(coletor, "logar", side_effect=lambda ctx: (chamadas.append("logar"), coletor._LOGADOS.add(id(ctx)))), \
                 mock.patch.object(janela, "abrir_navegador", return_value=(mock.Mock(), mock.Mock())), \
                 mock.patch("playwright.sync_api.sync_playwright", return_value=fake_pw):
             real = fila.ColetorReal()
             real.abrir()
+            self.assertEqual(chamadas, [], "abrir o navegador não faz login no jus.br")
+            real._contexto = object()
+            coletor.garantir_login(real._contexto)
+            coletor.garantir_login(real._contexto)                 # uma vez só por navegador
             real.fechar()
             with ficticio.projeto_de_teste(FICHAS[:1]), \
                     mock.patch.object(coletor, "carteira", return_value={"1": {"numero": "1", "cliente": "x"}}), \
@@ -589,7 +594,8 @@ class Base(unittest.TestCase):
                      mock.patch.object(atencao, "trazer_navegador_para_frente", return_value=True),
                      mock.patch.object(janela, "mostrar"), mock.patch.object(janela, "minimizar"),
                      mock.patch.object(janela, "print_da_pagina", side_effect=RuntimeError("sem tela")),
-                     mock.patch.object(coletor, "pausa")):
+                     mock.patch.object(coletor, "pausa"),
+                     mock.patch.object(coletor, "garantir_login")):          # o login do jus.br é de verdade: nunca nos testes
             alvo.start()
             self.addCleanup(alvo.stop)
         self.config = {"coleta": {"pausa_entre_documentos_s": [0, 0], "captcha_espera_min": 1}}

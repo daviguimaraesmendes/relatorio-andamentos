@@ -940,18 +940,20 @@ class ColetorReal:
         import coletor
         import janela
         from playwright.sync_api import sync_playwright
-        print(f"Relatório de Andamentos {comum.versao_do_programa() or '?'}: abrindo o navegador e entrando no jus.br", flush=True)
+        print(f"Relatório de Andamentos {comum.versao_do_programa() or '?'}: abrindo o navegador "
+              "(o login no jus.br só acontece se algum processo precisar dele)", flush=True)
         self._pw = sync_playwright().start()
         try:
             self._navegador, self._contexto = janela.abrir_navegador(self._pw)
-            coletor.logar(self._contexto)
         except BaseException:
             self.fechar()
             raise
 
     def fechar(self):
+        import coletor
         import trt
         print(trt.resumo_dos_captchas(), flush=True)
+        coletor.esquecer_login(self._contexto)
         try:
             trt.fechar_consultas(self._contexto)
         except Exception:
