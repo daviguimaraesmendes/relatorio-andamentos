@@ -84,12 +84,13 @@ def situacao():
     return {"cert_senha": bool(obter("cert_senha")), "totp_secret": bool(obter("totp_secret"))}
 
 
-CHAVES_PDPJ = ("pdpj_cpf", "pdpj_senha", "totp_secret")
+CHAVES_PDPJ = ("pdpj_cpf", "pdpj_senha", "pdpj_totp")
 
 
 def situacao_pdpj():
-    """O que já está configurado para o login por CPF e senha no PDPJ/PJe (sem revelar nada). O código do
-    autenticador (TOTP) é o mesmo da conta do jus.br: `totp_secret`."""
+    """O que já está configurado para o login por CPF e senha no PDPJ/PJe (sem revelar nada). O segredo do
+    autenticador do PDPJ (`pdpj_totp`) é INDEPENDENTE do do jus.br (`totp_secret`): são contas que podem ser de
+    pessoas diferentes."""
     return {c: bool(obter(c)) for c in CHAVES_PDPJ}
 
 

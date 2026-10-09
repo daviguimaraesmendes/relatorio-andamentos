@@ -81,23 +81,39 @@ class Tela(unittest.TestCase):
 
     def test_pagina_mostra_os_campos_sem_nada_configurado(self):
         p = self.pagina()
-        for texto in ("CPF da conta do PDPJ", "Senha da conta do PDPJ", "name='pdpj_cpf'", "name='pdpj_senha'", "name='totp_secret'"):
+        for texto in ("CPF da conta do PDPJ", "Senha da conta do PDPJ", "name='pdpj_cpf'", "name='pdpj_senha'", "name='pdpj_totp'", "name='totp_secret'"):
             self.assertIn(texto, p)
-        self.assertEqual(p.count("não configurada"), 4)       # certificado, CPF, senha do PDPJ e autenticador
-        self.assertEqual(acesso.situacao_pdpj(), {"pdpj_cpf": False, "pdpj_senha": False, "totp_secret": False})
+        self.assertEqual(p.count("não configurada"), 5)       # certificado, autenticador do jus.br, CPF, senha e autenticador do PDPJ
+        self.assertEqual(acesso.situacao_pdpj(), {"pdpj_cpf": False, "pdpj_senha": False, "pdpj_totp": False})
 
     def test_guarda_no_cofre_e_nunca_devolve_o_valor(self):
-        r = self.post({"pdpj_cpf": CPF_OK, "pdpj_senha": VALOR_A, "totp_secret": VALOR_B})
+        r = self.post({"pdpj_cpf": CPF_OK, "pdpj_senha": VALOR_A, "pdpj_totp": VALOR_B})
         self.assertEqual(r.status_code, 302)
         self.assertEqual(self.cofre["pdpj_cpf"], CPF_DIGITOS)          # só os dígitos
         self.assertEqual(self.cofre["pdpj_senha"], VALOR_A)
-        self.assertEqual(self.cofre["totp_secret"], VALOR_B)
-        self.assertEqual(acesso.situacao_pdpj(), {"pdpj_cpf": True, "pdpj_senha": True, "totp_secret": True})
+        self.assertEqual(self.cofre["pdpj_totp"], VALOR_B)
+        self.assertNotIn("totp_secret", self.cofre)            # o do jus.br é outro e não é tocado
+        self.assertEqual(acesso.situacao_pdpj(), {"pdpj_cpf": True, "pdpj_senha": True, "pdpj_totp": True})
         pagina = self.pagina()
         for segredo in (CPF_DIGITOS, CPF_OK, VALOR_A, VALOR_B):
             self.assertNotIn(segredo, pagina)
         self.assertNotIn(CPF_DIGITOS, comum.CONFIG_FILE.read_text(encoding="utf-8"))
         self.assertNotIn(VALOR_A, comum.CONFIG_FILE.read_text(encoding="utf-8"))
+
+    def test_os_dois_autenticadores_sao_independentes(self):
+        outro = "".join(["KRSXG5DS", "NFXGOZLS"])
+        self.post({"totp_secret": VALOR_B})
+        self.assertEqual(acesso.situacao_pdpj()["pdpj_totp"], False)       # o do jus.br não vale para o PDPJ
+        self.post({"pdpj_totp": outro})
+        self.assertEqual((self.cofre["totp_secret"], self.cofre["pdpj_totp"]), (VALOR_B, outro))
+        p = self.pagina()
+        self.assertEqual(p.count("Código de agora"), 2)                    # cada um com o seu código de conferência
+        self.assertNotIn("o mesmo do jus.br e do PDPJ", p)
+
+    def test_segredo_do_pdpj_invalido_nao_salva(self):
+        r = self.post({"pdpj_totp": "isto não é base32 !!"})
+        self.assertIn("PDPJ não é válido", self.c.get(r.headers["Location"]).get_data(as_text=True))
+        self.assertEqual(self.cofre, {})
 
     def test_cpf_invalido_nao_salva_nada(self):
         r = self.post({"pdpj_cpf": CPF_DIGITOS[:-1] + str((int(CPF_DIGITOS[-1]) + 1) % 10), "pdpj_senha": VALOR_A})

@@ -35,6 +35,13 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             if senha_pdpj:
                 acesso.guardar("pdpj_senha", senha_pdpj)
                 msgs.append("Senha do PDPJ guardada no cofre do sistema.")
+            segredo_pdpj = re.sub(r"\s", "", request.form.get("pdpj_totp", "")).upper()
+            if segredo_pdpj:
+                if not acesso.segredo_totp_valido(segredo_pdpj):
+                    return _ir("/acesso", "O segredo do autenticador do PDPJ não é válido (letras A-Z e números 2-7). Nada foi salvo.\n"
+                                          "Copie de novo o código em texto que o PDPJ mostra ao cadastrar o autenticador e cole inteiro.")
+                acesso.guardar("pdpj_totp", segredo_pdpj)
+                msgs.append("Segredo do autenticador do PDPJ guardado no cofre do sistema.")
             if segredo:
                 if not acesso.segredo_totp_valido(segredo):
                     return _ir("/acesso", "O segredo do autenticador não é válido (letras A-Z e números 2-7). Nada foi salvo.\n"
@@ -50,6 +57,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         st = acesso.situacao()
         pdpj = acesso.situacao_pdpj()
         codigo = acesso.codigo_totp_atual() if st["totp_secret"] else None
+        codigo_pdpj = acesso.codigo_totp_atual(acesso.obter("pdpj_totp")) if pdpj["pdpj_totp"] else None
         log_teste = ""
         if TAREFA and TAREFA.get("descricao", "").startswith("Teste de acesso"):
             texto = Path(TAREFA["log"]).read_text(encoding="utf-8", errors="replace")[-3000:] if Path(TAREFA["log"]).exists() else ""
@@ -76,8 +84,18 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 + ajuda("Serve para a ferramenta digitar a senha do certificado no PJe Office quando entra no jus.br. Fica no cofre do "
                         "sistema, não em arquivo, e nunca é mostrada de volta. Só sai do computador pelo próprio login no jus.br.")
                 + "<br><input type='password' name='cert_senha' autocomplete='off' size='30' placeholder='deixe em branco para manter'></label></p>"
-                "<p class='dica'><b>Login no PJe dos TRTs (conta do PDPJ)</b>: o CPF, a senha e o segredo do autenticador (campo logo abaixo) "
-                "da sua conta. Cada pessoa cadastra os seus, só neste computador.</p>"
+                f"<p><label>Segredo do autenticador do <b>jus.br</b> (código de 16 a 32 letras e números): {ok(st['totp_secret'])}"
+                + ajuda("É o código em texto que o jus.br mostra quando você cadastra o aplicativo autenticador (opção \"Não foi possível "
+                        "ler o QR Code?\"). Com ele a ferramenta gera sozinha o código de 6 dígitos do login. Trate como senha: fica no cofre "
+                        "do sistema e nunca é mostrado de volta.")
+                + "<br><input type='password' name='totp_secret' autocomplete='off' size='40' placeholder='deixe em branco para manter'></label>"
+                + (f"<br><span class='dica'>Código de agora, gerado com o segredo guardado: <b>{codigo}</b>. "
+                   "Confira se é o mesmo do app autenticador do seu celular."
+                   + ajuda("Se o número for igual ao do app do celular, o segredo está certo. Se for diferente, digite o segredo de novo "
+                           "(ou confira se a hora do computador está certa).") + "</span>" if codigo else "") + "</p>"
+                "<p class='dica'><b>Login no PJe dos TRTs (conta do PDPJ)</b>: CPF, senha e segredo do autenticador da conta do PDPJ. "
+                "É uma conta própria, <b>independente da do jus.br acima</b> (podem ser de pessoas diferentes, com autenticadores diferentes). "
+                "Cada pessoa cadastra os seus, só neste computador.</p>"
                 f"<p><label>CPF da conta do PDPJ: {ok(pdpj['pdpj_cpf'])}"
                 + ajuda("O CPF que você usa para entrar no PJe com \"Entrar com PDPJ\". Fica só no cofre deste computador (não vai para "
                         "arquivo, log nem para o pacote do programa) e não volta a aparecer na tela. Só é digitado no login do PDPJ.")
@@ -88,15 +106,15 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                         "volta a aparecer na tela. Só sai do computador pelo próprio login no PDPJ.")
                 + "<br><input type='password' name='pdpj_senha' autocomplete='off' size='30' "
                   "placeholder='deixe em branco para manter'></label></p>"
-                f"<p><label>Segredo do autenticador (TOTP: código de 16 a 32 letras e números), o mesmo do jus.br e do PDPJ: {ok(st['totp_secret'])}"
-                + ajuda("É o código em texto que o jus.br mostra quando você cadastra o aplicativo autenticador (opção \"Não foi possível "
-                        "ler o QR Code?\"). Com ele a ferramenta gera sozinha o código de 6 dígitos do login. Trate como senha: fica no cofre "
-                        "do sistema e nunca é mostrado de volta.")
-                + "<br><input type='password' name='totp_secret' autocomplete='off' size='40' placeholder='deixe em branco para manter'></label>"
-                + (f"<br><span class='dica'>Código de agora, gerado com o segredo guardado: <b>{codigo}</b>. "
-                   "Confira se é o mesmo do app autenticador do seu celular."
-                   + ajuda("Se o número for igual ao do app do celular, o segredo está certo. Se for diferente, digite o segredo de novo "
-                           "(ou confira se a hora do computador está certa).") + "</span>" if codigo else "") + "</p>"
+                f"<p><label>Segredo do autenticador (TOTP) da conta do <b>PDPJ</b> (código de 16 a 32 letras e números): {ok(pdpj['pdpj_totp'])}"
+                + ajuda("É o código em texto que o PDPJ mostra quando você cadastra o aplicativo autenticador da conta do PDPJ (opção para "
+                        "digitar o código em vez de ler o QR Code). Não é necessariamente o mesmo do jus.br. Com ele a ferramenta gera sozinha "
+                        "o código de 6 dígitos do login. Trate como senha: fica no cofre do sistema e nunca é mostrado de volta.")
+                + "<br><input type='password' name='pdpj_totp' autocomplete='off' size='40' placeholder='deixe em branco para manter'></label>"
+                + (f"<br><span class='dica'>Código de agora, gerado com o segredo do PDPJ guardado: <b>{codigo_pdpj}</b>. "
+                   "Confira se é o mesmo do app autenticador do PDPJ no seu celular."
+                   + ajuda("Se o número for igual ao do app, o segredo está certo. Se for diferente, digite o segredo de novo "
+                           "(ou confira se a hora do computador está certa).") + "</span>" if codigo_pdpj else "") + "</p>"
                 "<p><label>Quem assina pelo escritório: um por linha, nome completo e número da OAB "
                 "(ex.: <i>Fulano de Tal</i> e <i>12.345</i>)"
                 + ajuda("A ferramenta usa estes nomes para escrever \"apresentamos\" quando a petição é do escritório e \"a parte contrária "

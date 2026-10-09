@@ -62,7 +62,8 @@ Detalhes observados:
    senha e o segredo do autenticador/TOTP), guardada **só no cofre do sistema da máquina dele** (Keychain no Mac,
    Gerenciador de Credenciais no Windows), como já é a senha do certificado: nunca no repositório, no
    `config.json`, em log ou no pacote. Cada pessoa cadastra os seus na tela **Acesso e escritório** (campos
-   `pdpj_cpf`, `pdpj_senha` e `totp_secret`). Se aparecer captcha, vale o aviso e a faixa vermelha de hoje.
+   `pdpj_cpf`, `pdpj_senha` e `pdpj_totp`). **O autenticador do PDPJ (`pdpj_totp`) é independente do do jus.br
+   (`totp_secret`)**: as contas podem ser de pessoas diferentes, cada uma com o seu segredo. Se aparecer captcha, vale o aviso e a faixa vermelha de hoje.
 2. **Entrar pelo menu:** em `/pjekz/painel/usuario-externo`, menu → **Consulta** → **Consulta Processual** (abre
    `/consultaprocessual/` em outra aba, já com os tokens). Conferir que o cookie `captchaToken` existe.
 3. **Para cada processo da lista da ferramenta:** pesquisar o número na Consulta Processual e abrir o detalhe; ler a
