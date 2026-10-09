@@ -150,9 +150,9 @@ def ollama_pronto(modelo):
     try:
         nomes = {m["name"] for m in _ollama("/api/tags", timeout=5).get("models", [])}
     except (urllib.error.URLError, OSError):
-        return "Ollama não está rodando (instale com 'brew install ollama' e rode 'ollama serve')."
+        return "A IA local não está instalada ou não está rodando (no painel, link \"IA local\" no alto da página)."
     if modelo not in nomes and f"{modelo}:latest" not in nomes:
-        return f"Modelo {modelo} não baixado (rode 'ollama pull {modelo}')."
+        return f"O modelo {modelo} ainda não foi baixado (no painel, link \"IA local\" no alto da página)."
     return None
 
 

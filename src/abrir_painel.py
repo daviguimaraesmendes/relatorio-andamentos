@@ -123,5 +123,17 @@ def principal(argv=None):
     os.execv(sys.executable, comando)
 
 
+def _direto():
+    """Plano B: sobe o servidor sem nenhuma verificação (o que o lançador antigo fazia)."""
+    os.chdir(AQUI)
+    return subprocess.call([sys.executable, "revisao.py", "--abrir"])
+
+
 if __name__ == "__main__":
-    sys.exit(principal())
+    try:
+        sys.exit(principal())
+    except SystemExit:
+        raise
+    except Exception as erro:  # noqa: BLE001 - o lançador nunca pode impedir o painel de abrir
+        print(f"Aviso: o lançador falhou ({type(erro).__name__}: {erro}); abrindo o painel direto.", flush=True)
+        sys.exit(_direto())

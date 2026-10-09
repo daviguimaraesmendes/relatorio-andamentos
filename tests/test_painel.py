@@ -94,6 +94,7 @@ class Painel(unittest.TestCase):
             mock.patch.object(acesso, "obter", lambda chave: cls.cofre.get(chave)),
             mock.patch.object(acesso, "guardar", lambda chave, valor: cls.cofre.__setitem__(chave, valor)),
             mock.patch("subprocess.Popen", ProcFalso),
+            mock.patch("ia_local.ollama_exe", lambda: None),     # o instantâneo não pode depender do que está instalado aqui
         ]
         for p in cls.patches:
             p.start()

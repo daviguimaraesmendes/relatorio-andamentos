@@ -69,6 +69,16 @@ SUBABAS = [("fluxo", "/fluxo", "Assistente"), ("atualizar", "/atualizar", "Atual
            ("perfil", "/perfil", "Perfil"), ("ia", "/ia", "IA"), ("config", "/config", "Configuração")]
 
 
+def _ia_local_pronta():
+    """O motor local (Ollama) está instalado? Verificação barata (sem rede nem subprocesso), usada em todo cabeçalho; o
+    detalhe (modelo baixado) fica na tela /ia. Qualquer erro vale 'não': o cabeçalho nunca quebra a tela."""
+    try:
+        import ia_local
+        return ia_local.ollama_exe() is not None
+    except Exception:
+        return False
+
+
 def cabecalho(ativa, titulo="Relatório de Andamentos"):
     abas = "".join(f"<a href='/p/{s}' class='{'ativa' if s == comum.PROJETO else ''}'>{html.escape(d.get('nome', s))}</a>"
                    for s, d in comum.projetos())
@@ -78,6 +88,7 @@ def cabecalho(ativa, titulo="Relatório de Andamentos"):
                if _tarefa_rodando() else "")
     import acesso
     pronto = all(acesso.situacao().values())
+    ia_pronta = _ia_local_pronta()
     aviso = ("" if pronto or ativa == "acesso" else
              "<div class='alerta' style='margin:12px 16px'>Falta configurar o acesso (senha do certificado e "
              "código do autenticador). <a href='/acesso'>Configurar agora</a></div>")
@@ -86,7 +97,9 @@ def cabecalho(ativa, titulo="Relatório de Andamentos"):
             f"{faixa_de_atencao()}{aviso_de_painel_desatualizado()}"
             f"<div class='barra'><div class='marca'>Relatório de Andamentos<span class='meta'>{(' · versão ' + html.escape(versao())) if versao() else ''}{rodando}</span>"
             f"<a href='/acesso' style='float:right;font-weight:normal;font-size:14px' "
-            f"class='{'ativa' if ativa == 'acesso' else ''}'>Acesso e escritório {'✓' if pronto else '(configurar)'}</a></div>"
+            f"class='{'ativa' if ativa == 'acesso' else ''}'>Acesso e escritório {'✓' if pronto else '(configurar)'}</a>"
+            f"<a href='/ia' style='float:right;font-weight:normal;font-size:14px;margin-right:18px' "
+            f"class='{'ativa' if ativa == 'ia' else ''}'>IA local {'(instalada)' if ia_pronta else '(instalar)'}</a></div>"
             f"<div class='abas'>{abas}<a href='/novo' class='novo'>+ Novo relatório</a></div></div>"
             f"<div class='sub'>{sub}</div>{aviso}<main>")
 
@@ -168,7 +181,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             slug = rodando                  # coleta em andamento: o relatório não muda até terminar
         if slug in disponiveis and slug != comum.PROJETO:
             comum.usar_projeto(slug)
-        primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json", "/versao.json")
+        primeiro_uso = ("/novo", "/acesso", "/tarefa", "/atualizar", "/interromper", "/atencao.json", "/versao.json", "/ia")
         # o assistente e a migração de modelo criam o primeiro relatório: ficam liberados sem relatório
         if not disponiveis and request.path not in primeiro_uso and not request.path.startswith(("/fluxo", "/migracao")):
             return redirect("/novo")
