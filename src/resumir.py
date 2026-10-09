@@ -17,6 +17,7 @@ Fase 2: resumir_com_provedor() faz o mesmo pedido por um provedor de IA recebido
 """
 import json
 import re
+import os
 import subprocess
 import sys
 import urllib.error
@@ -123,6 +124,12 @@ def memoria_gb():
             return m.ullTotalPhys / 2**30
         except Exception:
             return 8
+    try:  # sem subprocesso (a tela do painel chama isto num GET): páginas × tamanho da página
+        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+        if total > 0:
+            return total / 2**30
+    except (ValueError, OSError, AttributeError):
+        pass
     try:
         return int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 2**30
     except (ValueError, FileNotFoundError):
