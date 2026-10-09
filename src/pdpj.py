@@ -163,16 +163,16 @@ class Navegador:
             return set()
 
     def menu_consulta_processual(self):
-        """Menu do PJe: hambúrguer -> Consulta -> Consulta Processual (abre em outra aba). Devolve o Navegador dela."""
+        """Menu do PJe: hambúrguer -> Consulta -> Consulta Processual (abre em outra aba). Devolve o Navegador dela.
+        Os itens são os do próprio menu (pje-item-menu-sobreposto), com o texto EXATO: o painel tem outros botões com
+        "Consulta" no nome (ex.: Consulta Processos de Terceiros) que não podem ser clicados por engano."""
         page = self.page
         page.locator("#botao-menu").first.click(timeout=10000)
-        page.wait_for_timeout(800)
-        if not self.clicar_texto("Consulta"):
-            return None
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(1000)
+        page.locator("pje-item-menu-sobreposto .item-center", has_text=re.compile(r"^\s*Consulta\s*$")).first.click(timeout=10000)
+        page.wait_for_timeout(1000)
         with page.context.expect_page(timeout=20000) as nova:
-            if not self.clicar_texto("Consulta Processual"):
-                return None
+            page.locator("pje-item-menu-sobreposto a", has_text=re.compile(r"^\s*Consulta Processual\s*$")).first.click(timeout=10000)
         aba = nova.value
         aba.wait_for_load_state("load", timeout=30000)
         aba.wait_for_timeout(2500)
