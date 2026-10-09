@@ -7,9 +7,16 @@ estrutura. Os TRTs usam o mesmo PJe, então o caminho tende a valer para os dema
 
 ## Resultado em uma frase
 
-Com o login no PJe, a ferramenta pode ler a **lista de processos, os andamentos e os documentos** pelo próprio
-PJe do advogado (`/pjekz/` e `/pje-comum-api/`), **sem captcha**, em vez de passar pela consulta pública
-(`/consultaprocessual/`), que pede captcha para abrir os autos.
+Com o login no PDPJ e **entrando pelo menu do PJe (Consulta → Consulta Processual)**, a Consulta Processual do TRT
+mostra os autos **sem pedir captcha**. A ferramenta deve consultar **os processos da própria lista (a carteira)**, um
+a um, por essa porta, como já faz hoje, só que logada. Painel de expedientes, acervo e "últimos andamentos" **não
+são a fonte** deste programa (é uma ferramenta de relatório, não de checagem geral de andamentos).
+
+**Atenção (testado):** abrir `/consultaprocessual/detalhe-processo/...` **direto pela URL**, mesmo com login ativo,
+mostra o captcha (`/consultaprocessual/captcha/...`). O que dispensa o captcha é a **entrada pelo menu do PJe**: ali o
+portal entrega os cookies `captchaToken` e `acessoTerceirosToken`, que valem por 1 hora (o front grava `captchaToken`
+a partir do cabeçalho de resposta e o reenvia como `tokenCaptcha`). Passo a confirmar: que a entrada pelo menu
+sempre os entrega, e o que acontece depois de 1 hora (reentrar pelo menu).
 
 ## Caminho feito à mão (o que Davi clicou)
 
@@ -25,10 +32,10 @@ PJe do advogado (`/pjekz/` e `/pje-comum-api/`), **sem captcha**, em vez de pass
 
 | Porta | Endereço (prefixo `https://pje.trtN.jus.br`) | Captcha? | Serve para |
 | --- | --- | --- | --- |
-| Painel do advogado | `GET /pje-comum-api/api/paineladvogado/{idAdvogado}/processos?...` | não | listas: Meus Expedientes, Acervo Geral, Arquivados |
+| Painel do advogado (fora do escopo) | `GET /pje-comum-api/api/paineladvogado/{idAdvogado}/processos?...` | não | listas de expedientes e acervo: **não usar**, só registro do que existe |
 | Autos no PJe | `GET /pje-comum-api/api/processos/id/{id}` e `/partes`, `/audiencias`, `/timeline`, `/documentos/id/{idDoc}`, `/documentos/id/{idDoc}/conteudo` | **não** (basta a sessão) | andamentos, documentos, partes, audiências |
-| Consulta processual | `GET /pje-consulta-api/api/processos/ultimosandamentos?pagina=&tamanhoPagina=&dias=` | não | todos os processos do advogado com movimento recente, numa chamada |
-| Consulta processual (autos) | `GET /pje-consulta-api/api/processos/{id}` e `/documentos/{idDoc}` | **sim** (desafio de captcha; o token vale 1 hora) | evitar: é o caminho que o programa usa hoje |
+| Consulta processual: últimos andamentos (fora do escopo) | `GET /pje-consulta-api/api/processos/ultimosandamentos?pagina=&tamanhoPagina=&dias=` | não | checagem geral de andamentos: **não usar** |
+| **Consulta processual (autos): a porta a usar** | `GET /pje-consulta-api/api/processos/dadosbasicos/{numeroSemPontuacao}`, `.../processos/{id}`, `.../processos/{id}/documentos/{idDoc}` (com `tokenCaptcha`) | não, se entrou **pelo menu do PJe**; **sim** se entrou direto pela URL | os processos da lista da ferramenta |
 
 Detalhes observados:
 
@@ -51,19 +58,21 @@ Detalhes observados:
 
 ## Como a ferramenta deve usar isso (proposta)
 
-1. **Login:** o programa abre o navegador dele e entra em *Entrar com PDPJ* com a credencial **de cada usuário**,
-   guardada **só no cofre do sistema da máquina dele** (Keychain no Mac, Gerenciador de Credenciais no Windows),
-   como já é a senha do certificado: nunca no repositório, no `config.json`, em log ou no pacote. Cada pessoa
-   cadastra a sua na tela **Acesso**. Se aparecer captcha ou autenticador, vale o mesmo aviso e a faixa vermelha
-   de hoje (quem estiver no computador resolve). Ainda a confirmar: a credencial a usar será a de uma conta
-   do escritório que concentra as publicações; cada usuário decide qual conta cadastra.
-2. **Descobrir o que mudou:** `ultimosandamentos` (ou o painel) lista, numa chamada, os processos com movimento
-   no período, no lugar de consultar processo por processo.
-3. **Ler os autos:** `timeline` dos processos que mudaram, e `conteudo` dos documentos novos (PDF → texto → resumo,
-   como hoje).
-4. **Mantém a consulta pública** (com captcha) como alternativa de reserva, e o que for novo no TRT7 vale para
-   os outros TRTs (mesmo PJe).
-5. **Só leitura:** nenhuma chamada de escrita, nenhum protocolo, nenhuma ciência de expediente.
+1. **Login:** o programa abre o navegador e entra em *Entrar com PDPJ* com a credencial **de cada usuário** (CPF,
+   senha e o segredo do autenticador/TOTP), guardada **só no cofre do sistema da máquina dele** (Keychain no Mac,
+   Gerenciador de Credenciais no Windows), como já é a senha do certificado: nunca no repositório, no
+   `config.json`, em log ou no pacote. Cada pessoa cadastra os seus na tela **Acesso e escritório** (campos
+   `pdpj_cpf`, `pdpj_senha` e `totp_secret`). Se aparecer captcha, vale o aviso e a faixa vermelha de hoje.
+2. **Entrar pelo menu:** em `/pjekz/painel/usuario-externo`, menu → **Consulta** → **Consulta Processual** (abre
+   `/consultaprocessual/` em outra aba, já com os tokens). Conferir que o cookie `captchaToken` existe.
+3. **Para cada processo da lista da ferramenta:** pesquisar o número na Consulta Processual e abrir o detalhe; ler a
+   linha do tempo e baixar os documentos novos (PDF → texto → resumo, como hoje). O desenho de leitura atual
+   (`trt.py`) continua valendo; muda só a entrada (logada, sem captcha).
+4. **Renovar:** o token vale 1 hora; ao expirar (a página volta para `/consultaprocessual/captcha/...`), reentrar
+   pelo menu em vez de pedir captcha. Sessão do PJe também expira por inatividade (cai em `/pjekz/acesso-negado`): refazer o login.
+5. **Mantém a consulta pública** com captcha como alternativa de reserva. O que vale para o TRT7 vale para os
+   demais TRTs (mesmo PJe, só muda `trt7`).
+6. **Só leitura:** nenhuma chamada de escrita, nenhum protocolo, nenhuma ciência de expediente.
 
 ## Cuidados
 

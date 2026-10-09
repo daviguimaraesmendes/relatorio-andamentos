@@ -84,6 +84,27 @@ def situacao():
     return {"cert_senha": bool(obter("cert_senha")), "totp_secret": bool(obter("totp_secret"))}
 
 
+CHAVES_PDPJ = ("pdpj_cpf", "pdpj_senha", "totp_secret")
+
+
+def situacao_pdpj():
+    """O que já está configurado para o login por CPF e senha no PDPJ/PJe (sem revelar nada). O código do
+    autenticador (TOTP) é o mesmo da conta do jus.br: `totp_secret`."""
+    return {c: bool(obter(c)) for c in CHAVES_PDPJ}
+
+
+def cpf_valido(texto):
+    """CPF com 11 dígitos e dígitos verificadores corretos (aceita pontos e traço)."""
+    d = re.sub(r"\D", "", texto or "")
+    if len(d) != 11 or len(set(d)) == 1:
+        return False
+    for n in (9, 10):
+        soma = sum(int(d[i]) * (n + 1 - i) for i in range(n))
+        if int(d[n]) != (soma * 10 % 11) % 10:
+            return False
+    return True
+
+
 def codigo_totp_atual(segredo=None):
     """Código de 6 dígitos do momento, para a pessoa conferir com o app do celular."""
     import pyotp

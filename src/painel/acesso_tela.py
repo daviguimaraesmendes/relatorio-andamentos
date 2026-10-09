@@ -25,6 +25,16 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             if senha:
                 acesso.guardar("cert_senha", senha)
                 msgs.append("Senha do certificado guardada no cofre do sistema.")
+            cpf = request.form.get("pdpj_cpf", "").strip()
+            senha_pdpj = request.form.get("pdpj_senha", "")
+            if cpf:
+                if not acesso.cpf_valido(cpf):
+                    return _ir("/acesso", "O CPF não é válido (11 dígitos). Nada foi salvo.")
+                acesso.guardar("pdpj_cpf", re.sub(r"\D", "", cpf))
+                msgs.append("CPF do PDPJ guardado no cofre do sistema.")
+            if senha_pdpj:
+                acesso.guardar("pdpj_senha", senha_pdpj)
+                msgs.append("Senha do PDPJ guardada no cofre do sistema.")
             if segredo:
                 if not acesso.segredo_totp_valido(segredo):
                     return _ir("/acesso", "O segredo do autenticador não é válido (letras A-Z e números 2-7). Nada foi salvo.\n"
@@ -38,6 +48,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             msgs.append("Dados do escritório salvos.")
             return _ir("/acesso", " ".join(msgs))
         st = acesso.situacao()
+        pdpj = acesso.situacao_pdpj()
         codigo = acesso.codigo_totp_atual() if st["totp_secret"] else None
         log_teste = ""
         if TAREFA and TAREFA.get("descricao", "").startswith("Teste de acesso"):
@@ -65,7 +76,19 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 + ajuda("Serve para a ferramenta digitar a senha do certificado no PJe Office quando entra no jus.br. Fica no cofre do "
                         "sistema, não em arquivo, e nunca é mostrada de volta. Só sai do computador pelo próprio login no jus.br.")
                 + "<br><input type='password' name='cert_senha' autocomplete='off' size='30' placeholder='deixe em branco para manter'></label></p>"
-                f"<p><label>Segredo do autenticador do jus.br (código de 16 a 32 letras e números): {ok(st['totp_secret'])}"
+                "<p class='dica'><b>Login no PJe dos TRTs (conta do PDPJ)</b>: o CPF, a senha e o segredo do autenticador (campo logo abaixo) "
+                "da sua conta. Cada pessoa cadastra os seus, só neste computador.</p>"
+                f"<p><label>CPF da conta do PDPJ: {ok(pdpj['pdpj_cpf'])}"
+                + ajuda("O CPF que você usa para entrar no PJe com \"Entrar com PDPJ\". Fica só no cofre deste computador (não vai para "
+                        "arquivo, log nem para o pacote do programa) e não volta a aparecer na tela. Só é digitado no login do PDPJ.")
+                + "<br><input type='password' name='pdpj_cpf' autocomplete='off' inputmode='numeric' size='20' "
+                  "placeholder='somente números, deixe em branco para manter'></label></p>"
+                f"<p><label>Senha da conta do PDPJ: {ok(pdpj['pdpj_senha'])}"
+                + ajuda("A senha da conta do PDPJ (a mesma do login com CPF no PJe). Fica no cofre do sistema, nunca em arquivo, e não "
+                        "volta a aparecer na tela. Só sai do computador pelo próprio login no PDPJ.")
+                + "<br><input type='password' name='pdpj_senha' autocomplete='off' size='30' "
+                  "placeholder='deixe em branco para manter'></label></p>"
+                f"<p><label>Segredo do autenticador (TOTP: código de 16 a 32 letras e números), o mesmo do jus.br e do PDPJ: {ok(st['totp_secret'])}"
                 + ajuda("É o código em texto que o jus.br mostra quando você cadastra o aplicativo autenticador (opção \"Não foi possível "
                         "ler o QR Code?\"). Com ele a ferramenta gera sozinha o código de 6 dígitos do login. Trate como senha: fica no cofre "
                         "do sistema e nunca é mostrado de volta.")
