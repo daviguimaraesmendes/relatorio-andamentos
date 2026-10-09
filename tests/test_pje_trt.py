@@ -207,12 +207,21 @@ class Coleta(Base):
         self.assertEqual(relato["graus_lidos"], ["1"])
         self.assertEqual((estado[N1]["instancia"]["atual"], estado[N1]["instancia"]["outra_instancia"]), (1, True))
 
-    def test_pje_diz_que_nao_ha_outra_instancia_nao_avisa_mesmo_com_texto_de_recurso(self):
-        s, _ = sessao(timeline=TIMELINE + [self.RECURSO], outra=False)
+    def test_pje_diz_false_mas_o_processo_subiu_o_aviso_vale_pelos_andamentos(self):
+        """Caso real: processo no TST, e o PJe do 1º grau diz outraInstancia=false."""
+        remessa = item(111, "2026-10-09T09:30:00.000", "Remetidos os autos para Órgão jurisdicional competente para processar recurso")
+        s, _ = sessao(timeline=TIMELINE + [remessa], outra=False)
         relato = {}
         _, estado, _ = self.coletar(s, relato=relato)
+        self.assertEqual([a["codigo"] for a in relato["avisos"]], ["grau_nao_lido"])
+        self.assertIn("Remetidos os autos", relato["avisos"][0]["mensagem"])
+        self.assertIs(estado[N1]["instancia"]["outra_instancia"], False)       # o que o PJe disse fica registrado como veio
+
+    def test_processo_sem_recurso_e_com_false_nao_avisa(self):
+        s, _ = sessao(outra=False)
+        relato = {}
+        self.coletar(s, relato=relato)
         self.assertEqual(relato["avisos"], [])
-        self.assertIs(estado[N1]["instancia"]["outra_instancia"], False)
 
     def test_sem_a_informacao_do_pje_vale_o_indicio_pelos_andamentos(self):
         s, _ = sessao(timeline=TIMELINE + [self.RECURSO], instancia=None, outra=None)

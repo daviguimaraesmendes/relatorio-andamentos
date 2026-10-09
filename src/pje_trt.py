@@ -184,6 +184,19 @@ def zerar_rodada():
 
 # --- a coleta de um processo (mesmo papel e contrato do trt.coletar_processo) -------------
 
+REMESSA = re.compile(r"remetid[oa]s?\s+os\s+autos\s+para\s+[óo]rg[ãa]o\s+jurisdicional\s+competente|"
+                     r"remetid[oa]s?\s+os\s+autos\s+.*processar\s+recurso|remessa\s+.*(tst|tribunal\s+superior)", re.I)
+
+
+def _remessa_para_recurso(movs):
+    """Motivo (texto) se algum andamento é a remessa dos autos para julgar recurso, senão None. É o andamento que o PJe do
+    1º grau registra ao subir o processo; depois dele a tramitação segue em outro sistema (2º grau/TST)."""
+    for _, _, texto in movs:
+        if REMESSA.search(texto or ""):
+            return f"andamento \"{' '.join(texto.split())[:70]}\""
+    return None
+
+
 def instancia_do_processo(sessao, id_processo):
     """{"atual": 1|2|None, "outra_instancia": True|False|None, "verificado_em"}: de qual instância é o sistema em que o
     processo foi lido e se ele também existe em outra (já subiu ao 2º grau). Vem do próprio PJe, sem ação da pessoa.
@@ -219,11 +232,13 @@ def coletar_processo(sessao, proc, estado, lista, historico, cota, desde=None, r
 
     instancia = instancia_do_processo(sessao, achado["id"])
     relato["instancia"] = instancia
+    # `outraInstancia: true` confirma. `false` NÃO prova nada: num processo real que já está no TST, o PJe do 1º grau
+    # diz `false` (o registro dele para na remessa). Por isso os andamentos valem sempre, além do sinal do PJe.
     motivo = None
     if instancia["outra_instancia"] is True:
         motivo = "o PJe informa que o processo também está em outra instância (2º grau)"
-    elif instancia["outra_instancia"] is None:      # o PJe não disse: vale o indício pelos andamentos
-        motivo = trt.indicio_de_recurso(movs, proc, reg_proc)
+    else:
+        motivo = trt.indicio_de_recurso(movs, proc, reg_proc) or _remessa_para_recurso(movs)
     if motivo:
         relato["avisos"].append({"nivel": "atencao", "codigo": "grau_nao_lido", "onde": f"pje/{numero}",
                                  "mensagem": f"O 2º grau não foi lido pelo PJe do advogado ({motivo}). Conferir o recurso à mão."})
