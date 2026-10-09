@@ -1,6 +1,18 @@
-# Relatório de Andamentos — versão 2.0.0-beta5
+# Relatório de Andamentos — versão 2.0.0-beta6
 
 Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você já usa, a montagem e a atualização de relatórios completos (texto, planilha e dashboard). O acesso ao jus.br e aos TRTs é o mesmo que já funciona; a aba **Atualizar** da versão anterior continua no painel, como plano B.
+
+## 00000. Novo no beta6 (visual novo, login próprio no PJe do TRT e Claude pelo Claude Code)
+
+**Abra o painel de novo depois de atualizar** (o `Abrir painel` já reinicia sozinho um painel de versão antiga, se não houver coleta em andamento).
+
+1. **Visual novo do painel:** menu lateral de ícones, barra superior com busca, tela **Início** (radar de pendências, próximas ações), cartões e botões na identidade do escritório, modo escuro e celular. Um botão **(i)** ao lado de cada botão, campo e seção explica o que ele faz e o que sai do computador.
+2. **Login próprio no PJe do TRT (PDPJ), sem captcha:** a Consulta Processual pública passou a pedir captcha. Agora, se você cadastrar o CPF, a senha e o autenticador do PDPJ na tela **Acesso e escritório** (ficam só no cofre do seu computador), a coleta entra no PJe do advogado e lê os autos dos processos da carteira por lá. **O login é feito uma única vez por rodada e nunca é repetido:** se falhar depois de enviar as credenciais, o programa trava e só tenta de novo depois que você liberar na tela Acesso (para não bloquear a sua conta). Sem credenciais ou se algo falhar, a coleta segue pela consulta pública como antes. O autenticador do PDPJ é independente do do jus.br.
+3. **Instância do processo automática:** o PJe informa se o processo também está em outra instância; nesse caso a coleta avisa que o 2º grau deve ser conferido.
+4. **Claude pelo Claude Code (sem chave de API):** novo tipo de provedor de IA externa, que usa o login da sua assinatura. Não é IA local: o texto vai à Anthropic. Mesmo consentimento por cliente, pseudonimização e registro de envios.
+5. **IA local sob demanda e instalador do Windows**, vindos da outra linha de trabalho.
+
+**Ainda não feito:** ler o processo dentro do PJe do 2º grau e do TST; o botão "Configurar tudo".
 
 ## 0000. Novo no beta5 (a partir dos logs reais da sua rodada de 08/10/2026)
 
