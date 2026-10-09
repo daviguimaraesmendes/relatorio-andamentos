@@ -85,5 +85,43 @@ class LoginSobDemanda(unittest.TestCase):
         self.assertEqual(len(self.logins), 1)
 
 
+class PdpjUmaVezPorRodada(unittest.TestCase):
+    """Do `trt.coletar_processo` até o login do PDPJ: navegador reaberto no meio da rodada não manda as credenciais de novo."""
+
+    def setUp(self):
+        import acesso
+        import janela
+        import pdpj
+        pje_trt.zerar_rodada()
+        self.entradas = []
+        cofre = {"pdpj_cpf": "x", "pdpj_senha": "y", "pdpj_totp": "z"}
+        for alvo in (mock.patch.object(acesso, "obter", lambda c: cofre.get(c)),
+                     mock.patch.object(pdpj, "trava", lambda: None),
+                     mock.patch.object(pdpj, "entrar", lambda nav, trt_, consulta=True: self.entradas.append(trt_)),
+                     mock.patch.object(janela, "nova_pagina", lambda ctx: mock.MagicMock()),
+                     mock.patch.object(coletor, "garantir_login", lambda ctx: None),
+                     mock.patch.object(trt, "pagina_da_consulta", side_effect=Parou)):
+            alvo.start()
+            self.addCleanup(alvo.stop)
+
+    def coletar(self, ctx):
+        with self.assertRaises(Parou):
+            trt.coletar_processo(ctx, {"numero": N_TRT}, {}, [], 5, 5)
+
+    def test_navegador_reaberto_nao_refaz_o_login_do_pdpj(self):
+        antigo, novo = mock.MagicMock(), mock.MagicMock()
+        with mock.patch.object(pje_trt, "coletar_processo", side_effect=pje_trt.SessaoExpirada("caiu")):
+            self.coletar(antigo)                    # entrou, a sessão caiu: o resto vai pela consulta pública
+            self.coletar(novo)                      # o ColetorReal fechou e reabriu o navegador (outro contexto)
+        self.assertEqual(self.entradas, [7])
+
+    def test_nova_rodada_pode_entrar_de_novo(self):
+        with mock.patch.object(pje_trt, "coletar_processo", side_effect=pje_trt.SessaoExpirada("caiu")):
+            self.coletar(mock.MagicMock())
+            trt.zerar_rodada()                      # o que o ColetorReal faz ao nascer
+            self.coletar(mock.MagicMock())
+        self.assertEqual(self.entradas, [7, 7])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,13 +10,15 @@ documentos), então relatórios já iniciados pela consulta pública seguem sem 
 aqui; havendo indício de recurso, sai o aviso `grau_nao_lido` (conferir o 2º grau à mão).
 
 Sem credenciais do PDPJ, com trava de login ou se o login falhar, `sessao_da_rodada` devolve None e a coleta continua
-pela consulta pública, como antes. O login nunca é repetido na mesma rodada.
+pela consulta pública, como antes. O login nunca é repetido na mesma rodada: nem se a sessão cair, nem se o navegador
+for fechado e reaberto no meio dela (a sessão antiga morre com o navegador; o resto da rodada vai pela consulta pública).
 """
 import base64
 import datetime
 import json
 import re
 import time
+from urllib.parse import quote
 
 import acesso
 import comum
@@ -25,10 +27,13 @@ from comum import slug
 API = "/pje-comum-api/api"
 GRAU = "1"
 
-_JS = """async ([url, binario]) => {
-  const r = await fetch(url, {credentials: 'include'});
+LIMITE_PDF = 60 * 1024 * 1024          # documentos maiores que isto não são trazidos (memória do navegador e do programa)
+
+_JS = """async ([url, binario, LIMITE]) => {
+  const r = await fetch(url, {method: 'GET', credentials: 'include'});
   const tipo = r.headers.get('content-type') || '';
   if (!binario) return {status: r.status, tipo, texto: await r.text()};
+  if (Number(r.headers.get('content-length') || 0) > LIMITE) return {status: r.status, tipo, grande: true};
   const b = new Uint8Array(await r.arrayBuffer());
   let s = '';
   for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
@@ -38,6 +43,11 @@ _JS = """async ([url, binario]) => {
 
 class SessaoExpirada(RuntimeError):
     """O PJe recusou a sessão (401/403): é preciso entrar de novo (e isso é uma nova tentativa de login)."""
+
+
+class SemAcesso(RuntimeError):
+    """O PJe negou (403) UM documento (sigiloso, ou sem permissão desta conta). Não é sessão vencida: a leitura do resto
+    segue e o documento fica para a próxima rodada (até desistir)."""
 
 
 class NaoNoAcervo(LookupError):
@@ -60,14 +70,18 @@ class SessaoPje:
         self._usuario = None
 
     def _chamar_no_navegador(self, caminho, binario=False):
-        return self.page.evaluate(_JS, [caminho, binario])
+        return self.page.evaluate(_JS, [caminho, binario, LIMITE_PDF])
 
-    def _get(self, caminho, binario=False):
+    def _get(self, caminho, binario=False, documento=False):
         r = self._chamar(caminho, binario)
+        if documento and r["status"] == 403:
+            raise SemAcesso("O PJe negou o acesso a este documento (HTTP 403).")
         if r["status"] in (401, 403):
             raise SessaoExpirada(f"O PJe recusou a sessão (HTTP {r['status']}).")
         if r["status"] != 200:
             raise RuntimeError(f"O PJe respondeu HTTP {r['status']} em {caminho.split('?')[0]}.")
+        if not binario and str(r.get("texto", "")).lstrip()[:1] == "<":     # sessão vencida: o PJe devolve a tela de login com HTTP 200
+            raise SessaoExpirada("O PJe devolveu uma página em vez dos dados (sessão vencida).")
         return r
 
     def id_usuario(self):
@@ -75,9 +89,12 @@ class SessaoPje:
         if self._usuario is None:
             for c in self.page.context.cookies():
                 if c["name"] == "access_token":
-                    carga = c["value"].split(".")[1]
-                    carga += "=" * (-len(carga) % 4)
-                    self._usuario = int(json.loads(base64.urlsafe_b64decode(carga))["id"])
+                    try:
+                        carga = c["value"].split(".")[1]
+                        carga += "=" * (-len(carga) % 4)
+                        self._usuario = int(json.loads(base64.urlsafe_b64decode(carga))["id"])
+                    except Exception:          # noqa: BLE001 - token ilegível: sem repetir nem citar o conteúdo dele
+                        raise SessaoExpirada("O token do usuário na sessão do PJe não pôde ser lido.") from None
                     break
             if self._usuario is None:
                 raise SessaoExpirada("A sessão do PJe não tem o token do usuário.")
@@ -85,11 +102,11 @@ class SessaoPje:
 
     def buscar(self, numero):
         """O processo no Acervo Geral do advogado (dict com `id`, `numeroProcesso`...) ou levanta NaoNoAcervo."""
-        r = self._get(f"{API}/paineladvogado/{self.id_usuario()}/processos?numeroProcesso={numero}"
+        r = self._get(f"{API}/paineladvogado/{self.id_usuario()}/processos?numeroProcesso={quote(numero, safe='')}"
                       "&pagina=1&tamanhoPagina=10&tipoPainelAdvogado=1")
         digitos = re.sub(r"\D", "", numero)
         for p in json.loads(r["texto"]).get("resultado") or []:
-            if re.sub(r"\D", "", str(p.get("numeroProcesso", ""))) == digitos:
+            if re.sub(r"\D", "", str(p.get("numeroProcesso", ""))) == digitos and str(p.get("id", "")).isdigit():
                 return p
         raise NaoNoAcervo(f"{numero} não está no Acervo Geral do advogado logado.")
 
@@ -106,7 +123,9 @@ class SessaoPje:
     def pdf(self, id_processo, id_documento):
         """Bytes do documento ou None (não veio PDF)."""
         r = self._get(f"{API}/processos/id/{id_processo}/documentos/id/{id_documento}/conteudo"
-                      "?incluirCapa=false&grau=1&incluirAssinatura=false", binario=True)
+                      "?incluirCapa=false&grau=1&incluirAssinatura=false", binario=True, documento=True)
+        if r.get("grande"):
+            raise RuntimeError(f"Documento maior que {LIMITE_PDF // (1024 * 1024)} MB: não trazido.")
         corpo = base64.b64decode(r.get("b64", "")) if r.get("b64") is not None else r.get("corpo", b"")
         return corpo if corpo[:4] == b"%PDF" else None
 
@@ -125,6 +144,8 @@ def itens_da_timeline(itens):
     for it in sorted(itens or [], key=lambda x: str(x.get("data") or ""), reverse=True):
         titulo = " ".join((it.get("titulo") or "").split())
         if it.get("documento") in (True, "True"):
+            if not str(it.get("id", "")).isdigit():      # sem id não há como pedir o PDF (e o id vai na URL)
+                continue
             docs.append({"id": str(it.get("id")), "unico": it.get("idUnicoDocumento"), "tipo": it.get("tipo") or titulo,
                          "titulo": titulo, "data": data_br(it.get("data")),
                          "publico": not it.get("documentoSigiloso")})
@@ -135,7 +156,8 @@ def itens_da_timeline(itens):
 
 # --- a sessão da rodada (login único) ------------------------------------------------
 
-_SESSOES = {}       # (id do contexto, trt) -> SessaoPje | None (None = não deu: usar a consulta pública nesta rodada)
+_SESSOES = {}       # trt -> (contexto, SessaoPje | None); None = não deu: usar a consulta pública nesta rodada
+_TENTADOS = set()   # TRTs em que o login JÁ foi tentado nesta rodada (com ou sem sucesso): nunca uma segunda vez
 AVISOS = []         # o que impediu o uso do PJe próprio (texto), para o relato da rodada
 
 
@@ -143,16 +165,29 @@ def credenciais_ok():
     return all(acesso.situacao_pdpj().values())
 
 
+def _avisar(texto):
+    AVISOS.append(texto)
+    print(texto + " Usando a consulta pública.", flush=True)
+
+
 def sessao_da_rodada(context, numero, abrir_pagina=None, entrar=None):
-    """A sessão logada do TRT do processo, ou None. O login é feito UMA vez por TRT e por rodada; falha não se repete."""
+    """A sessão logada do TRT do processo, ou None. O login é feito UMA vez por TRT e por rodada; falha não se repete.
+    A rodada vale por TRT, não por navegador: se o navegador for fechado e reaberto no meio dela (outro contexto), a
+    sessão antiga se perdeu e NÃO se entra de novo (seria outro envio de credenciais): vai pela consulta pública."""
     trt = trt_do_numero(numero)
     if trt is None or not credenciais_ok():
         return None
-    chave = (id(context), trt)
-    if chave in _SESSOES:
-        return _SESSOES[chave]
+    if trt in _TENTADOS:
+        contexto, sessao = _SESSOES.get(trt, (None, None))
+        if sessao is not None and contexto is context:
+            return sessao
+        if sessao is not None:
+            _SESSOES[trt] = (contexto, None)
+            _avisar(f"PJe próprio do TRT{trt}: o navegador foi reaberto no meio da rodada e o login do PDPJ não é repetido.")
+        return None
+    _TENTADOS.add(trt)                           # marcado ANTES: nenhuma segunda tentativa nesta rodada, aconteça o que acontecer
+    _SESSOES[trt] = (context, None)
     import pdpj
-    _SESSOES[chave] = None                       # marcado ANTES: nenhuma segunda tentativa nesta rodada, aconteça o que acontecer
     try:
         if pdpj.trava():
             raise pdpj.PdpjErro("travado", "Há uma trava de login do PDPJ; libere na tela Acesso e escritório.")
@@ -161,24 +196,26 @@ def sessao_da_rodada(context, numero, abrir_pagina=None, entrar=None):
             abrir_pagina = janela.nova_pagina
         page = abrir_pagina(context)
         (entrar or pdpj.entrar)(pdpj.Navegador(page), trt, consulta=False)
-        _SESSOES[chave] = SessaoPje(page, trt)
+        _SESSOES[trt] = (context, SessaoPje(page, trt))
         print(f"PJe do TRT{trt}: login do PDPJ feito; os autos serão lidos pelo PJe do advogado.", flush=True)
     except pdpj.PdpjErro as e:
-        AVISOS.append(f"PJe próprio do TRT{trt} indisponível ({e.etapa}): {e.mensagem}")
-        print(AVISOS[-1] + " Usando a consulta pública.", flush=True)
+        _avisar(f"PJe próprio do TRT{trt} indisponível ({e.etapa}): {e.mensagem}")
     except Exception as e:  # noqa: BLE001 - qualquer imprevisto: sem nova tentativa, a coleta segue pela consulta pública
-        AVISOS.append(f"PJe próprio do TRT{trt} indisponível ({type(e).__name__}).")
-        print(AVISOS[-1] + " Usando a consulta pública.", flush=True)
-    return _SESSOES[chave]
+        _avisar(f"PJe próprio do TRT{trt} indisponível ({type(e).__name__}).")
+    return _SESSOES[trt][1]
 
 
 def encerrar_sessao(context, numero):
     """A sessão caiu no meio da rodada: não entra de novo (seria outra tentativa de login); o resto vai pela consulta pública."""
-    _SESSOES[(id(context), trt_do_numero(numero))] = None
+    trt = trt_do_numero(numero)
+    if trt is not None:
+        _TENTADOS.add(trt)
+        _SESSOES[trt] = (context, None)
 
 
 def zerar_rodada():
     _SESSOES.clear()
+    _TENTADOS.clear()
     AVISOS.clear()
 
 
@@ -214,12 +251,23 @@ def instancia_do_processo(sessao, id_processo):
 
 
 def coletar_processo(sessao, proc, estado, lista, historico, cota, desde=None, relato=None):
+    """Lê o processo pelo PJe do advogado. O `relato` do chamador só recebe o resultado quando a leitura TERMINA: se a
+    sessão cair no meio (SessaoExpirada) e a coleta seguir pela consulta pública, nada do que o PJe tinha anotado
+    (graus lidos, aviso de 2º grau) sobra para confundir o relato da consulta pública."""
+    relato = relato if relato is not None else {}
+    parcial = {"graus_lidos": [], "graus_falhos": [], "avisos": []}
+    baixados = _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, parcial)
+    for chave, valor in parcial.items():
+        if isinstance(valor, list):
+            relato[chave] = valor if chave == "graus_lidos" else list(relato.get(chave, [])) + valor
+        else:
+            relato[chave] = valor
+    return baixados
+
+
+def _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relato):
     import coletor
     import trt
-    relato = relato if relato is not None else {}
-    relato.setdefault("graus_lidos", [])
-    relato.setdefault("graus_falhos", [])
-    relato.setdefault("avisos", [])
     numero = proc["numero"]
     achado = sessao.buscar(numero)                                  # NaoNoAcervo sobe para o chamador
     itens = sessao.timeline(achado["id"])

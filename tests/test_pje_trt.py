@@ -299,6 +299,171 @@ class SessaoDaRodada(Base):
         self.assertIsNone(pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e))
         self.assertEqual(len(e.chamadas), 1)
 
+    def test_navegador_reaberto_no_meio_da_rodada_nao_repete_o_login(self):
+        """ColetorReal.fechar() + reabertura (sessao_expirada da consulta pública) gera outro contexto: o PDPJ não é refeito."""
+        e = self.entrar_falso()
+        antigo, novo = object(), object()
+        self.assertIsNotNone(pje_trt.sessao_da_rodada(antigo, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e))
+        self.assertIsNone(pje_trt.sessao_da_rodada(novo, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e))
+        self.assertIsNone(pje_trt.sessao_da_rodada(novo, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e))
+        self.assertEqual(len(e.chamadas), 1)
+        self.assertEqual(len(pje_trt.AVISOS), 1)                                       # avisa uma vez só
+
+    def test_navegador_reaberto_depois_de_falha_sem_envio_tambem_nao_tenta_de_novo(self):
+        """Falha antes de enviar credencial não deixa trava, mas a rodada já gastou a tentativa."""
+        e = self.entrar_falso(pdpj.PdpjErro("site", "bloqueado", trava=False))
+        self.assertIsNone(pje_trt.sessao_da_rodada(object(), N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e))
+        self.assertIsNone(pje_trt.sessao_da_rodada(object(), N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e))
+        self.assertEqual(len(e.chamadas), 1)
+
+    def test_sessao_que_cai_e_navegador_reaberto_nao_loga_de_novo(self):
+        e, antigo = self.entrar_falso(), object()
+        pje_trt.sessao_da_rodada(antigo, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e)
+        pje_trt.encerrar_sessao(antigo, N1)
+        self.assertIsNone(pje_trt.sessao_da_rodada(object(), N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e))
+        self.assertEqual(len(e.chamadas), 1)
+
+    def test_outro_trt_na_mesma_rodada_tem_o_seu_proprio_login(self):
+        e, ctx = self.entrar_falso(), object()
+        pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e)
+        pje_trt.sessao_da_rodada(ctx, numero_ficticio(2, j=5, tr=11), abrir_pagina=lambda c: PaginaFalsa(), entrar=e)
+        self.assertEqual([c[0] for c in e.chamadas], [7, 11])
+
+    def test_nova_rodada_permite_novo_login(self):
+        e, ctx = self.entrar_falso(), object()
+        pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e)
+        pje_trt.zerar_rodada()
+        pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e)
+        self.assertEqual(len(e.chamadas), 2)
+
+    def test_ctrl_c_durante_o_login_sobe_e_a_tentativa_fica_gasta(self):
+        e, ctx = self.entrar_falso(KeyboardInterrupt()), object()
+        with self.assertRaises(KeyboardInterrupt):
+            pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e)
+        self.assertIsNone(pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e))
+        self.assertEqual(len(e.chamadas), 1)
+
+    def test_aviso_nao_carrega_dados_da_pagina_alem_da_mensagem_ja_limpa(self):
+        e = self.entrar_falso(RuntimeError("https://x.invalid/?token=abc"))
+        pje_trt.sessao_da_rodada(object(), N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e)
+        self.assertNotIn("abc", " ".join(pje_trt.AVISOS))                              # só o nome da exceção
+
+
+class RespostasDoPje(Base):
+    def test_pagina_de_login_com_http_200_e_sessao_vencida(self):
+        s = pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=lambda c, b=False: {"status": 200, "tipo": "text/html", "texto": "<html>login</html>"})
+        with self.assertRaises(pje_trt.SessaoExpirada):
+            s.timeline(1)
+
+    def test_token_ilegivel_e_sessao_expirada_sem_citar_o_token(self):
+        pagina = PaginaFalsa()
+        pagina.context.cookies.return_value = [{"name": "access_token", "value": "a.@@@.c"}]
+        s = pje_trt.SessaoPje(pagina, 7, chamar=ChamadasFalsas())
+        with self.assertRaises(pje_trt.SessaoExpirada) as ctx:
+            s.buscar(N1)
+        self.assertNotIn("@@@", str(ctx.exception))
+
+    def test_resultado_com_id_que_nao_e_numero_nao_vira_url(self):
+        ch = ChamadasFalsas()
+        s = pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=lambda c, b=False: {"status": 200, "tipo": "json", "texto": json.dumps(
+            {"resultado": [{"id": "../../admin", "numeroProcesso": N1}]})})
+        with self.assertRaises(pje_trt.NaoNoAcervo):
+            s.buscar(N1)
+        self.assertEqual(ch.pedidos, [])
+
+    def test_varios_resultados_escolhe_o_numero_exato(self):
+        outro = numero_ficticio(3, j=5, tr=7)
+        s = pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=lambda c, b=False: {"status": 200, "tipo": "json", "texto": json.dumps(
+            {"resultado": [{"id": 1, "numeroProcesso": outro}, {"id": 2, "numeroProcesso": re.sub(r"\D", "", N1)}]})})
+        self.assertEqual(s.buscar(N1)["id"], 2)                                        # compara só os dígitos: pontuação não importa
+
+    def test_numero_vai_codificado_na_url(self):
+        ch = ChamadasFalsas()
+        pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=ch).buscar(N1)
+        self.assertEqual(ch.pedidos[0].count("&"), 3)                                  # nenhum parâmetro extra vindo do número
+
+    def test_documento_sem_id_na_timeline_e_ignorado(self):
+        _, docs = pje_trt.itens_da_timeline(TIMELINE + [item(None, "2026-10-09T00:00:00", "Sem id", documento=True)])
+        self.assertEqual([d["id"] for d in docs], ["102", "104"])
+
+    def test_403_em_um_documento_nao_derruba_a_sessao(self):
+        ch = ChamadasFalsas()
+        base = ch.__call__
+
+        def chamar(caminho, binario=False):
+            if "/documentos/id/102/" in caminho:
+                return {"status": 403, "tipo": "", "texto": ""}
+            return base(caminho, binario)
+        s = pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=chamar)
+        with self.assertRaises(pje_trt.SemAcesso):
+            s.pdf(555, "102")
+        self.assertEqual(s.pdf(555, "104"), PDF)                                       # o resto continua
+        with self.assertRaises(pje_trt.SessaoExpirada):                                # 403 fora de documento continua sendo sessão
+            pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=lambda c, b=False: {"status": 403, "tipo": "", "texto": ""}).timeline(1)
+
+    def test_documento_sigiloso_negado_fica_sem_arquivo_e_a_coleta_segue(self):
+        ch = ChamadasFalsas()
+        base = ch.__call__
+        s = pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=lambda c, b=False: {"status": 403, "tipo": "", "texto": ""}
+                              if "/documentos/id/102/" in c else base(c, b))
+        estado, lista = {}, []
+        n = pje_trt.coletar_processo(s, self.proc, estado, lista, 5, 10, None, {})
+        self.assertEqual(n, 1)
+        self.assertEqual(estado[N1]["trt"]["1"]["falhas_documentos"], {"102": 1})
+
+    def test_pdf_corrompido_em_base64_invalido_nao_derruba_a_coleta(self):
+        ch = ChamadasFalsas()
+        base = ch.__call__
+        s = pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=lambda c, b=False: {"status": 200, "tipo": "application/pdf", "b64": "@@@"}
+                              if "/conteudo" in c else base(c, b))
+        estado, lista = {}, []
+        self.assertEqual(pje_trt.coletar_processo(s, self.proc, estado, lista, 5, 10, None, {}), 0)
+        self.assertEqual(estado[N1]["trt"]["1"]["falhas_documentos"], {"102": 1, "104": 1})
+
+    def test_documento_gigante_nao_e_trazido(self):
+        s = pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=lambda c, b=False: {"status": 200, "tipo": "application/pdf", "grande": True})
+        with self.assertRaises(RuntimeError):
+            s.pdf(555, "102")
+
+    def test_a_chamada_do_navegador_so_faz_get_e_com_limite(self):
+        self.assertIn("method: 'GET'", pje_trt._JS)
+        for proibido in ("POST", "PUT", "DELETE", "PATCH", "body:", "XMLHttpRequest", "sendBeacon"):
+            self.assertNotIn(proibido, pje_trt._JS)
+        pagina = mock.Mock()
+        pagina.evaluate.return_value = {"status": 200, "texto": "{}"}
+        pje_trt.SessaoPje(pagina, 7).timeline(1)
+        _, args = pagina.evaluate.call_args[0]
+        self.assertEqual(args[1:], [False, pje_trt.LIMITE_PDF])
+
+    def test_so_ha_caminhos_de_leitura(self):
+        """Todos os caminhos que a sessão pede são de leitura do painel/autos: nada de protocolo, assinatura ou ciência."""
+        s, ch = sessao()
+        pje_trt.coletar_processo(s, self.proc, {}, [], 5, 10, None, {})
+        for caminho in ch.pedidos:
+            self.assertTrue(caminho.startswith(pje_trt.API), caminho)
+            self.assertNotRegex(caminho.split("?")[0],r"(?i)protocol|assin|ciencia|expediente|peticion|intima")
+
+
+class SessaoCaiNoMeio(Base):
+    def test_relato_do_chamador_nao_fica_com_restos_da_leitura_interrompida(self):
+        """O PJe cai no PDF do 1º documento: o relato (que a consulta pública vai preencher) fica como estava."""
+        ch = ChamadasFalsas(outra=True)
+        base = ch.__call__
+        s = pje_trt.SessaoPje(PaginaFalsa(), 7, chamar=lambda c, b=False: {"status": 401, "tipo": "", "texto": ""}
+                              if "/conteudo" in c else base(c, b))
+        relato, estado = {}, {}
+        with self.assertRaises(pje_trt.SessaoExpirada):
+            pje_trt.coletar_processo(s, self.proc, estado, [], 5, 10, None, relato)
+        self.assertEqual(relato, {})
+        self.assertEqual(estado, {})                                                   # o estado só avança quando a leitura termina
+
+    def test_relato_preenchido_so_no_fim(self):
+        s, _ = sessao(outra=True)
+        relato = {"avisos": [{"codigo": "antigo"}]}
+        pje_trt.coletar_processo(s, self.proc, {}, [], 5, 10, None, relato)
+        self.assertEqual([a["codigo"] for a in relato["avisos"]], ["antigo", "grau_nao_lido"])
+        self.assertEqual(relato["graus_lidos"], ["1"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,13 +3,18 @@
 Regra de ouro: contas do PDPJ bloqueiam com tentativas erradas. Por isso:
 
 - Cada campo (CPF, senha, código do autenticador) é enviado no máximo UMA vez por tentativa; nada é reenviado.
-- Se qualquer credencial foi enviada e o login não concluiu, grava uma TRAVA (`projetos/.pdpj_trava.json`) e
-  se recusa a tentar de novo até a pessoa liberar na tela Acesso (ou `python pdpj.py --liberar`). Reiniciar o
-  programa, o painel ou a coleta não destrava.
+- ANTES de enviar a primeira credencial, a tentativa cria a TRAVA (`projetos/.pdpj_trava.json`) de forma atômica
+  (O_EXCL): duas execuções ao mesmo tempo não enviam credenciais duas vezes (a segunda desiste sem digitar nada). A
+  trava só é removida pela própria tentativa quando o login conclui; se ela falha, é interrompida (Ctrl+C, botão
+  Interromper do painel, navegador fechado, programa morto) ou nunca terminou, a trava FICA e nenhuma nova tentativa
+  é feita até a pessoa liberar na tela Acesso (ou `python pdpj.py --liberar`). Reiniciar o programa, o painel ou a
+  coleta não destrava.
 - Falha ANTES de enviar qualquer credencial (site fora do ar, tela diferente da esperada, campo não encontrado)
   não trava: nada foi enviado. Mesmo assim não há laço de repetição: uma tentativa e para.
 - O código do autenticador é gerado só quando a janela de 30 s tem folga, para não ser enviado já vencido.
-- O que fica em diagnóstico é só texto (endereço, mensagem de erro, nomes de campos): nunca valores digitados.
+- Credenciais só são digitadas em página https.
+- O que fica em diagnóstico é só texto (endereço sem parâmetros, mensagem de erro sem os valores do cofre, nomes de
+  campos): nunca valores digitados.
 
 Depois do login, entra pelo MENU do PJe (Consulta -> Consulta Processual), que é o caminho que não pede captcha
 (abrir a consulta direto pela URL pede). Só leitura: nada é protocolado nem assinado.
@@ -20,9 +25,11 @@ Depois do login, entra pelo MENU do PJe (Consulta -> Consulta Processual), que �
 """
 import datetime
 import json
+import os
 import re
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import acesso
@@ -33,7 +40,8 @@ OTP_SELETORES = "input[name='otp'], input#otp, input[autocomplete='one-time-code
 USUARIO_SELETORES = ("input[name='username'], input#username, input[autocomplete='username'], "
                      "input[name='cpf'], input#cpf, input[name='login']")
 SENHA_SELETORES = "input[type='password']"
-ERRO_SELETORES = "[role='alert'], .alert-error, .alert, #input-error, .kc-feedback-text, .pf-m-danger, .error, .mat-error"
+# Só marcas específicas de erro: `.alert` e `.error` genéricos casam com avisos informativos e derrubariam um login bom.
+ERRO_SELETORES = "[role='alert'], .alert-error, .alert-danger, #input-error, .kc-feedback-text, .pf-m-danger, .mat-error"
 MARCAS_BLOQUEIO_DO_SITE = re.compile(r"403 ERROR|Request blocked|Access Denied", re.I)
 ESPERA_MAX_S = 75
 
@@ -63,15 +71,57 @@ def trava():
         return {"quando": "", "etapa": "?", "mensagem": "trava ilegível: libere para tentar de novo"}
 
 
-def travar(etapa, mensagem):
+def _gravar_trava(dados):
+    """Troca o conteúdo da trava de uma vez só (arquivo temporário + rename): ninguém lê um arquivo pela metade."""
     comum.PROJETOS_DIR.mkdir(parents=True, exist_ok=True)
-    arquivo_trava().write_text(json.dumps(
-        {"quando": datetime.datetime.now().isoformat(timespec="seconds"), "etapa": etapa, "mensagem": mensagem[:300]},
-        ensure_ascii=False), encoding="utf-8")
+    alvo = arquivo_trava()
+    temp = alvo.with_name(f"{alvo.name}.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp")
+    try:
+        temp.write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+        os.replace(temp, alvo)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def travar(etapa, mensagem, token=None):
+    dados = {"quando": datetime.datetime.now().isoformat(timespec="seconds"), "etapa": etapa, "mensagem": mensagem[:300]}
+    if token:
+        dados["token"] = token                   # identifica a tentativa dona da trava (ver `_liberar_se_minha`)
+    _gravar_trava(dados)
 
 
 def liberar():
     arquivo_trava().unlink(missing_ok=True)
+
+
+def _iniciar_envio():
+    """Chamado ANTES de digitar a primeira credencial: cria a trava de forma atômica, marcada "em andamento". Se já
+    existe (outra tentativa em curso, ou falha não liberada), levanta PdpjErro sem ter enviado nada. Devolve o token
+    desta tentativa. A trava só some quando a própria tentativa conclui o login: morrer no meio (Ctrl+C, kill,
+    navegador fechado) a deixa de pé, e então ninguém tenta de novo sem a pessoa liberar."""
+    comum.PROJETOS_DIR.mkdir(parents=True, exist_ok=True)
+    token = uuid.uuid4().hex
+    dados = {"quando": datetime.datetime.now().isoformat(timespec="seconds"), "etapa": "em_andamento", "token": token,
+             "mensagem": "uma tentativa de login foi iniciada e não terminou (programa fechado ou interrompido no meio)"}
+    try:
+        fd = os.open(arquivo_trava(), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        t = trava() or {}
+        raise PdpjErro("travado", f"Nova tentativa bloqueada: já há uma tentativa de login em curso ou que falhou "
+                                  f"({t.get('etapa', '?')}, {t.get('quando', '?')}). Nada foi digitado. Só tente de novo "
+                                  "depois de conferir os dados e liberar na tela Acesso e escritório.")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(dados, ensure_ascii=False))
+    return token
+
+
+def _liberar_se_minha(token):
+    """Remove a trava só se ela ainda é a desta tentativa (outra execução pode ter travado depois)."""
+    if not token:
+        return
+    t = trava()
+    if t and t.get("token") == token:
+        liberar()
 
 
 def pausa_para_janela_do_totp(minimo_s=6, agora=time.time, dormir=time.sleep):
@@ -130,6 +180,7 @@ class Navegador:
         if alvo is None:
             return False
         alvo.click()
+        alvo.fill("")                            # o navegador pode ter preenchido sozinho: digitar por cima duplicaria o valor
         alvo.press_sequentially(valor, delay=45)
         return True
 
@@ -181,13 +232,27 @@ class Navegador:
 
 # --- login -------------------------------------------------------------------
 
+def _url_limpa(url):
+    """Endereço sem parâmetros (`?...`) nem fragmento (`#...`): ali podem ir códigos de sessão do login."""
+    return re.split(r"[?#]", url or "", maxsplit=1)[0]
+
+
+def _sem_valores(texto, valores=()):
+    """Tira de um texto (mensagem de erro lida da página, por exemplo) qualquer valor do cofre que tenha sido
+    digitado e qualquer sequência com cara de CPF."""
+    texto = str(texto)
+    for v in sorted({str(v) for v in valores if v and len(str(v)) >= 3}, key=len, reverse=True):
+        texto = texto.replace(v, "***")
+    return re.sub(r"\d{3}\.?\d{3}\.?\d{3}-?\d{2}", "***", texto)
+
+
 def _diag(nav, etapa, mensagem, extra=None):
     """Só texto, sem valores digitados: endereço (sem query), mensagem e nomes dos campos."""
     try:
         pasta = comum.DIAG_DIR
         pasta.mkdir(parents=True, exist_ok=True)
         dados = {"quando": datetime.datetime.now().isoformat(timespec="seconds"), "etapa": etapa, "mensagem": mensagem,
-                 "url": nav.url().split("?")[0], "campos": nav.campos(), **(extra or {})}
+                 "url": _url_limpa(nav.url()), "campos": nav.campos(), **(extra or {})}
         (pasta / f"pdpj_{etapa}.json").write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
     except Exception:
         pass
@@ -212,7 +277,7 @@ def inspecionar(nav, trt=7):
     nav.esperar(5000)
     _diag(nav, "inspecionar", "Tela de login do PDPJ")
     return {"ok": True, "etapa": "inspecionar", "mensagem": "Tela de login do PDPJ aberta; campos gravados em diagnosticos/.",
-            "campos": nav.campos(), "url": nav.url().split("?")[0]}
+            "campos": nav.campos(), "url": _url_limpa(nav.url())}
 
 
 def _credenciais():
@@ -233,10 +298,25 @@ def entrar(nav, trt=7, consulta=True, relogio=time.time, dormir=time.sleep):
                                   "depois de conferir os dados e liberar na tela Acesso e escritório.")
     cpf, senha, segredo = _credenciais()
     enviou = []          # o que já foi enviado nesta tentativa
+    digitados = [cpf, senha, segredo, re.sub(r"\D", "", cpf)]   # para tirar das mensagens (ver `_sem_valores`)
+    minha = []           # token da trava desta tentativa (criada antes da 1ª credencial)
+
+    def enviar(campo):
+        """Marca o campo como enviado ANTES de digitar. O primeiro envio cria a trava (atômica) e só segue em página
+        https: credencial nunca vai por conexão sem criptografia."""
+        if not enviou:
+            if not _url_limpa(nav.url()).startswith("https://"):
+                falhar("inseguro", "A página de login não é https: nada foi digitado.")
+            minha.append(_iniciar_envio())
+        enviou.append(campo)
 
     def falhar(etapa, mensagem):
+        mensagem = _sem_valores(mensagem, digitados)
         if enviou:
-            travar(etapa, mensagem)
+            try:
+                travar(etapa, mensagem, minha[0] if minha else None)
+            except Exception:                    # noqa: BLE001 - a trava "em andamento" já está de pé; não perde a PdpjErro
+                pass
         _diag(nav, etapa, mensagem, {"enviado": list(enviou)})
         raise PdpjErro(etapa, mensagem, trava=bool(enviou))
 
@@ -249,49 +329,56 @@ def entrar(nav, trt=7, consulta=True, relogio=time.time, dormir=time.sleep):
         falhar("site", "O site do TRT bloqueou o acesso desta máquina (erro 403). Tente de outra rede ou mais tarde.")
     if not _logado(nav):
         try:
-            _fazer_login(nav, cpf, senha, segredo, enviou, falhar, relogio, dormir)
+            _fazer_login(nav, cpf, senha, segredo, enviou, falhar, relogio, dormir, enviar, digitados)
         except PdpjErro:
             raise
         except Exception as e:  # noqa: BLE001 - imprevisto (janela fechada, erro do navegador): trava se algo já foi enviado
             falhar("erro", f"Erro inesperado durante o login ({type(e).__name__}).")
-    liberar()                                    # entrou: nada a travar
+    _liberar_se_minha(minha[0] if minha else None)   # entrou: só some a trava criada por esta tentativa
     if not consulta:
         return {"ok": True, "etapa": "login", "mensagem": "Login no PDPJ concluído.", "captcha": None}
     return _entrar_na_consulta(nav)
 
 
-def _fazer_login(nav, cpf, senha, segredo, enviou, falhar, relogio, dormir):
+def _fazer_login(nav, cpf, senha, segredo, enviou, falhar, relogio, dormir, enviar=None, digitados=None):
     """O passo a passo da tela de login. Cada campo é enviado no máximo uma vez (`enviou`)."""
+    enviar = enviar or enviou.append
+    digitados = digitados if digitados is not None else []
     if not nav.clicar_texto("Entrar com PDPJ", "PDPJ"):
         falhar("botao", "Não achei o botão \"Entrar com PDPJ\" na página do TRT.")
     inicio = relogio()
+    erro_de_antes = None                         # texto de erro já na tela antes de qualquer envio (banner da página): ignorado
     while not _logado(nav):
         if relogio() - inicio > ESPERA_MAX_S:
             falhar("tempo", "O login não concluiu a tempo (a tela esperada não apareceu).")
         erro = nav.erro_visivel()
-        if erro:
+        if erro_de_antes is None:
+            erro_de_antes = erro
+        elif erro and erro != erro_de_antes:
             falhar("recusado", f"O PDPJ recusou ou avisou: {erro}")
         if "otp" not in enviou and nav.campo(OTP_SELETORES) is not None:
             pausa_para_janela_do_totp(dormir=dormir)
-            enviou.append("otp")             # marcado ANTES de digitar: nunca reenvia
-            if not nav.digitar(OTP_SELETORES, acesso.codigo_totp_atual(segredo)):
+            codigo = acesso.codigo_totp_atual(segredo)     # gerado DEPOIS da pausa, com folga na janela de 30 s
+            digitados.append(codigo)
+            enviar("otp")                    # marcado ANTES de digitar: nunca reenvia
+            if not nav.digitar(OTP_SELETORES, codigo):
                 falhar("otp", "Não consegui preencher o código do autenticador.")
             nav.enter()
             nav.esperar(3000)
             continue
         if "senha" not in enviou and nav.campo(SENHA_SELETORES) is not None:
             if "cpf" not in enviou and nav.campo(USUARIO_SELETORES) is not None:
-                enviou.append("cpf")
+                enviar("cpf")
                 if not nav.digitar(USUARIO_SELETORES, cpf):
                     falhar("cpf", "Não consegui preencher o CPF.")
-            enviou.append("senha")
+            enviar("senha")
             if not nav.digitar(SENHA_SELETORES, senha):
                 falhar("senha", "Não consegui preencher a senha.")
             nav.enter()
             nav.esperar(3000)
             continue
         if "cpf" not in enviou and nav.campo(SENHA_SELETORES) is None and nav.campo(USUARIO_SELETORES) is not None:
-            enviou.append("cpf")
+            enviar("cpf")
             if not nav.digitar(USUARIO_SELETORES, cpf):
                 falhar("cpf", "Não consegui preencher o CPF.")
             nav.enter()
