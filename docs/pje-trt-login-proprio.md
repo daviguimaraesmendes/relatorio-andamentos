@@ -5,6 +5,34 @@ conta de um sócio do escritório (CPF e senha, "Entrar com PDPJ"). Davi digitou
 observou a tela e leu as respostas do portal. **Nenhum dado de cliente foi gravado**: este documento traz só a
 estrutura. Os TRTs usam o mesmo PJe, então o caminho tende a valer para os demais (trocar `trt7` pelo número).
 
+## Atualização (2026-10-09, tarde): a Consulta Processual passou a pedir captcha; novo caminho
+
+O PJe mudou: a **Consulta Processual** (`/consultaprocessual/`) agora pede captcha mesmo pela entrada do menu. O
+caminho que continua sem captcha é o **próprio PJe do advogado** (`/pjekz/`), que Davi mostrou:
+
+1. Login no PDPJ (feito por `src/pdpj.py`, uma tentativa).
+2. No painel (`/pjekz/painel/usuario-externo`), pesquisar o **número do processo** no campo "Pesquisa por número do
+   processo" (ou abrir direto `/pjekz/painel/usuario-externo/acervo-geral/{numero}`): o **Acervo Geral** lista o processo.
+3. Clicar no processo abre os **autos no PJe**: `/pjekz/processo/{idProcesso}/detalhe`, em outra aba.
+
+Por trás disso (testado, só sessão, sem captcha, sem cabeçalhos especiais):
+
+| Passo | Chamada (prefixo `https://pje.trtN.jus.br/pje-comum-api/api`) | Devolve |
+| --- | --- | --- |
+| número -> processo | `GET /paineladvogado/{idUsuario}/processos?numeroProcesso={CNJ com pontuação}&pagina=1&tamanhoPagina=10&tipoPainelAdvogado=1&ordenacaoCrescente=false&data={ms}&idPainelAdvogadoEnum=...` | `{resultado:[{id, numeroProcesso, classeJudicial, descricaoOrgaoJulgador, nomeParteAutora, nomeParteRe, dataAutuacao, segredoDeJustica, ...}]}` |
+| andamentos e documentos | `GET /processos/id/{id}/timeline?somenteDocumentosAssinados=false&buscarMovimentos=true&buscarDocumentos=true` | lista de itens `{id, idUnicoDocumento, titulo, tipo, data, documento, expediente, nomeResponsavel, tipoPolo, documentoSigiloso, ...}` |
+| documento | `GET /processos/id/{id}/documentos/id/{idDoc}/conteudo?incluirCapa=false&grau=1&incluirAssinatura=false` | o arquivo (`application/pdf`) |
+| partes, audiências | `GET /processos/id/{id}/partes?...`, `/audiencias?status=...` | dados do processo |
+
+- `{idUsuario}` é o campo `id` do `access_token` (JWT) da sessão, o mesmo que a página usa na URL do painel; o papel
+  vem como `Advogado`. O token vale cerca de 1 hora.
+- `tipoPainelAdvogado=1` é o Acervo Geral (`2`, Meus Expedientes; fora do escopo).
+- As chamadas devem sair **de dentro da página do PJe** (`fetch` no navegador do programa), como o próprio PJe faz:
+  chamadas "de fora" do navegador podem ser barradas pelo CloudFront do TRT (já vimos 403 em navegador sem tela).
+
+A parte abaixo ("Resultado em uma frase" e adiante) descreve o caminho pela Consulta Processual, que **deixou de
+servir**; fica como registro histórico.
+
 ## Resultado em uma frase
 
 Com o login no PDPJ e **entrando pelo menu do PJe (Consulta → Consulta Processual)**, a Consulta Processual do TRT
