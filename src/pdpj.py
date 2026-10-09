@@ -248,46 +248,56 @@ def entrar(nav, trt=7, consulta=True, relogio=time.time, dormir=time.sleep):
     if MARCAS_BLOQUEIO_DO_SITE.search(nav.texto()):
         falhar("site", "O site do TRT bloqueou o acesso desta máquina (erro 403). Tente de outra rede ou mais tarde.")
     if not _logado(nav):
-        if not nav.clicar_texto("Entrar com PDPJ", "PDPJ"):
-            falhar("botao", "Não achei o botão \"Entrar com PDPJ\" na página do TRT.")
-        inicio = relogio()
-        while not _logado(nav):
-            if relogio() - inicio > ESPERA_MAX_S:
-                falhar("tempo", "O login não concluiu a tempo (a tela esperada não apareceu).")
-            erro = nav.erro_visivel()
-            if erro:
-                falhar("recusado", f"O PDPJ recusou ou avisou: {erro}")
-            if "otp" not in enviou and nav.campo(OTP_SELETORES) is not None:
-                pausa_para_janela_do_totp(dormir=dormir)
-                enviou.append("otp")             # marcado ANTES de digitar: nunca reenvia
-                if not nav.digitar(OTP_SELETORES, acesso.codigo_totp_atual(segredo)):
-                    falhar("otp", "Não consegui preencher o código do autenticador.")
-                nav.enter()
-                nav.esperar(3000)
-                continue
-            if "senha" not in enviou and nav.campo(SENHA_SELETORES) is not None:
-                if "cpf" not in enviou and nav.campo(USUARIO_SELETORES) is not None:
-                    enviou.append("cpf")
-                    if not nav.digitar(USUARIO_SELETORES, cpf):
-                        falhar("cpf", "Não consegui preencher o CPF.")
-                enviou.append("senha")
-                if not nav.digitar(SENHA_SELETORES, senha):
-                    falhar("senha", "Não consegui preencher a senha.")
-                nav.enter()
-                nav.esperar(3000)
-                continue
-            if "cpf" not in enviou and nav.campo(SENHA_SELETORES) is None and nav.campo(USUARIO_SELETORES) is not None:
-                enviou.append("cpf")
-                if not nav.digitar(USUARIO_SELETORES, cpf):
-                    falhar("cpf", "Não consegui preencher o CPF.")
-                nav.enter()
-                nav.esperar(3000)
-                continue
-            nav.esperar(700)
+        try:
+            _fazer_login(nav, cpf, senha, segredo, enviou, falhar, relogio, dormir)
+        except PdpjErro:
+            raise
+        except Exception as e:  # noqa: BLE001 - imprevisto (janela fechada, erro do navegador): trava se algo já foi enviado
+            falhar("erro", f"Erro inesperado durante o login ({type(e).__name__}).")
     liberar()                                    # entrou: nada a travar
     if not consulta:
         return {"ok": True, "etapa": "login", "mensagem": "Login no PDPJ concluído.", "captcha": None}
     return _entrar_na_consulta(nav)
+
+
+def _fazer_login(nav, cpf, senha, segredo, enviou, falhar, relogio, dormir):
+    """O passo a passo da tela de login. Cada campo é enviado no máximo uma vez (`enviou`)."""
+    if not nav.clicar_texto("Entrar com PDPJ", "PDPJ"):
+        falhar("botao", "Não achei o botão \"Entrar com PDPJ\" na página do TRT.")
+    inicio = relogio()
+    while not _logado(nav):
+        if relogio() - inicio > ESPERA_MAX_S:
+            falhar("tempo", "O login não concluiu a tempo (a tela esperada não apareceu).")
+        erro = nav.erro_visivel()
+        if erro:
+            falhar("recusado", f"O PDPJ recusou ou avisou: {erro}")
+        if "otp" not in enviou and nav.campo(OTP_SELETORES) is not None:
+            pausa_para_janela_do_totp(dormir=dormir)
+            enviou.append("otp")             # marcado ANTES de digitar: nunca reenvia
+            if not nav.digitar(OTP_SELETORES, acesso.codigo_totp_atual(segredo)):
+                falhar("otp", "Não consegui preencher o código do autenticador.")
+            nav.enter()
+            nav.esperar(3000)
+            continue
+        if "senha" not in enviou and nav.campo(SENHA_SELETORES) is not None:
+            if "cpf" not in enviou and nav.campo(USUARIO_SELETORES) is not None:
+                enviou.append("cpf")
+                if not nav.digitar(USUARIO_SELETORES, cpf):
+                    falhar("cpf", "Não consegui preencher o CPF.")
+            enviou.append("senha")
+            if not nav.digitar(SENHA_SELETORES, senha):
+                falhar("senha", "Não consegui preencher a senha.")
+            nav.enter()
+            nav.esperar(3000)
+            continue
+        if "cpf" not in enviou and nav.campo(SENHA_SELETORES) is None and nav.campo(USUARIO_SELETORES) is not None:
+            enviou.append("cpf")
+            if not nav.digitar(USUARIO_SELETORES, cpf):
+                falhar("cpf", "Não consegui preencher o CPF.")
+            nav.enter()
+            nav.esperar(3000)
+            continue
+        nav.esperar(700)
 
 
 def _entrar_na_consulta(nav):

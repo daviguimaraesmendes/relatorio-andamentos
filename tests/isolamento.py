@@ -22,3 +22,30 @@ import comum  # noqa: E402
 for caminho in (comum.DATA, comum.CARTEIRA_FILE, comum.CLIENTES_FILE, comum.PROJETOS_DIR, comum.ATUAL_FILE):
     if not str(Path(caminho).resolve()).startswith(str(TMP.resolve())):
         raise SystemExit(f"TESTE ABORTADO: {caminho} aponta para fora da pasta temporária.")
+
+# O cofre do sistema (Keychain, Gerenciador de Credenciais) REAL nunca é lido nem gravado pelos testes: um cofre em
+# memória o substitui. Sem isso, um teste rodando no computador de quem já cadastrou as credenciais (CPF, senha do
+# PDPJ, certificado) as leria de verdade, e poderia até tentar um login.
+try:
+    import keyring
+    from keyring.backend import KeyringBackend
+
+    class CofreEmMemoria(KeyringBackend):
+        priority = 100
+
+        def __init__(self):
+            super().__init__()
+            self._dados = {}
+
+        def get_password(self, servico, usuario):
+            return self._dados.get((servico, usuario))
+
+        def set_password(self, servico, usuario, senha):
+            self._dados[(servico, usuario)] = senha
+
+        def delete_password(self, servico, usuario):
+            self._dados.pop((servico, usuario), None)
+
+    keyring.set_keyring(CofreEmMemoria())
+except ImportError:  # sem keyring instalado não há cofre real para proteger
+    pass

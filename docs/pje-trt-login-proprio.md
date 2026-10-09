@@ -30,6 +30,15 @@ Por trás disso (testado, só sessão, sem captcha, sem cabeçalhos especiais):
 - As chamadas devem sair **de dentro da página do PJe** (`fetch` no navegador do programa), como o próprio PJe faz:
   chamadas "de fora" do navegador podem ser barradas pelo CloudFront do TRT (já vimos 403 em navegador sem tela).
 
+**Instância do processo (automática):** `GET /processos/id/{id}` devolve `instancia` (a do sistema em que o processo foi
+lido: `1` no PJe do 1º grau) e `outraInstancia` (`true` quando o processo também existe em outra instância, isto é,
+já subiu ao 2º grau; `false` caso contrário). O leitor grava isso em `estado[numero]["instancia"]` a cada leitura
+(`atual`, `outra_instancia`, `verificado_em`) e, quando `outraInstancia` é `true`, avisa (`grau_nao_lido`) que o 2º
+grau precisa ser conferido. Quando o PJe não informa, vale o indício pelos andamentos (remessa, recurso, acórdão).
+A linha do tempo também marca cada item (`instancia`, `codigoInstancia`). O número CNJ **não** serve: os 4 últimos
+dígitos são a unidade de origem (1º grau) mesmo no 2º grau. Ainda a fazer: ler o PJe do 2º grau
+(`/segundograu`, mesmo login do PDPJ), que falta mapear.
+
 A parte abaixo ("Resultado em uma frase" e adiante) descreve o caminho pela Consulta Processual, que **deixou de
 servir**; fica como registro histórico.
 

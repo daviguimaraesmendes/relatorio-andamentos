@@ -123,6 +123,18 @@ class UmaTentativa(Base):
         self.assertEqual(nav.digitado, ["usuario", "senha"])         # uma vez cada, o campo continuou na tela e não foi reenviado
         self.assertEqual(pdpj.trava()["etapa"], "recusado")
 
+    def test_erro_inesperado_depois_do_envio_tambem_trava(self):
+        class Quebra(NavFalso):
+            def esperar(self, ms):
+                if self.digitado:
+                    raise RuntimeError("janela fechada")
+        nav = Quebra([tela(LOGIN), tela("https://sso.exemplo.invalid/auth", usuario=True, senha=True), tela("https://sso.exemplo.invalid/x")])
+        with self.assertRaises(pdpj.PdpjErro) as ctx:
+            pdpj.entrar(nav, consulta=False)
+        self.assertEqual((ctx.exception.etapa, ctx.exception.trava), ("erro", True))
+        self.assertIsNotNone(pdpj.trava())
+        self.assertEqual(nav.digitado, ["usuario", "senha"])
+
     def test_segunda_chamada_nao_toca_no_navegador(self):
         pdpj.travar("recusado", "Credenciais inválidas")
         nav = self.fluxo_ok()

@@ -131,6 +131,11 @@ def zerar_rodada(context=None):
     fechar_consultas(context)
     CAPTCHAS.clear()
     RECARGAS.clear()
+    try:
+        import pje_trt
+        pje_trt.zerar_rodada()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _campo_numero(page):
@@ -530,6 +535,21 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
     relato.setdefault("graus_falhos", [])
     relato.setdefault("avisos", [])
     numero = proc["numero"]
+    # PJe do advogado (login do PDPJ, sem captcha), quando as credenciais estão cadastradas; senão, ou se não der
+    # certo, segue a consulta pública abaixo. O login é feito uma vez por rodada e nunca repetido (pdpj.py).
+    try:
+        import pje_trt
+        sessao = pje_trt.sessao_da_rodada(context, numero)
+    except Exception:  # noqa: BLE001 - nunca derruba a coleta
+        sessao = None
+    if sessao is not None:
+        try:
+            return pje_trt.coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relato)
+        except pje_trt.NaoNoAcervo as e:
+            print(f"  {e} Usando a consulta pública para este processo.", flush=True)
+        except pje_trt.SessaoExpirada as e:
+            pje_trt.encerrar_sessao(context, numero)
+            print(f"  {e} Usando a consulta pública no resto da rodada.", flush=True)
     host = host_trt(numero)
     capturas = {"autos": None, "pdfs": {}}
     digitos = re.sub(r"\D", "", numero)
