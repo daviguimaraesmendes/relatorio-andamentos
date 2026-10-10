@@ -5,6 +5,9 @@
     fluxos.converter("outra-planilha.xlsx", "xlsx_b", mapeamento={...})          # Migrar de modelo
     fluxos.inicial("meu-relatorio", profundidade="padrao", modo="imediato", entregas=["docx_a", "xlsx_b", "dashboard"])
     fluxos.atualizar("meu-relatorio", ["relatorio-setembro.docx"], data_base="2026-10-31")
+    fluxos.inicial("meu-relatorio", preset="completa")        # MONTAGEM COMPLETA: histórico todo, documentos todos, 3 entregas
+    fluxos.atualizar("meu-relatorio", preset="leve")          # ATUALIZAÇÃO LEVE: só o novo desde a data-base
+    fluxos.atualizar_sem_coletar("meu-relatorio")             # só regenera planilha e painéis das fichas aprovadas
     fluxos.entregar("meu-relatorio", ["docx_a", "xlsx_b", "dashboard"], data_base="2026-10-31")
 
     python3 src/fluxos.py migrar|converter|inicial|atualizar|entregar ... --projeto SLUG      (ver --help)
@@ -84,6 +87,21 @@ FABRICA_DE_PROVEDOR = None      # f(perfil, cliente) -> provedor de IA; None = i
 TRANSPORTE_DATAJUD = None       # transporte HTTP do DataJud (testes); None = urllib
 ENTREGAS = ("docx_a", "xlsx_b", "dashboard")
 PROFUNDIDADES = ("rapido", "padrao", "completo")
+HISTORICOS = ("todo", "novo")      # "todo": o histórico inteiro do processo; "novo": só o que veio depois da data-base
+
+# Os dois modos de trabalho do relatório (WS-MODOS). "completa" = montar o relatório pela primeira vez (ou quando chega um
+# relatório desformatado): tudo o que o processo tem, nos três graus. "leve" = ciclos seguintes: só o que é novo desde a
+# data-base. Não são um segundo caminho de coleta: são conjuntos de valores para os parâmetros que já existiam
+# (`profundidade`, `desde`) mais dois novos (`resumos_ia`, `sintese`). Sem preset, o comportamento é o de sempre.
+# O 2º grau e o TST não têm botão: o leitor do PJe os lê sempre que o processo mostra sinal de recurso (src/pje_trt.py,
+# src/trt.py) e isso vale nos dois modos.
+PRESETS = {
+    "completa": {"nome": "Montagem completa", "profundidade": "completo", "historico": "todo", "resumos_ia": True,
+                 "sintese": True, "entregas": list(ENTREGAS)},
+    "leve": {"nome": "Atualização leve", "profundidade": "padrao", "historico": "novo", "resumos_ia": True,
+             "sintese": True, "entregas": None},        # entregas None = as que o Perfil já tem
+}
+OPCOES_PADRAO = {"preset": None, "historico": None, "resumos_ia": True, "sintese": True}   # sem preset: como sempre foi
 EVENTOS_ABERTOS = ("coletado", "extraido", "sem_arquivo")
 CODIGOS_PARA_CONFERIR = ("ignorados", "numero_repetido", "numero_em_dois_lugares", "andamento_ja_presente",
                          "edicao_manual_sobrescrita", "edicao_manual", "possivel_duplicata_manual",
@@ -201,6 +219,102 @@ def _provedor(perfil, cliente, slug, cache=None):
     if cache is not None:
         cache[chave] = prov
     return prov
+
+
+# ================================================================ modos de trabalho (completa x leve)
+
+def opcoes_do_preset(preset, *, profundidade=None, historico=None, resumos_ia=None, sintese=None, entregas=None):
+    """Valores de um modo (`PRESETS`) com os ajustes da pessoa por cima ("Opções avançadas"). Ajuste None = fica o do modo.
+    `preset` None ou "personalizada" parte dos padrões de sempre. Devolve {"preset", "nome", "profundidade", "historico",
+    "resumos_ia", "sintese", "entregas", "ajustes"}; "ajustes" lista o que a pessoa mudou em relação ao modo.
+    Valor inválido levanta ValueError com mensagem em português."""
+    if preset in PRESETS:
+        base = dict(PRESETS[preset])
+    elif preset in (None, "", "personalizada"):
+        base = {"nome": "Personalizado", "profundidade": None, "historico": None, "resumos_ia": True, "sintese": True, "entregas": None}
+        preset = None
+    else:
+        raise ValueError(f"Modo de trabalho desconhecido: {preset!r}. Use \"completa\" ou \"leve\".")
+    if profundidade is not None and profundidade not in PROFUNDIDADES:
+        raise ValueError(f"Profundidade desconhecida: {profundidade!r}. Use rápido, padrão ou completo.")
+    if historico is not None and historico not in HISTORICOS:
+        raise ValueError(f"Histórico desconhecido: {historico!r}. Use \"todo\" ou \"novo\" (só o novo desde a data-base).")
+    if entregas is not None:
+        entregas = [e for e in entregas if e in ENTREGAS]
+        if not entregas:
+            raise ValueError("Marque pelo menos uma entrega (texto, planilha ou painel).")
+    ajustes = {}
+    for chave, valor in (("profundidade", profundidade), ("historico", historico), ("resumos_ia", resumos_ia),
+                         ("sintese", sintese), ("entregas", entregas)):
+        if valor is not None and valor != base.get(chave):
+            ajustes[chave] = valor
+            base[chave] = valor
+    return {"preset": preset, **base, "ajustes": sorted(ajustes)}
+
+
+def _opcoes_gravaveis(opcoes):
+    return {"preset": opcoes.get("preset"), "historico": opcoes.get("historico"),
+            "resumos_ia": bool(opcoes.get("resumos_ia", True)), "sintese": bool(opcoes.get("sintese", True)),
+            "profundidade": opcoes.get("profundidade"), "ajustes": list(opcoes.get("ajustes") or [])}
+
+
+def guardar_opcoes(opcoes, projeto=None):
+    """Guarda em data/fluxo.json as opções do ciclo de coleta em preparação (a tela as lê quando a coleta termina, em
+    `pos_coleta`). `opcoes=None` volta ao comportamento de sempre."""
+    with _TRAVA, _em(projeto):
+        estado = _estado()
+        if opcoes:
+            estado["opcoes_da_coleta"] = _opcoes_gravaveis(opcoes)
+        else:
+            estado.pop("opcoes_da_coleta", None)
+        _salvar_estado(estado)
+
+
+def opcoes_da_coleta(projeto=None):
+    """As opções guardadas para a coleta em andamento, completas (o que faltar vem de `OPCOES_PADRAO`)."""
+    with _em(projeto):
+        guardadas = _estado().get("opcoes_da_coleta")
+    return {**OPCOES_PADRAO, **(guardadas if isinstance(guardadas, dict) else {})}
+
+
+def _resolver_opcoes(preset, profundidade, historico, resumos_ia, sintese, entregas):
+    """Junta o preset e os parâmetros soltos de `inicial`/`atualizar`. Devolve None quando nada disso foi pedido (modo
+    antigo: nada muda)."""
+    if preset is None and historico is None and resumos_ia is None and sintese is None:
+        return None
+    return opcoes_do_preset(preset, profundidade=profundidade, historico=historico, resumos_ia=resumos_ia,
+                            sintese=sintese, entregas=entregas)
+
+
+def estimar_resumos_ia(projeto=None, profundidade=None, opcoes=None):
+    """Quantos resumos por IA se espera (para a tela de confirmação). A conta é pelo que a base JÁ tem: documentos coletados
+    que ainda não têm resumo. Quantos documentos a coleta VAI trazer não dá para saber antes (depende do que cada processo
+    tem nos tribunais): isso fica dito, nunca inventado. Devolve {"pendentes", "ia_ligada", "externa", "provedor",
+    "pode_estimar", "chamadas_min", "chamadas_max", "frase"}."""
+    opcoes = {**OPCOES_PADRAO, **(opcoes if opcoes is not None else opcoes_da_coleta(projeto))}
+    with _em(projeto) as slug:
+        perfil = _perfil(slug)
+        profundidade = profundidade or opcoes.get("profundidade") or perfil.get("profundidade")
+        pendentes = sum(1 for e in comum.eventos() if e.get("tipo_evento") == "documento" and e.get("status") in EVENTOS_ABERTOS)
+    ia_perfil = perfil.get("ia") or {}
+    externa = bool(ia_perfil.get("consentimento_externo")) and str(ia_perfil.get("provedor") or "local").lower() != "local"
+    saida = {"pendentes": pendentes, "ia_ligada": bool(opcoes.get("resumos_ia", True)) and profundidade != "rapido",
+             "externa": externa, "provedor": ia_perfil.get("provedor") or "local", "pode_estimar": True,
+             "chamadas_min": 0, "chamadas_max": 0}
+    if not opcoes.get("resumos_ia", True):
+        saida.update(pode_estimar=True, frase="Resumos por IA: desligados neste modo (cada documento recebe só a frase automática, sem chamar a IA).")
+    elif profundidade == "rapido":
+        saida.update(frase="Resumos por IA: nenhum, porque a leitura rápida não abre os documentos.")
+    elif pendentes:
+        saida.update(chamadas_min=pendentes, chamadas_max=2 * pendentes,
+                     frase=f"Resumos por IA: cerca de {pendentes} documento(s) novo(s) que ainda não têm resumo (de {pendentes} a "
+                           f"{2 * pendentes} chamada(s) à IA, porque uma resposta fora do formato é pedida de novo). Os documentos que "
+                           "a coleta ainda vai trazer não dá para contar antes: dependem do que cada processo tem no tribunal.")
+    else:
+        saida.update(pode_estimar=False,
+                     frase="Resumos por IA: não dá para estimar agora. Não há documento coletado esperando resumo, e quantos documentos "
+                           "cada processo tem só se sabe depois de coletar. Cada documento novo gera uma chamada à IA (até duas).")
+    return saida
 
 
 # ================================================================ leitura -> fichas
@@ -689,8 +803,10 @@ def ao_coletar(slug, processo, resultado):
 def pos_coleta(slug, ao_progresso=None):
     """Gancho de `painel.assistente.AO_CONCLUIR`: quando a coleta da tela termina, processa os eventos e faz a
     síntese (o resto é a revisão, na tela Revisar)."""
-    r1 = processar_eventos(slug, ao_progresso=ao_progresso)
-    r2 = sintetizar(slug, ao_progresso=ao_progresso)
+    opcoes = opcoes_da_coleta(slug)         # escolhas do modo de trabalho (sem modo escolhido, tudo como sempre)
+    r1 = processar_eventos(slug, ao_progresso=ao_progresso, resumos_ia=opcoes["resumos_ia"])
+    r2 = (sintetizar(slug, ao_progresso=ao_progresso, usar_ia=opcoes["resumos_ia"]) if opcoes["sintese"]
+          else {"fichas": 0, "momentos": 0, "sem_momento": 0, "pulada": True})
     return {"eventos": r1, "sintese": r2}
 
 
@@ -702,9 +818,9 @@ def _contexto_da_ficha(f):
             "variacoes": cart.variacoes_do_cliente(cliente)}
 
 
-def _resumir_documento(ev, f, perfil, slug, cache_provedores):
-    """Documento extraído -> rascunho. Frase de regra sempre; resumo pelo provedor de IA quando há texto. Sem texto
-    legível ou sem resposta da IA, o rascunho vai à revisão com alerta (nunca inventa)."""
+def _resumir_documento(ev, f, perfil, slug, cache_provedores, resumos_ia=True):
+    """Documento extraído -> rascunho. Frase de regra sempre; resumo pelo provedor de IA quando há texto (e `resumos_ia`).
+    Sem texto legível ou sem resposta da IA, o rascunho vai à revisão com alerta (nunca inventa)."""
     resumir = _mod("resumir")
     traduzir = _mod("traduzir")
     texto = ""
@@ -723,6 +839,10 @@ def _resumir_documento(ev, f, perfil, slug, cache_provedores):
         ev.update(conteudo="", status="rascunho")
         alertas.append("Sem resumo automático: o documento não tem texto legível; abrir nos autos e resumir manualmente.")
         return
+    if not resumos_ia:
+        ev.update(conteudo="", status="rascunho")
+        alertas.append("Sem resumo por IA: esta rodada foi feita com os resumos por IA desligados. Resuma à mão na revisão.")
+        return
     try:
         provedor = _provedor(perfil, ctx["cliente"], slug, cache_provedores)
         res, avisos, motor = resumir.resumir_com_provedor(provedor, texto, ev.get("tipo", ""), quem, frase, ctx, ctx["cliente"])
@@ -736,15 +856,19 @@ def _resumir_documento(ev, f, perfil, slug, cache_provedores):
     alertas.extend(a for a in avisos if a not in alertas)
 
 
-def processar_eventos(slug=None, *, profundidade=None, ao_progresso=None):
+def processar_eventos(slug=None, *, profundidade=None, ao_progresso=None, resumos_ia=None):
     """Eventos `coletado` (movimentos e documentos) -> `rascunho` (ou `descartado`, com o motivo). Idempotente: só
-    toca em evento ainda aberto; o que está `rascunho`, `aprovado` ou `relatado` fica como está. Devolve contagens
-    {"movimentos", "documentos", "descartados", "sem_texto", "selos": {selo: n}}."""
+    toca em evento ainda aberto; o que está `rascunho`, `aprovado` ou `relatado` fica como está (por isso um documento
+    já resumido nunca é resumido outra vez). `resumos_ia=False` não chama a IA (só a frase de regra); None = o que o modo
+    de trabalho guardou (padrão: ligado). Devolve contagens {"movimentos", "documentos", "descartados", "sem_texto",
+    "selos": {selo: n}}."""
     resumir = _mod("resumir")
     extrair = _mod("extrair")
     with _TRAVA, _em(slug) as slug:
         perfil = _perfil(slug)
         profundidade = profundidade or _estado().get("ciclo", {}).get("profundidade") or perfil.get("profundidade")
+        if resumos_ia is None:
+            resumos_ia = opcoes_da_coleta(slug)["resumos_ia"]
         _progresso(ao_progresso, "processamento", "Lendo o texto dos documentos coletados")
         with contextlib.redirect_stdout(io.StringIO()):
             extrair.rodar()
@@ -763,7 +887,7 @@ def processar_eventos(slug=None, *, profundidade=None, ao_progresso=None):
                 ev["motor"], ev["profundidade"] = "regra", ev.get("profundidade") or profundidade
                 cont["movimentos"] += 1
             else:
-                _resumir_documento(ev, principal_de.get(ev["numero"]), perfil, slug, cache)
+                _resumir_documento(ev, principal_de.get(ev["numero"]), perfil, slug, cache, resumos_ia)
                 ev["profundidade"] = ev.get("profundidade") or profundidade
                 cont["documentos"] += 1
                 cont["sem_texto"] += not ev.get("conteudo")
@@ -813,8 +937,9 @@ def aplicar_sintese(f, eventos_da_ficha, provedor=None):
     return {"momento": r.get("momento"), "origem": r.get("origem"), "alertas": list(r.get("alertas") or [])}
 
 
-def sintetizar(slug=None, *, numeros=None, ao_progresso=None):
-    """`aplicar_sintese` para as fichas com eventos (ou só `numeros`). Devolve {"fichas", "momentos", "sem_momento"}."""
+def sintetizar(slug=None, *, numeros=None, ao_progresso=None, usar_ia=True):
+    """`aplicar_sintese` para as fichas com eventos (ou só `numeros`). `usar_ia=False` calcula só pelas regras (sem
+    provedor). Devolve {"fichas", "momentos", "sem_momento"}."""
     with _TRAVA, _em(slug) as slug:
         perfil = _perfil(slug)
         fichas = ficha.carregar(todas=True)
@@ -826,7 +951,7 @@ def sintetizar(slug=None, *, numeros=None, ao_progresso=None):
             evs = _eventos_da_ficha(f, lista)
             if not evs:
                 continue
-            r = aplicar_sintese(f, evs, _provedor(perfil, ficha.obter(f, "cliente") or "", slug, cache))
+            r = aplicar_sintese(f, evs, _provedor(perfil, ficha.obter(f, "cliente") or "", slug, cache) if usar_ia else None)
             feitas += 1
             com_momento += bool(r["momento"])
         ficha.salvar(fichas)
@@ -855,13 +980,14 @@ def _fila(slug, fila, fila_opcoes):
 
 
 def _coletar(slug, fichas_alvo, *, profundidade, modo, coletor, fila, fila_opcoes, data_base_do_arquivo, ciclo_novo,
-             ao_progresso, incluir_vinculados=True):
-    """Enfileira e roda a fila; cada resultado é gravado por `processar_resultado`. Devolve o resumo da fila."""
+             ao_progresso, incluir_vinculados=True, historico_todo=False):
+    """Enfileira e roda a fila; cada resultado é gravado por `processar_resultado`. Devolve o resumo da fila.
+    `historico_todo`: ignora a data-base (`desde` None): o histórico inteiro, como na montagem completa."""
     fila_mod = _mod("fila")
     fila = _fila(slug, fila, fila_opcoes)
     por_desde = {}
     for f in fichas_alvo:
-        desde = desde_do_processo(f, data_base_do_arquivo)
+        desde = None if historico_todo else desde_do_processo(f, data_base_do_arquivo)
         itens = [{"numero": f["numero"], "cliente": ficha.obter(f, "cliente") or ""}]
         if incluir_vinculados:
             itens += [{"numero": v["numero"], "cliente": ficha.obter(f, "cliente") or ""} for v in f.get("vinculados", [])]
@@ -965,7 +1091,7 @@ def ultimo_ciclo(slug=None):
 
 def _rodar_ciclo(tipo, projeto, fichas_alvo_fn, *, profundidade, modo, entregas, coletor, data_base, fila, fila_opcoes,
                  ao_progresso, arquivos_do_ciclo=(), data_base_do_arquivo=None, moldes=None, avisos_previos=(),
-                 aguardar_revisao=True, entregar_opcoes=None):
+                 aguardar_revisao=True, entregar_opcoes=None, opcoes=None):
     avisos = list(avisos_previos)
     with _em(projeto) as slug:
         perfil_mod = _perfil_mod()
@@ -997,6 +1123,11 @@ def _rodar_ciclo(tipo, projeto, fichas_alvo_fn, *, profundidade, modo, entregas,
             vistos = {(a["codigo"], a["onde"]) for a in avisos}
             avisos = [a for a in ciclo.get("avisos", []) if (a["codigo"], a["onde"]) not in vistos] + avisos
         _guardar_avisos_do_ciclo(avisos)
+        if opcoes:           # modo de trabalho escolhido: vale para esta coleta e para o pós-coleta da tela
+            guardar_opcoes(opcoes, slug)
+        elif not retomado:   # sem modo escolhido: volta ao comportamento de sempre
+            guardar_opcoes(None, slug)
+        opc = opcoes_da_coleta(slug)
         if retomado:        # o escopo do ciclo é o que ele abriu (a coleta pode ter encerrado processos que saíram do filtro)
             alvo = [f for f in ficha.carregar(todas=True) if f["numero"] in set(ciclo["numeros"])]
             numeros_alvo = {n for f in alvo for n in ficha.todos_os_numeros(f)}
@@ -1007,7 +1138,8 @@ def _rodar_ciclo(tipo, projeto, fichas_alvo_fn, *, profundidade, modo, entregas,
         try:
             resumo_fila, fila_usada = _coletar(slug, alvo, profundidade=profundidade, modo=modo, coletor=coletor, fila=fila,
                                                fila_opcoes=fila_opcoes, data_base_do_arquivo=data_base_do_arquivo,
-                                               ciclo_novo=not retomado, ao_progresso=ao_progresso)
+                                               ciclo_novo=not retomado, ao_progresso=ao_progresso,
+                                               historico_todo=opc["historico"] == "todo")
         except KeyboardInterrupt:
             return _resultado(False, "Interrompido. Tudo o que já foi coletado está gravado; rode de novo para continuar.",
                               avisos, [], etapa="interrompido", processos=len(alvo), conferir_manualmente=[],
@@ -1020,13 +1152,14 @@ def _rodar_ciclo(tipo, projeto, fichas_alvo_fn, *, profundidade, modo, entregas,
                               "coletado(s). Rode de novo para continuar.", avisos, [], etapa="coleta", fila=resumo_fila,
                               processos=len(alvo), conferir_manualmente=[], pendentes_de_revisao=0)
         _progresso(ao_progresso, "processamento", "Processando os eventos coletados")
-        cont = processar_eventos(slug, profundidade=profundidade, ao_progresso=ao_progresso)
-        sint = sintetizar(slug, numeros={f["numero"] for f in alvo}, ao_progresso=ao_progresso)
+        cont = processar_eventos(slug, profundidade=profundidade, ao_progresso=ao_progresso, resumos_ia=opc["resumos_ia"])
+        sint = (sintetizar(slug, numeros={f["numero"] for f in alvo}, ao_progresso=ao_progresso, usar_ia=opc["resumos_ia"])
+                if opc["sintese"] else {"fichas": 0, "momentos": 0, "sem_momento": 0, "pulada": True})
         conferir = _conferir_manualmente(slug, fila_usada)
         rascunhos, niveis = _pendentes_de_revisao(slug, numeros_alvo)
         extra = dict(etapa="revisao", fila=resumo_fila, processos=len(alvo), eventos=cont, sintese=sint,
                      conferir_manualmente=conferir, pendentes_de_revisao=len(rascunhos), niveis_de_revisao=niveis,
-                     retomado=retomado)
+                     retomado=retomado, modo_de_trabalho=opc.get("preset"))
         abertos = [e for e in comum.eventos() if e.get("status") in EVENTOS_ABERTOS and e.get("numero") in numeros_alvo]
         if abertos:
             avisos.append(_aviso("atencao", "evento_nao_processado", "eventos",
@@ -1051,20 +1184,28 @@ def _rodar_ciclo(tipo, projeto, fichas_alvo_fn, *, profundidade, modo, entregas,
 # ================================================================ 3. inicial
 
 def inicial(projeto, *, profundidade=None, modo=None, entregas=None, cliente=None, coletor=None, data_base=None,
-            todos=False, fila=None, fila_opcoes=None, ao_progresso=None, incluir_vinculados=True):
+            todos=False, fila=None, fila_opcoes=None, ao_progresso=None, incluir_vinculados=True, preset=None,
+            historico=None, resumos_ia=None, sintese=None):
     """Relatório inicial: coleta os processos SEM relatório anterior (ou todos, com `todos=True`; `cliente` filtra),
     grava capa, eventos, momento atual e último andamento, e PARA na revisão dos rascunhos. Rodar de novo com tudo
     aprovado gera as entregas (A, B e C conforme `entregas` ou o perfil) e fecha o ciclo. Retomável.
 
     `coletor`: objeto com `coletar(processo, profundidade, desde)` (ColetorSimulado nos testes); None = ColetorReal
     (exige o acesso configurado). `fila`/`fila_opcoes` trocam a fila (testes: relógio, pausa e janela).
+    `preset` ("completa" ou "leve", ver `PRESETS`) e os ajustes `historico` ("todo"/"novo"), `resumos_ia` e `sintese`
+    escolhem o modo de trabalho; `profundidade` e `entregas` explícitos valem mais que os do modo. Sem nada disso, tudo
+    como antes.
+
     Devolve o dict padrão mais `etapa` ("nada", "coleta", "revisao", "entregue", "interrompido"), `fila` (resumo),
     `processos`, `eventos`, `sintese`, `conferir_manualmente`, `pendentes_de_revisao`, `niveis_de_revisao`."""
+    opcoes = _resolver_opcoes(preset, profundidade, historico, resumos_ia, sintese, entregas)
+    if opcoes:
+        profundidade, entregas = profundidade or opcoes["profundidade"], entregas or opcoes["entregas"]
     def alvo(fichas):
         return [f for f in fichas if f.get("ativo", True) and (not cliente or ficha.obter(f, "cliente") == cliente)
                 and (todos or _precisa_inicial(f))]
     return _rodar_ciclo("inicial", projeto, alvo, profundidade=profundidade, modo=modo, entregas=entregas, coletor=coletor,
-                        data_base=data_base, fila=fila, fila_opcoes=fila_opcoes, ao_progresso=ao_progresso)
+                        data_base=data_base, fila=fila, fila_opcoes=fila_opcoes, ao_progresso=ao_progresso, opcoes=opcoes)
 
 
 # ================================================================ 4. atualizar
@@ -1154,14 +1295,20 @@ def _ler_enviados(arquivos, fichas, avisos, ao_progresso):
 
 
 def atualizar(projeto, arquivos=None, *, profundidade=None, modo=None, entregas=None, cliente=None, coletor=None,
-              data_base=None, fila=None, fila_opcoes=None, ao_progresso=None, incluir_vinculados=True):
+              data_base=None, fila=None, fila_opcoes=None, ao_progresso=None, incluir_vinculados=True, preset=None,
+              historico=None, resumos_ia=None, sintese=None):
     """Atualização mensal. Opcionalmente lê o .docx/.xlsx mais recente (`arquivos`): processo novo entra, processo que
     sumiu e texto alterado à mão viram avisos, campos `humano` do arquivo são preservados. Coleta SÓ o que veio depois
     da data-base de cada processo (`desde`), processa, sintetiza e PARA na revisão. Com tudo aprovado, rodar de novo
     gera VERSÕES NOVAS dos arquivos enviados (o enviado é o molde; o original nunca é sobrescrito) e regenera o outro
     a partir da ficha (partindo da última entrega do programa, se houver). O .html não precisa ser enviado.
 
+    `preset` ("leve" é o natural aqui; "completa" refaz o histórico todo) e os ajustes: ver `inicial`.
+
     Devolve o mesmo dict de `inicial`, mais `novos` e `sumiram` (números) quando houve arquivo."""
+    opcoes = _resolver_opcoes(preset, profundidade, historico, resumos_ia, sintese, entregas)
+    if opcoes:
+        profundidade, entregas = profundidade or opcoes["profundidade"], entregas or opcoes["entregas"]
     avisos, moldes, base_arquivo, extra = [], {}, None, {}
     with _TRAVA, _em(projeto):
         if arquivos:
@@ -1183,7 +1330,7 @@ def atualizar(projeto, arquivos=None, *, profundidade=None, modo=None, entregas=
     saida = _rodar_ciclo("atualizar", projeto, alvo, profundidade=profundidade, modo=modo, entregas=entregas,
                          coletor=coletor, data_base=data_base, fila=fila, fila_opcoes=fila_opcoes, ao_progresso=ao_progresso,
                          arquivos_do_ciclo=[Path(a).name for a in arquivos or []], data_base_do_arquivo=base_arquivo,
-                         moldes=moldes or None, avisos_previos=avisos)
+                         moldes=moldes or None, avisos_previos=avisos, opcoes=opcoes)
     saida.update(extra)
     if moldes and saida.get("etapa") == "revisao":
         with _em(projeto):                          # guarda os moldes do ciclo para a retomada depois da revisão
@@ -1545,6 +1692,34 @@ def entregar(projeto=None, entregas=None, *, data_base=None, moldes=None, tipo="
         return saida
 
 
+ENTREGAS_DO_ATALHO = ("xlsx_b", "dashboard")      # "planilha e painéis": o texto (.docx) só sai se a pessoa marcar
+
+
+def atualizar_sem_coletar(projeto=None, entregas=None, *, data_base=None, ao_progresso=None):
+    """Atalho "Atualizar planilha e painéis agora (sem coletar)": regenera as entregas escolhidas SÓ a partir das fichas e
+    dos eventos já aprovados. Não faz login, não toca nos tribunais, não usa fila nem coletor e não chama a IA (o julgamento
+    e a narrativa são por regra). Os arquivos vão para uma pasta nova de saida/ ("-atualizacao-rapida"); nada anterior é
+    apagado ou sobrescrito. Não marca eventos como `relatado` (isso é a entrega ao cliente, no ciclo completo) e, sem
+    `data_base`, repete a da última entrega do programa (os dados da mesma data-base ficam corrigidos; não abre um mês novo
+    na série). Devolve o dict de `entregar` mais `sem_coleta` (True), `pasta` (onde os arquivos foram gravados) e `etapa`."""
+    with _TRAVA, _em(projeto) as slug:
+        if not ficha.carregar(todas=True):
+            return _resultado(False, "Este relatório ainda não tem processos: não há o que atualizar.",
+                              [_aviso("info", "sem_processos", "entregas", "Cadastre ou importe os processos antes de gerar a planilha e o painel.")],
+                              [], etapa="nada", sem_coleta=True, pasta=None)
+        escolhidas = [e for e in (entregas or ENTREGAS_DO_ATALHO) if e in ENTREGAS]
+        if not escolhidas:
+            return _resultado(False, "Marque pelo menos uma entrega (texto, planilha ou painel).",
+                              [_aviso("erro", "nenhuma_entrega", "entregas", "Marque pelo menos uma entrega.")], [],
+                              etapa="nada", sem_coleta=True, pasta=None)
+        base = ficha.parse_data(data_base) or (_estado().get("ultimas_entregas") or {}).get("data_base") or _hoje()
+        saida = entregar(slug, escolhidas, data_base=base, tipo="atualizacao-rapida", marcar_relatados=False,
+                         ao_progresso=ao_progresso)
+        saida.update(sem_coleta=True, etapa="entregue" if saida["ok"] else "entrega", pasta=str(saida.get("rodada") or ""))
+        saida["resumo"] = ("Planilha e painéis atualizados sem coletar nada (sem tribunal, sem IA). " + saida["resumo"])
+        return saida
+
+
 def _avisos_de_ignorados(res, onde):
     """`ignorados` (andamento que já constava no texto) -> um aviso por escritor, para a lista de conferência."""
     ign = res.get("ignorados") or []
@@ -1595,10 +1770,17 @@ def _cli(argv):
         s.add_argument("--entregas", help="docx_a,xlsx_b,dashboard")
         s.add_argument("--cliente")
         s.add_argument("--data-base", help="AAAA-MM-DD (padrão: hoje)")
+        s.add_argument("--modo-de-trabalho", dest="preset", choices=list(PRESETS),
+                       help="completa = montagem completa (histórico todo, documentos todos); leve = só o novo desde a data-base")
+        s.add_argument("--sem-ia", action="store_true", help="não chama a IA para resumir os documentos (só as frases por regra)")
         if nome == "inicial":
             s.add_argument("--todos", action="store_true")
         else:
             s.add_argument("arquivos", nargs="*", help=".docx e/ou .xlsx mais recentes")
+    q = sub.add_parser("atualizar-agora", help="regenera planilha e painéis só das fichas aprovadas, sem coletar e sem IA")
+    q.add_argument("--projeto", required=True)
+    q.add_argument("--entregas", help="docx_a,xlsx_b,dashboard (padrão: xlsx_b,dashboard)")
+    q.add_argument("--data-base")
     e = sub.add_parser("entregar", help="gera os arquivos a partir da ficha e dos eventos aprovados")
     e.add_argument("--projeto", required=True)
     e.add_argument("--entregas")
@@ -1615,10 +1797,14 @@ def _cli(argv):
         res = converter(a.arquivo, ["docx_a", "xlsx_b"] if a.para == "ambos" else a.para, projeto=a.projeto, ao_progresso=progresso)
     elif a.fluxo == "inicial":
         res = inicial(a.projeto, profundidade=a.profundidade, modo=a.modo, entregas=entregas, cliente=a.cliente,
-                      data_base=a.data_base, todos=a.todos, ao_progresso=progresso)
+                      data_base=a.data_base, todos=a.todos, ao_progresso=progresso, preset=a.preset,
+                      resumos_ia=False if a.sem_ia else None)
     elif a.fluxo == "atualizar":
         res = atualizar(a.projeto, a.arquivos or None, profundidade=a.profundidade, modo=a.modo, entregas=entregas,
-                        cliente=a.cliente, data_base=a.data_base, ao_progresso=progresso)
+                        cliente=a.cliente, data_base=a.data_base, ao_progresso=progresso, preset=a.preset,
+                        resumos_ia=False if a.sem_ia else None)
+    elif a.fluxo == "atualizar-agora":
+        res = atualizar_sem_coletar(a.projeto, entregas, data_base=a.data_base, ao_progresso=progresso)
     else:
         res = entregar(a.projeto, entregas, data_base=a.data_base, ao_progresso=progresso)
     _imprimir(res)

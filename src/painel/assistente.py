@@ -113,6 +113,12 @@ ESTILO_ASSISTENTE = """<style>
 .botao-embrulho>.ajuda{position:absolute;top:10px;right:10px;margin:0}
 .opcao{margin:6px 0}
 .vazio{color:var(--suave)}
+.modos{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:12px 0}
+.modo{display:block;border:2px solid var(--linha);border-radius:14px;padding:14px 16px;background:var(--cartao,var(--fundo));cursor:pointer}
+.modo:has(input:checked){border-color:var(--teal,var(--acento))}
+.modo b{font-size:17px}.modo .dica{display:block;margin-top:4px}
+table.quadro th:first-child,table.quadro td:first-child{white-space:nowrap;font-weight:600;width:1%}
+details.avancado{margin:12px 0}details.avancado summary{cursor:pointer;font-weight:600}
 </style>"""
 
 # Cada fluxo é uma lista de passos (rótulo, endereço opcional do passo, para o "próximo" virar link).
@@ -723,17 +729,31 @@ def _configurar_janela(fila, janela):
         definir(janela["inicio"], janela["fim"])
 
 
-def enfileirar(selecionadas, perfil_do_relatorio, data_base_do_arquivo=None):
-    """Põe os processos na fila (agrupados pela data `desde`). Devolve (fila, quantidade)."""
+def _coletado_antes_de_hoje(fila, numero, hoje):
+    """O processo já foi coletado numa rodada de OUTRO dia? (Sem `Fila.item`, ou sem data, não há como saber: False.)"""
+    item_de = getattr(fila, "item", None)
+    item = item_de(numero) if callable(item_de) else None
+    return bool(item and item.get("estado") == "coletado" and str(item.get("coletado_em") or "")[:10] < hoje)
+
+
+def enfileirar(selecionadas, perfil_do_relatorio, data_base_do_arquivo=None, historico_todo=False, novo_ciclo=False):
+    """Põe os processos na fila (agrupados pela data `desde`). `historico_todo` (montagem completa) ignora a data-base:
+    `desde` None, o histórico inteiro. `novo_ciclo` (atualização): o processo que a fila já tem como `coletado` de um dia
+    anterior volta para a fila; sem isso a fila o trataria como pronto e a atualização do mês seguinte não buscaria nada.
+    O coletado hoje continua pronto (é a mesma rodada). Devolve (fila, quantidade)."""
     grupos = {}
     for f in selecionadas:
-        grupos.setdefault(desde_do_processo(f, data_base_do_arquivo), []).append(f["numero"])
+        grupos.setdefault(None if historico_todo else desde_do_processo(f, data_base_do_arquivo), []).append(f["numero"])
     fila = ent.abrir_fila()
     if perfil_do_relatorio["modo_coleta"] == "continuo":
         _configurar_janela(fila, perfil_do_relatorio["janela_coleta"])
+    hoje = datetime.date.today().isoformat()
     for desde, numeros in sorted(grupos.items(), key=lambda kv: kv[0] or ""):
-        fila.enfileirar(numeros, modo=perfil_do_relatorio["modo_coleta"], profundidade=perfil_do_relatorio["profundidade"],
-                        prioridade=0, desde=desde)
+        pedido = dict(modo=perfil_do_relatorio["modo_coleta"], profundidade=perfil_do_relatorio["profundidade"], prioridade=0, desde=desde)
+        fila.enfileirar(numeros, **pedido)
+        velhos = [n for n in numeros if novo_ciclo and _coletado_antes_de_hoje(fila, n, hoje)]
+        if velhos:
+            fila.enfileirar(velhos, recoletar=True, **pedido)
     return fila, sum(len(n) for n in grupos.values())
 
 
@@ -1011,6 +1031,166 @@ def _pedir(acao):
     return iniciar_execucao()[1]
 
 
+# ================================================================ modos de trabalho: montagem completa x atualização leve
+
+def _fluxos():
+    return modulo("fluxos", "Os modos de trabalho")
+
+
+AJUDA_DOS_MODOS = ("O relatório tem dois modos de trabalho. MONTAGEM COMPLETA: para montar o relatório pela primeira vez (ou quando chega "
+                   "um relatório desformatado): traz o histórico todo, todos os documentos, resume tudo com a IA e gera as três entregas. "
+                   "ATUALIZAÇÃO LEVE: para os meses seguintes: traz só o que é novo desde a data-base, não refaz resumos nem baixa de novo "
+                   "o que já existe. Você pode ajustar cada detalhe em \"Opções avançadas\".")
+
+
+def _tempo_para(n):
+    """Frase de duração para n processos pela média medida da fila (ou o padrão dela); '' se não der para calcular."""
+    try:
+        return duracao_humana(ent.abrir_fila().estimativa(n)) if n else ""
+    except Exception:  # noqa: BLE001 - a estimativa é só um enfeite: nunca derruba a tela
+        return ""
+
+
+def quadro_dos_modos(fichas=None):
+    """Quadro simples "Montagem completa x Atualização leve" (o que cada um faz, quanto leva, se usa IA, o que baixa)."""
+    ativos = [f for f in (fichas or []) if f.get("ativo", True)]
+    sem_rel = [f for f in ativos if not f.get("linha_de_base")]
+    n_comp = len(sem_rel) or len(ativos)
+    t_comp, t_leve = _tempo_para(n_comp), _tempo_para(len(ativos))
+    tempo_comp = ("Mais demorada: lê tudo de cada processo."
+                  + (f" Pela média deste computador, para {n_comp} processo(s): {t_comp} ou mais." if t_comp else ""))
+    tempo_leve = ("Bem mais rápida: só olha o que mudou."
+                  + (f" Pela média deste computador, para {len(ativos)} processo(s): até {t_leve}." if t_leve else ""))
+    linhas = [
+        ("Para que serve", "Montar o relatório pela primeira vez, ou quando chega um relatório desformatado.",
+         "Os ciclos seguintes (por exemplo, todo mês): acrescentar só o que mudou.",
+         "Use a montagem completa quando o processo ainda não tem um relatório seu; a atualização leve, quando já tem."),
+        ("O que busca nos tribunais", "O histórico todo de cada processo.", "Só o que veio depois da data-base (a data do último relatório).",
+         "A data-base é até quando o relatório anterior está em dia. Na leve, tudo o que é mais antigo não é buscado de novo."),
+        ("Documentos que baixa", "Todos (leitura completa).", "Só os novos: os principais (leitura padrão) ou nenhum (leitura rápida).",
+         "Leitura rápida: capa e movimentações, sem abrir documentos. Padrão: também os principais (inicial, sentenças, acórdãos, decisões). "
+         "Completa: todos."),
+        ("2º grau e TST", "Lidos sempre que o processo mostra sinal de recurso.", "Lidos sempre que o processo mostra sinal de recurso.",
+         "É o próprio leitor do PJe que decide, olhando os andamentos (remessa, recurso, relator, acórdão). Vale nos dois modos."),
+        ("Resumos por IA", "Sim: um resumo para cada documento baixado (uma chamada à IA por documento, às vezes duas).",
+         "Sim, mas só nos documentos novos: o que já tem resumo não é refeito.",
+         "A IA só resume documentos que ainda não têm resumo. Se o relatório usa IA externa, só com o seu consentimento, por cliente; sem ele, "
+         "a IA roda neste computador. Dá para desligar em Opções avançadas."),
+        ("Consolidação da ficha", "Sim: calcula o momento atual e o último andamento de cada processo.", "Sim, só dos processos que tiveram novidade.",
+         "É o passo que deixa a ficha do processo em dia com o que foi coletado."),
+        ("Entregas", "As três: texto (Word), planilha e painel.", "As que você já escolheu no Perfil.",
+         "Para refazer só a planilha e os painéis sem coletar nada, use o atalho \"Atualizar planilha e painéis agora\"."),
+        ("Quanto costuma levar", tempo_comp, tempo_leve,
+         "A estimativa vem do tempo médio medido por processo neste computador (ou de um valor padrão, se ainda não houve coleta). A coleta "
+         "faz pausas de propósito entre os processos."),
+    ]
+    corpo = "".join(f"<tr><td>{_e(a)}{ajuda(d)}</td><td>{_e(b)}</td><td>{_e(c)}</td></tr>" for a, b, c, d in linhas)
+    return ("<h2>Montagem completa x Atualização leve" + ajuda(AJUDA_DOS_MODOS) + "</h2>"
+            "<table class='t quadro'><tr><th></th><th>Montagem completa</th><th>Atualização leve</th></tr>" + corpo + "</table>")
+
+
+def _radio(nome, valor, rotulo, marcado):
+    return f"<label class='opcao'><input type='radio' name='{nome}' value='{_e(valor)}' {'checked' if marcado else ''}> {_e(rotulo)}</label> "
+
+
+def bloco_de_modos(escolhido, p, *, completo=True):
+    """Escolha principal das telas do Assistente: os dois modos (cartões) e, em "Opções avançadas", cada valor do modo.
+    Os campos avançados começam em "conforme o modo escolhido" (valor vazio): o servidor usa o do modo, então não depende
+    de JavaScript. `completo=False` mostra só os cartões (primeira tela da atualização, antes da conferência)."""
+    fluxos = _fluxos()
+    todas = ",".join(fluxos.ENTREGAS)
+    doperfil = ",".join(p["entregas"])
+    ajuda_completa = ("Para montar o relatório pela primeira vez, ou quando chega um relatório desformatado. Busca o histórico todo, "
+                      "baixa todos os documentos, resume cada um com a IA, calcula a ficha de cada processo e prepara as três entregas. "
+                      "É a mais demorada.")
+    ajuda_leve = ("Para os meses seguintes. Busca só o que é novo desde a data-base, baixa só os documentos novos, resume só o que "
+                  "ainda não tem resumo e gera as entregas que você escolheu. Bem mais rápida.")
+    ajuda_leitura = ("Quanto abrir de cada processo na atualização leve. Padrão baixa os documentos principais novos; Rápida só lê a capa "
+                     "e as movimentações (não abre documentos, então não há resumos por IA).")
+    cartoes = (
+        "<div class='modos'>"
+        f"<label class='modo'><input type='radio' name='preset' value='completa' {'checked' if escolhido == 'completa' else ''} "
+        f"data-entregas='{_e(todas)}'> <b>Montagem completa</b>{ajuda(ajuda_completa)}"
+        "<span class='dica'>Primeira vez, ou relatório desformatado: histórico todo, todos os documentos, resumo por IA e as três entregas.</span></label>"
+        f"<label class='modo'><input type='radio' name='preset' value='leve' {'checked' if escolhido == 'leve' else ''} "
+        f"data-entregas='{_e(doperfil)}'> <b>Atualização leve</b>{ajuda(ajuda_leve)}"
+        "<span class='dica'>Os ciclos seguintes: só o novo desde a data-base, sem refazer resumos nem baixar de novo o que já existe.</span>"
+        "<span class='dica'>Leitura: <select name='profundidade_leve' aria-label='Leitura da atualização leve'>"
+        "<option value='padrao' selected>Padrão (documentos principais)</option><option value='rapido'>Rápida (só movimentações)</option></select>"
+        f"{ajuda(ajuda_leitura)}</span></label>"
+        "</div>")
+    if not completo:
+        return cartoes
+    sel = lambda nome, opcoes: (f"<select name='{nome}'>" + "".join(f"<option value='{_e(v)}'>{_e(r)}</option>" for v, r in opcoes) + "</select>")
+    conforme = ("", "Conforme o modo escolhido")
+    avancado = (
+        "<details class='avancado'><summary>Opções avançadas</summary>"
+        + ajuda("Cada modo já traz valores prontos. Aqui você muda um deles só para esta coleta. Deixe em \"conforme o modo escolhido\" "
+                "para usar o que o modo define.") +
+        "<fieldset><legend><b>Profundidade</b>"
+        + ajuda("Quanto o programa lê de cada processo. \"Rápido\" só olha a capa e as movimentações. \"Padrão\" também baixa os "
+                "documentos principais (inicial, sentenças, acórdãos, decisões). \"Completo\" baixa todos: demora bem mais. "
+                "A escolha fica salva no Perfil do relatório.") + "</legend>"
+        + _radio("profundidade", "", "Conforme o modo escolhido (completa: Completo; leve: Padrão ou Rápido)", True)
+        + "".join(_radio("profundidade", k, v, False) for k, v in per.PROFUNDIDADES.items()) + "</fieldset>"
+        "<p><label>Quanto histórico "
+        + sel("historico", [conforme, ("todo", "O histórico todo do processo"), ("novo", "Só o novo desde a data-base")])
+        + "</label>" + ajuda("\"O histórico todo\" ignora a data-base e traz o processo desde o início (o que já está gravado não é duplicado). "
+                             "\"Só o novo\" traz apenas o que veio depois da data-base. Num processo que o programa nunca leu e sem data-base, "
+                             "vem tudo de qualquer jeito.") + "</p>"
+        "<p><label>Resumos por IA "
+        + sel("resumos_ia", [conforme, ("sim", "Sim, nos documentos novos que ainda não têm resumo"), ("nao", "Não: só as frases automáticas")])
+        + "</label>" + ajuda("Quando a IA resume o documento. Ligado, ela resume só o que ainda não tem resumo (nunca refaz o que já existe). "
+                             "Desligado, a coleta não chama a IA: cada documento fica só com a frase automática e você resume à mão na revisão.")
+        + "</p>"
+        "<p><label>Consolidar a ficha "
+        + sel("sintese", [conforme, ("sim", "Sim: momento atual e último andamento"), ("nao", "Não, deixar a ficha como está")])
+        + "</label>" + ajuda("Depois da coleta, calcula o momento atual e o último andamento de cada processo a partir do que foi coletado. "
+                             "Desligar deixa a ficha como estava (você pode ajustar à mão em Clientes e processos).") + "</p>"
+        "<p class='dica'>2º grau e TST: o programa lê o 2º grau e o TST sempre que o processo mostra sinal de recurso, nos dois modos."
+        + ajuda("Quem decide é o leitor do PJe, olhando os andamentos. Não há botão para forçar: forçar leria o 2º grau de processos que "
+                "nunca saíram do 1º grau e geraria avisos sem sentido.") + "</p>"
+        "</details>")
+    script = ("<script>(function(){var f=document.currentScript.closest('form');if(!f)return;"
+              "f.querySelectorAll('input[name=preset]').forEach(function(r){r.addEventListener('change',function(){"
+              "var l=(r.getAttribute('data-entregas')||'').split(',');"
+              "f.querySelectorAll('input[name=entregas]').forEach(function(c){c.checked=l.indexOf(c.value)>=0})})})})();</script>")
+    return cartoes + avancado + script
+
+
+def opcoes_do_formulario(form):
+    """(form para o perfil, opções do modo | None, erro | None). Sem o campo `preset`, é o comportamento de sempre (None)."""
+    preset = form.get("preset")
+    fluxos = _fluxos()
+    if preset not in fluxos.PRESETS:
+        return form, None, None
+    sim_nao = {"sim": True, "nao": False}
+    try:
+        opcoes = fluxos.opcoes_do_preset(
+            preset, profundidade=form.get("profundidade") or (form.get("profundidade_leve") if preset == "leve" else None) or None,
+            historico=form.get("historico") or None, resumos_ia=sim_nao.get(form.get("resumos_ia")),
+            sintese=sim_nao.get(form.get("sintese")))
+    except ValueError as erro:
+        return form, None, str(erro)
+    novo = form.copy()
+    novo["profundidade"] = opcoes["profundidade"]
+    if "com_entregas" not in novo and opcoes["entregas"]:          # quem não mandou as caixas recebe as do modo
+        novo["com_entregas"] = "1"
+        novo.setlist("entregas", opcoes["entregas"])
+    return novo, opcoes, None
+
+
+def html_da_estimativa_de_ia(estimativa):
+    """Linha(s) da confirmação: quantos resumos por IA se esperam e onde a IA roda."""
+    onde = (f"A IA é externa ({_e(str(estimativa['provedor']))}), autorizada por você; os nomes seguem a regra de pseudonimização do Perfil."
+            if estimativa["externa"] else "A IA roda neste computador: nenhum texto sai dele.")
+    return (f"<p><b>{_e(estimativa['frase'])}</b>"
+            + ajuda("A conta é pelos documentos que já estão no relatório e ainda não têm resumo. Quantos documentos a coleta vai trazer só se "
+                    "sabe depois de coletar. Cada documento gera uma chamada à IA (duas, se a primeira resposta vier fora do formato). "
+                    "Se a IA não responder, o documento vai para a revisão sem resumo, nunca com um resumo inventado.")
+            + (f"<br><span class='dica'>{onde}</span>" if estimativa["ia_ligada"] else "") + "</p>")
+
+
 # ================================================================ rotas
 
 def registrar(app, TOKEN, cabecalho, token_ok):
@@ -1026,16 +1206,20 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                             "ou <a href='/novo'>crie um relatório novo</a> e cadastre os processos à mão."),
                       "<p class='vazio'>Esta tela precisa de um relatório para funcionar.</p>")
 
-    def campos_da_coleta(p):
-        """Escolhas de profundidade, modo e janela (formulários de inicial e atualizar)."""
+    def campos_da_coleta(p, com_profundidade=True):
+        """Escolhas de profundidade, modo e janela (formulários de inicial e atualizar). Nas telas com os modos de trabalho,
+        a profundidade fica em "Opções avançadas" (`com_profundidade=False` aqui)."""
         marca = lambda a, b: "checked" if a == b else ""
-        h = ["<fieldset><legend><b>Profundidade</b>"
-             + ajuda("Quanto o programa lê de cada processo. \"Rápido\" só olha a capa e as movimentações. \"Padrão\" também baixa os "
-                     "documentos principais (inicial, sentenças, acórdãos, decisões). \"Completo\" baixa todos: demora bem mais. "
-                     "A escolha fica salva no Perfil do relatório.") + "</legend>"]
-        for k, v in per.PROFUNDIDADES.items():
-            h.append(f"<div class='opcao'><label><input type='radio' name='profundidade' value='{k}' {marca(p['profundidade'], k)}> {_e(v)}</label></div>")
-        h.append("</fieldset><fieldset><legend><b>Quando coletar</b>"
+        h = []
+        if com_profundidade:
+            h.append("<fieldset><legend><b>Profundidade</b>"
+                     + ajuda("Quanto o programa lê de cada processo. \"Rápido\" só olha a capa e as movimentações. \"Padrão\" também baixa os "
+                             "documentos principais (inicial, sentenças, acórdãos, decisões). \"Completo\" baixa todos: demora bem mais. "
+                             "A escolha fica salva no Perfil do relatório.") + "</legend>")
+            for k, v in per.PROFUNDIDADES.items():
+                h.append(f"<div class='opcao'><label><input type='radio' name='profundidade' value='{k}' {marca(p['profundidade'], k)}> {_e(v)}</label></div>")
+            h.append("</fieldset>")
+        h.append("<fieldset><legend><b>Quando coletar</b>"
                  + ajuda("\"Contínuo\": a coleta só trabalha dentro da janela de horário que você definir (ótimo para a noite) e retoma sozinha "
                          "no dia seguinte, desde que o computador e o painel estejam ligados. \"Imediato\": começa agora, depois de uma "
                          "confirmação que mostra quanto tempo deve levar.") + "</legend>")
@@ -1070,11 +1254,11 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 sugestao = ("O relatório está vazio. Cadastre os processos em <a href='/cadastro'>Clientes e processos</a> "
                             "ou use <b>Importar relatórios existentes</b>.")
             elif novos:
-                sugestao = (f"{novos} processo(s) ainda não têm relatório anterior. O próximo passo é <b>Elaborar relatório inicial</b>: "
-                            "o programa busca o histórico deles nos tribunais e monta o primeiro texto.")
+                sugestao = (f"{novos} processo(s) ainda não têm relatório anterior. O próximo passo é <b>Elaborar relatório inicial</b> "
+                            "no modo <b>Montagem completa</b>: o programa busca o histórico deles nos tribunais e monta o primeiro texto.")
             else:
                 sugestao = ("Seus processos já têm relatório anterior. Para acrescentar o que mudou desde a última vez, use "
-                            "<b>Atualizar relatório</b>. Depois, revise os resumos e gere as entregas.")
+                            "<b>Atualizar relatório</b> no modo <b>Atualização leve</b>. Depois, revise os resumos e gere as entregas.")
         h = [agora(sugestao, ajuda_texto="É uma sugestão baseada no estado do seu relatório. Você pode escolher qualquer outro caminho; "
                                          "nada começa sozinho e nenhum botão desta tela consulta tribunal."),
              "<div class='botoes-grandes'>"
@@ -1094,6 +1278,16 @@ def registrar(app, TOKEN, cabecalho, token_ok):
              "<span class='dica'>Meu relatório está num formato diferente e quero passá-lo para os modelos do programa.</span></a>"
              + ajuda("Converte um relatório de outro formato para os modelos do programa (texto, planilha, painel). Trabalha em cópias; "
                      "o original não muda e não se consulta tribunal.") + "</div></div>"]
+        h.append("<h2>Dois jeitos de trabalhar" + ajuda(AJUDA_DOS_MODOS) + "</h2><div class='modos'>"
+                 "<div class='botao-embrulho'><a class='botao-grande modo-link' href='/fluxo/inicial?modo=completa'><b>Montagem completa</b>"
+                 "<span class='dica'>Montar o relatório pela primeira vez, ou quando chega um relatório desformatado: histórico todo, "
+                 "todos os documentos, resumo por IA e as três entregas.</span></a>"
+                 + ajuda("Abre \"Elaborar relatório inicial\" já no modo Montagem completa. Nada é consultado até você clicar em \"Preparar a coleta\".")
+                 + "</div><div class='botao-embrulho'><a class='botao-grande modo-link' href='/fluxo/atualizar?modo=leve'><b>Atualização leve</b>"
+                 "<span class='dica'>Os ciclos seguintes: só o novo desde a data-base, sem refazer resumos nem baixar de novo o que já existe.</span></a>"
+                 + ajuda("Abre \"Atualizar relatório\" já no modo Atualização leve. Nada é consultado até você clicar em \"Preparar a coleta\".")
+                 + "</div></div>")
+        h.append(quadro_dos_modos(ficha.carregar(todas=True) if comum.PROJETO else []))
         if comum.PROJETO:
             fichas = ficha.carregar(todas=True)
             novos = sum(1 for f in fichas if not f.get("linha_de_base"))
@@ -1110,6 +1304,9 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                      + " · <a href='/perfil'>Perfil</a>"
                      + ajuda("As preferências deste relatório: o que entregar, quanto ler de cada processo e quando coletar.")
                      + "</p></div>")
+            h.append(ent.html_do_atalho(oculto, per.carregar(), "/fluxo"))
+        else:
+            h.append("<p class='vazio'>Quando houver um relatório, aparece aqui o atalho \"Atualizar planilha e painéis agora (sem coletar)\".</p>")
         return pagina("fluxo", "O que você quer fazer?", *h)
 
     # ------------------------------------------------------------ importar
@@ -1226,9 +1423,11 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                           agora("Este relatório ainda não tem processos. <a href='/cadastro'>Cadastre os processos</a> ou "
                                 "<a href='/fluxo/importar'>importe seus relatórios</a> primeiro."),
                           "<p class='vazio'>Sem processos, não há o que coletar.</p>")
+        modo = "leve" if request.args.get("modo") == "leve" else "completa"
+        marcadas = _fluxos().ENTREGAS if modo == "completa" else p["entregas"]
         h = [trilha("inicial", 1),
-             agora("Escolha o que quer receber e como a coleta deve trabalhar, e clique em <b>Preparar a coleta</b>. "
-                   "Os valores sugeridos servem para a maioria dos casos.",
+             agora("Escolha o modo de trabalho (o primeiro serve para montar o relatório pela primeira vez), o que quer receber e como a "
+                   "coleta deve trabalhar, e clique em <b>Preparar a coleta</b>. Os valores sugeridos servem para a maioria dos casos.",
                    "Enquanto você está nesta tela, nada é consultado nos tribunais: a coleta só começa depois do clique (no modo imediato, "
                    "ainda há uma tela de confirmação com a estimativa de tempo).",
                    ajuda_texto="O programa lê (só leitura) os processos no jus.br e nos TRTs com o seu certificado, resume os documentos com a IA "
@@ -1243,9 +1442,11 @@ def registrar(app, TOKEN, cabecalho, token_ok):
              + ajuda("Os arquivos que o programa vai montar no fim, com o que você aprovar: texto em Word (.docx), planilha (.xlsx) e painel "
                      "com gráficos (.html). Marque pelo menos um. Dá para gerar de novo, depois, na tela Entregas.") + "</legend>"]
         for k, v in per.ENTREGAS.items():
-            h.append(f"<div class='opcao'><label><input type='checkbox' name='entregas' value='{k}' {'checked' if k in p['entregas'] else ''}> {_e(v)}</label></div>")
+            h.append(f"<div class='opcao'><label><input type='checkbox' name='entregas' value='{k}' {'checked' if k in marcadas else ''}> {_e(v)}</label></div>")
         h.append("</fieldset>")
-        h.append(campos_da_coleta(p))
+        i_entregas = next(k for k, x in enumerate(h) if x.startswith("<input type='hidden' name='com_entregas'"))
+        h.insert(i_entregas, "<h3>Como trabalhar" + ajuda(AJUDA_DOS_MODOS) + "</h3>" + bloco_de_modos(modo, p))
+        h.append(campos_da_coleta(p, com_profundidade=False))
         opcoes = "".join(f"<option value='{_e(c)}'>{_e(c)}</option>" for c in clientes_da_carteira(fichas))
         h.append("<details><summary>Filtros (opcional)"
                  + (": por padrão, só os processos sem relatório anterior" if novos else "") + "</summary>"
@@ -1260,6 +1461,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                          "rodar já (entrando no jus.br com o certificado), mas só trabalha dentro da janela de horário. No imediato, você vê a "
                          "estimativa de tempo e confirma antes. Pode pausar ou parar com segurança depois.")
                  + "</p></form>")
+        h.append("<details class='avancado'><summary>Ver o quadro Montagem completa x Atualização leve</summary>"
+                 + quadro_dos_modos(fichas) + "</details>")
         return pagina("fluxo", "Elaborar relatório inicial", *h)
 
     @app.post("/fluxo/inicial/preparar")
@@ -1267,17 +1470,22 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         token_ok()
         if not comum.PROJETO:
             return _ir("/fluxo", "Não há relatório aberto. Importe relatórios ou crie um novo relatório para começar.")
-        perfil_novo, erros = per.aplicar_formulario(per.carregar(), request.form, parcial=True)
+        form, opcoes, erro_modo = opcoes_do_formulario(request.form)
+        if erro_modo:
+            return _ir("/fluxo/inicial", "Corrija antes de continuar:\n" + erro_modo)
+        perfil_novo, erros = per.aplicar_formulario(per.carregar(), form, parcial=True)
         if erros:
             return _ir("/fluxo/inicial", "Corrija antes de continuar:\n" + "\n".join(erros))
         per.salvar(perfil_novo)
+        _fluxos().guardar_opcoes(opcoes)              # sem modo escolhido: limpa, e tudo corre como sempre
         fichas = ficha.carregar(todas=True)
         selecionadas = selecionar_processos(fichas, request.form.get("cliente", ""), bool(request.form.get("so_novos")))
         try:
-            _, quantidade = enfileirar(selecionadas, perfil_novo) if selecionadas else (None, 0)
+            _, quantidade = (enfileirar(selecionadas, perfil_novo, historico_todo=bool(opcoes and opcoes["historico"] == "todo"))
+                             if selecionadas else (None, 0))
         except Indisponivel as erro:
             return _ir("/fluxo/inicial", str(erro))
-        return seguir_para_a_coleta(perfil_novo, quantidade)
+        return seguir_para_a_coleta(perfil_novo, quantidade, f"Modo: {opcoes['nome']}." if opcoes else "")
 
     # ------------------------------------------------------------ atualizar
 
@@ -1285,6 +1493,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
     def fluxo_atualizar():
         if not comum.PROJETO:
             return sem_relatorio("Atualizar relatório")
+        modo = "completa" if request.args.get("modo") == "completa" else "leve"
         return pagina("fluxo", "Atualizar relatório",
                       trilha("atualizar", 1),
                       agora("Envie o relatório mais recente (o que você mandou ao cliente no mês passado) e clique em <b>Conferir com a carteira</b>. "
@@ -1299,6 +1508,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                               "nunca é sobrescrito: no fim saem cópias novas. Tudo fica neste computador.") + "</p>"
                       "<div class='zona'><input type='file' name='arquivos' multiple accept='.docx,.xlsx' aria-label='Relatório mais recente'></div>"
                       "<p class='dica'>Sem arquivo, o programa só coleta o que mudou desde o último relatório de cada processo.</p>"
+                      "<h3>Como trabalhar" + ajuda(AJUDA_DOS_MODOS) + "</h3>" + bloco_de_modos(modo, per.carregar(), completo=False) +
+                      "<p class='dica'>Na próxima tela você ainda pode ajustar cada detalhe em \"Opções avançadas\".</p>"
                       "<button class='principal'>Conferir com a carteira</button>"
                       + ajuda("Lê o arquivo (se enviado) e mostra uma tela de conferência: quais processos são novos, quais sumiram e qual é a data-base. "
                               "Ainda não busca nada nos tribunais.")
@@ -1321,6 +1532,9 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             motivos = "\n".join(f"{r['nome']}: {r['motivo']}" for r in rejeitados)
             return _ir("/fluxo/atualizar", "Não consegui usar o arquivo enviado.\n" + motivos)
         fichas_lidas, avisos, dados_lote = montar_lote_de_atualizacao(lidos, rejeitados)
+        if request.form.get("preset") in ("completa", "leve"):
+            dados_lote["modo"] = request.form["preset"]
+            dados_lote["profundidade_leve"] = request.form.get("profundidade_leve") or "padrao"
         gravar_lote(pasta, "lote.json", dados_lote)
         gravar_lote(pasta, "fichas.json", fichas_lidas)
         gravar_lote(pasta, "avisos.json", avisos)
@@ -1386,7 +1600,12 @@ def registrar(app, TOKEN, cabecalho, token_ok):
             h.append("<h2>Avisos da leitura"
                      + ajuda("Pontos que o programa notou ao ler o arquivo. \"Erro\" pede correção; \"atenção\", uma olhada; \"info\" é só informação. "
                              "Nenhum deles impede de continuar.") + "</h2>" + _tabela_de_avisos(list(enumerate(avisos))))
-        h.append(campos_da_coleta(p))
+        escolhido = dados.get("modo") or "leve"
+        h.append("<h3>Como trabalhar" + ajuda(AJUDA_DOS_MODOS) + "</h3>" + bloco_de_modos(escolhido, p))
+        if dados.get("profundidade_leve") == "rapido":
+            h[-1] = h[-1].replace("<option value='padrao' selected>", "<option value='padrao'>").replace(
+                "<option value='rapido'>", "<option value='rapido' selected>")
+        h.append(campos_da_coleta(p, com_profundidade=False))
         opcoes = "".join(f"<option value='{_e(c)}'>{_e(c)}</option>" for c in clientes_da_carteira(fichas))
         h.append(f"<p><label>Só este cliente <select name='cliente'><option value=''>todos</option>{opcoes}</select></label>"
                  + ajuda("Coleta apenas os processos desse cliente. Em \"todos\", entram todos os processos ativos da carteira.") + "</p>"
@@ -1407,10 +1626,14 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         dados = ler_lote(pasta, "lote.json")
         if dados is None or dados.get("tipo") != "atualizar":
             abort(404)
-        perfil_novo, erros = per.aplicar_formulario(per.carregar(), request.form, parcial=True)
+        form, opcoes, erro_modo = opcoes_do_formulario(request.form)
+        if erro_modo:
+            return _ir(f"/fluxo/atualizar/conferir?lote={pasta.name}", "Corrija antes de continuar:\n" + erro_modo)
+        perfil_novo, erros = per.aplicar_formulario(per.carregar(), form, parcial=True)
         if erros:
             return _ir(f"/fluxo/atualizar/conferir?lote={pasta.name}", "Corrija antes de continuar:\n" + "\n".join(erros))
         per.salvar(perfil_novo)
+        _fluxos().guardar_opcoes(opcoes)              # sem modo escolhido: limpa, e tudo corre como sempre
         carteira = ficha.carregar(todas=True)
         incluidos = 0
         if request.form.get("incluir_novos") and dados["novos"]:
@@ -1431,11 +1654,14 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         if digitada and not data_base:
             return _ir(f"/fluxo/atualizar/conferir?lote={pasta.name}", f"Não entendi a data-base '{digitada}'. Use DD/MM/AAAA.")
         try:
-            _, quantidade = enfileirar(selecionadas, perfil_novo, data_base) if selecionadas else (None, 0)
+            _, quantidade = (enfileirar(selecionadas, perfil_novo, data_base, historico_todo=bool(opcoes and opcoes["historico"] == "todo"),
+                                      novo_ciclo=True)
+                             if selecionadas else (None, 0))
         except Indisponivel as erro:
             return _ir("/fluxo/atualizar", str(erro))
-        return seguir_para_a_coleta(perfil_novo, quantidade,
-                                    f"{incluidos} processo(s) novo(s) incluído(s) na carteira." if incluidos else "")
+        avisos_do_envio = [f"{incluidos} processo(s) novo(s) incluído(s) na carteira." if incluidos else "",
+                           f"Modo: {opcoes['nome']}." if opcoes else ""]
+        return seguir_para_a_coleta(perfil_novo, quantidade, "\n".join(t for t in avisos_do_envio if t))
 
     # ------------------------------------------------------------ confirmação (modo imediato) e progresso
 
@@ -1448,6 +1674,14 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         except Indisponivel as erro:
             return pagina("fluxo", "Confirmar coleta", f"<p>{_e(str(erro))}</p>")
         pendentes = resumo.get("pendente", 0)
+        fluxos = _fluxos()
+        opc = fluxos.opcoes_da_coleta()
+        nome_do_modo = fluxos.PRESETS[opc["preset"]]["nome"] if opc.get("preset") in fluxos.PRESETS else ""
+        try:
+            estimativa_ia = fluxos.estimar_resumos_ia(comum.PROJETO, per.carregar()["profundidade"], opc)
+            linha_ia = html_da_estimativa_de_ia(estimativa_ia)
+        except Exception:  # noqa: BLE001 - a estimativa nunca derruba a confirmação
+            linha_ia = "<p><b>Resumos por IA: não consegui estimar agora.</b></p>"
         return pagina("fluxo", "Confirmar coleta imediata",
                       trilha("coleta", 2),
                       agora("Veja a estimativa de tempo. Se puder deixar o computador e este programa abertos por esse tempo, clique em "
@@ -1457,6 +1691,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                       f"para {pendentes} processo(s). O programa busca um processo por vez, com pausas, para não sobrecarregar o tribunal."
                       + ajuda("A estimativa usa o tempo médio por processo já medido (ou um valor padrão, se ainda não houve coleta) e pode variar. As pausas entre processos são de propósito: imitam o ritmo "
                               "humano e evitam sobrecarregar o jus.br e os TRTs.") + "</div>"
+                      + (f"<p><b>Modo de trabalho:</b> {_e(nome_do_modo)}." + ajuda(AJUDA_DOS_MODOS) + "</p>" if nome_do_modo else "")
+                      + linha_ia +
                       "<p>Durante a coleta o programa precisa ficar aberto. O PJe Office também, mas só para processos fora da Justiça do Trabalho (a Justiça do Trabalho entra pelo PDPJ). Você pode pausar ou parar com segurança a qualquer momento.</p>"
                       f"<form method='post' action='/fluxo/comecar'>{oculto}<button class='principal'>Confirmar e começar agora</button>"
                       + ajuda("Abre um navegador (minimizado) e entra no jus.br com o seu certificado e o autenticador. Depois consulta os processos "
@@ -1584,6 +1820,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                      + ajuda("Abre a tela Revisar, onde você confere os resumos que já chegaram e aprova, corrige ou descarta cada um.")
                      + " · <a href='/entregas'>Ver entregas</a>"
                      + ajuda("Gera os arquivos do relatório (Word, planilha, painel) com o que você já aprovou.") + "</p>")
+        if terminou:
+            h.append(ent.html_do_atalho(oculto, per.carregar(), "/fluxo/progresso"))
         if estado in ("rodando", "aguardando", "parando"):
             h.append("<script>setTimeout(()=>location.reload(),3000);</script>")
         return pagina("fluxo", "Andamento da coleta", *h)
