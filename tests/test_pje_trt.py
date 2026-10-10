@@ -689,5 +689,28 @@ class SessaoDaRodadaTst(Base):
         self.assertEqual(navegador.new_context.call_count, 2)
 
 
+class CapaDoPainel(Base):
+    REG = {"id": 555, "numeroProcesso": N1, "descricaoOrgaoJulgador": "4ª Vara do Trabalho de Fortaleza", "classeJudicial": "ATOrd",
+           "nomeParteAutora": "Fulana de Tal", "qtdeParteAutora": 1, "nomeParteRe": "Empresa Exemplo Ltda", "qtdeParteRe": 3,
+           "dataAutuacao": "2025-04-04T10:00:00.000"}
+
+    def test_capa_a_partir_do_acervo(self):
+        capa = pje_trt.capa_do_painel(self.REG)
+        self.assertEqual(capa["vara"], "4ª Vara do Trabalho de Fortaleza")
+        self.assertEqual((capa["classe"], capa["autores"], capa["reus"]), ("ATOrd", "Fulana de Tal", "Empresa Exemplo Ltda e outros (2)"))
+        self.assertTrue(capa["data_ajuizamento"].startswith("2025-04-04"))
+        self.assertEqual(capa.get("municipio"), "Fortaleza")
+
+    def test_so_o_que_o_pje_preencheu(self):
+        self.assertEqual(pje_trt.capa_do_painel({"id": 1, "nomeParteAutora": "  ", "classeJudicial": None}), {})
+
+    def test_a_coleta_entrega_a_capa_no_relato(self):
+        s, ch = sessao()
+        relato = {}
+        pje_trt.coletar_processo(s, self.proc, {}, [], 5, 0, None, relato)
+        self.assertEqual(set(relato["capa"]), set())            # o acervo falso do teste só tem id e número
+        self.assertIn("capa", relato)
+
+
 if __name__ == "__main__":
     unittest.main()

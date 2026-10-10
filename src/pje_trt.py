@@ -314,6 +314,30 @@ def _aviso(relato, numero, mensagem, grau="2"):
     relato["graus_falhos"].append({"grau": grau, "motivo": mensagem})
 
 
+def capa_do_painel(achado):
+    """A capa do processo no formato que o coletor entrega ao fluxo (`{campo: valor}`), a partir do registro do Acervo
+    Geral: vara de origem, classe, partes e data de autuação. Só campos que o PJe preencheu; nunca inventa nada."""
+    def texto(chave):
+        v = achado.get(chave)
+        return " ".join(str(v).split()) if isinstance(v, str) and v.strip() else None
+
+    def parte(nome, qtde):
+        if not nome:
+            return None
+        return nome + (f" e outros ({int(qtde) - 1})" if isinstance(qtde, int) and qtde > 1 else "")
+    vara = texto("descricaoOrgaoJulgador")
+    capa = {"vara": vara, "classe": texto("classeJudicial"), "data_ajuizamento": texto("dataAutuacao"),
+            "autores": parte(texto("nomeParteAutora"), achado.get("qtdeParteAutora")),
+            "reus": parte(texto("nomeParteRe"), achado.get("qtdeParteRe"))}
+    if vara:
+        try:
+            import capa as modulo_capa
+            capa["municipio"] = modulo_capa._municipio_do_orgao(vara)
+        except Exception:  # noqa: BLE001 - município é só um complemento
+            pass
+    return {k: v for k, v in capa.items() if v}
+
+
 ROTULOS = {"1": "1º grau", "2": "2º grau", "3": "TST"}
 
 
@@ -348,6 +372,7 @@ def _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relat
 
     instancia = instancia_do_processo(sessao, achado["id"])
     relato["instancia"] = instancia
+    relato["capa"] = capa_do_painel(achado)
     # `outraInstancia: true` confirma. `false` NÃO prova nada: num processo real que já está no TST, o PJe do 1º grau
     # diz `false` (o registro dele para na remessa). Por isso os andamentos valem sempre, além do sinal do PJe.
     if instancia["outra_instancia"] is True:

@@ -914,7 +914,8 @@ class ColetorReal:
     - Grava eventos (eventos.json) e estado (estado_coleta.json) como o `coletor.rodar()` da Fase 1, a cada
       processo (relê os eventos antes de cada um, porque a revisão pode estar aberta). O `ResultadoColeta`
       devolvido espelha o que foi acrescentado: `movimentos` e `documentos` (só os baixados).
-    - `capa` vem VAZIA: o coletor atual não lê a capa (é o WS-4, `capa.py`).
+    - `capa` vem VAZIA no jus.br (o coletor atual não lê a capa: é o WS-4, `capa.py`); nos processos lidos pelo PJe do
+      advogado (`pje_trt`) vem a capa do Acervo Geral: vara, classe, partes, data de autuação e município.
     - `desde` (estrito, igual ao `_depois` do coletor): vale na PRIMEIRA vez que o processo é visto; depois, o
       coletor usa o estado por processo (só o que ainda não conhecia). Primeira vez SEM `desde` e sem `historico`
       informado traz o histórico COMPLETO (beta 3.1: antes virava "linha de base" e não trazia nada, o que fazia o
@@ -1006,7 +1007,7 @@ class ColetorReal:
         if erro and erro["codigo"] == "nao_encontrado" and parece_fisico(processo["numero"]):
             erro = {"codigo": "fisico", "mensagem": _MENSAGENS["fisico"]}
         movimentos, documentos = eventos_para_resultado(lista[antes:])
-        resultado = {"capa": {}, "movimentos": movimentos, "documentos": documentos, "erro": erro}
+        resultado = {"capa": relato.get("capa") or {}, "movimentos": movimentos, "documentos": documentos, "erro": erro}
         if relato.get("graus_lidos") or relato.get("graus_falhos"):
             resultado["graus"] = {"lidos": relato.get("graus_lidos", []), "falhos": relato.get("graus_falhos", [])}
         if relato.get("avisos"):

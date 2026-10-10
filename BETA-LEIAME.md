@@ -11,6 +11,8 @@ Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você 
 3. **Estadual e Federal pelo jus.br com certificado, Trabalhista pelo PJe próprio:** o login com certificado só acontece quando algum processo precisa dele.
 4. **Mais segurança no login do PDPJ:** a trava contra repetição de tentativa é gravada **antes** de qualquer credencial ser enviada; nunca há segunda tentativa na mesma rodada, mesmo se o navegador for reaberto; o código do autenticador não é reutilizado na mesma janela de 30 segundos; mensagens e diagnósticos nunca guardam o que foi digitado.
 5. **Os testes automáticos não tocam mais no cofre real do computador.**
+6. **Capa dos processos trabalhistas vem do PJe:** vara, classe, autor, réu, data de ajuizamento e município entram na ficha e na planilha sem digitação.
+7. **Texto do Assistente:** o aviso sobre o PJe Office agora vale só para processos fora da Justiça do Trabalho.
 
 ## 00000. Novo no beta6 (visual novo, login próprio no PJe do TRT e Claude pelo Claude Code)
 

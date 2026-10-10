@@ -1457,7 +1457,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                       f"para {pendentes} processo(s). O programa busca um processo por vez, com pausas, para não sobrecarregar o tribunal."
                       + ajuda("A estimativa usa o tempo médio por processo já medido (ou um valor padrão, se ainda não houve coleta) e pode variar. As pausas entre processos são de propósito: imitam o ritmo "
                               "humano e evitam sobrecarregar o jus.br e os TRTs.") + "</div>"
-                      "<p>Durante a coleta o programa precisa ficar aberto, o PJe Office também. Você pode pausar ou parar com segurança a qualquer momento.</p>"
+                      "<p>Durante a coleta o programa precisa ficar aberto. O PJe Office também, mas só para processos fora da Justiça do Trabalho (a Justiça do Trabalho entra pelo PDPJ). Você pode pausar ou parar com segurança a qualquer momento.</p>"
                       f"<form method='post' action='/fluxo/comecar'>{oculto}<button class='principal'>Confirmar e começar agora</button>"
                       + ajuda("Abre um navegador (minimizado) e entra no jus.br com o seu certificado e o autenticador. Depois consulta os processos "
                               "da fila, um por vez, só para ler. Um aviso vermelho aparece se precisar de você (captcha do TRT, por exemplo). "
@@ -1486,7 +1486,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         terminou = estado in ("concluida", "parada") or bool(total and feitos >= total and estado not in ("rodando", "aguardando", "parando"))
         j = per.carregar()["janela_coleta"]
         if estado == "rodando":
-            acao = ("A coleta está rodando. Pode deixar esta página aberta ou fechá-la, mas <b>mantenha o programa e o PJe Office abertos</b>. "
+            acao = ("A coleta está rodando. Pode deixar esta página aberta ou fechá-la, mas <b>mantenha o programa aberto</b> (e o PJe Office, se houver processos fora da Justiça do Trabalho). "
                     "Se aparecer uma faixa vermelha no alto da tela, a coleta está esperando por você (captcha do TRT ou código do jus.br): "
                     "resolva na janela do navegador que se abriu.")
         elif estado == "aguardando":
