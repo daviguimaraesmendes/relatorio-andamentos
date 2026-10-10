@@ -611,10 +611,10 @@ class TestDocxA(unittest.TestCase):
     def test_rotulo_desconhecido_vai_para_colunas_sem_destino(self):
         n = ficticio.numero_ficticio(0)
         destino = montar_docx(self.pasta / "extra.docx", "Cliente Exemplo 01 Ltda", "18/09/2026",
-                              [bloco_basico(f"PROCESSO Nº {n}", extra_campos=[("Provisão contábil", "R$ 1,00")])],
+                              [bloco_basico(f"PROCESSO Nº {n}", extra_campos=[("Código interno de arquivo", "R$ 1,00")])],
                               resumo=[(n, "Cobrança", "AGUARDANDO SENTENÇA", "20/04/2026")])
         rel = leitores.ler(destino)
-        self.assertEqual([c["coluna"] for c in rel["colunas_sem_destino"]], ["Provisão contábil"])
+        self.assertEqual([c["coluna"] for c in rel["colunas_sem_destino"]], ["Código interno de arquivo"])
         self.assertEqual(rel["colunas_sem_destino"][0]["amostra"], ["R$ 1,00"])
 
     def test_tabela_dentro_de_tabela(self):

@@ -90,6 +90,11 @@ def formatar_valor(campo, valor):
         return fch.dinheiro_br(valor) or str(valor)
     if tipo == "data":
         return fch.data_br(valor) or str(valor)
+    if campo in fch.PERCENTUAIS:
+        try:
+            return f"{float(valor) * 100:.0f}%".replace(".", ",")
+        except (TypeError, ValueError):
+            return str(valor)
     return str(valor)
 
 

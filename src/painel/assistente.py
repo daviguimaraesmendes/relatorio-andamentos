@@ -55,6 +55,7 @@ import comum
 import ficha
 import taxonomia
 from painel import entregas as ent
+from painel import lacunas_tela
 from painel import perfil as per
 from painel.base import _ir, _msg, _tarefa_rodando, ajuda
 from painel.entregas import ESTILO_FLUXO, Indisponivel, modulo
@@ -313,19 +314,21 @@ def resumo_da_leitura(lido):
     rel = lido["rel"]
     return {"nome": lido["nome"], "caminho": lido["caminho"], "formato": lido["formato"],
             "processos": len(rel.get("processos", [])), "data_base": rel.get("data_base"), "cliente": rel.get("cliente"),
-            "sem_destino": rel.get("colunas_sem_destino", []), "avisos": rel.get("avisos", [])}
+            "sem_destino": rel.get("colunas_sem_destino", []), "avisos": rel.get("avisos", []),
+            "mapeamento": rel.get("mapeamento", [])}
 
 
 # ================================================================ do relatório lido para fichas
 
 def _origem_valida(origem):
-    return origem if origem in ("migrado", "humano") else "migrado"
+    return origem if origem in ("migrado", "humano", "derivado") else "migrado"
 
 
 def fichas_do_relatorio(rel, nome_arquivo=None):
     """RelatorioLido -> (fichas v2, avisos). Campos entram com a origem que o leitor deu (migrado ou
     humano); o histórico em texto vira `linha_de_base`; processo só de lista fica sem linha de base."""
     fichas, avisos, momentos_deduzidos = [], [], 0
+    derivados_de_contingencia = {}
     for p in rel.get("processos", []):
         numero = p.get("numero")
         if not numero:
@@ -342,6 +345,8 @@ def fichas_do_relatorio(rel, nome_arquivo=None):
                                      f"{rotulo}: o valor {valor!r} não entrou na ficha (fora do padrão ou campo desconhecido)."))
         if not ficha.obter(f, "cliente") and rel.get("cliente"):
             ficha.definir(f, "cliente", rel["cliente"], "migrado")
+        for nome_derivado in ficha.derivar_contingencia(f["campos"]):
+            derivados_de_contingencia[nome_derivado] = derivados_de_contingencia.get(nome_derivado, 0) + 1
         for v in p.get("vinculados") or []:
             if v.get("numero"):
                 ficha.vincular(f, v["numero"], v.get("tipo") or "mesma_acao")
@@ -361,7 +366,17 @@ def fichas_do_relatorio(rel, nome_arquivo=None):
             f["ativo"] = ativo
         elif situacao == "Encerrado":
             f["ativo"] = False
+        elif p.get("ativo") is False:
+            f["ativo"] = False       # o leitor viu o processo numa aba de arquivados/encerrados (ou na coluna Ativo = Não)
         fichas.append(f)
+    if derivados_de_contingencia.get("deposito_judicial"):
+        avisos.append(_aviso("info", "contingencia_derivada", nome_arquivo or "arquivo",
+                             f"{derivados_de_contingencia['deposito_judicial']} processo(s) tinham o valor do depósito mas não o Sim/Não: "
+                             "marquei \"Depósito judicial realizado = Sim\" (origem \"derivado\")."))
+    if derivados_de_contingencia.get("percentual_provisao"):
+        avisos.append(_aviso("info", "contingencia_derivada", nome_arquivo or "arquivo",
+                             f"{derivados_de_contingencia['percentual_provisao']} processo(s) tinham provisão e passivo mas não o percentual: "
+                             "calculei provisão ÷ passivo potencial (origem \"derivado\")."))
     if momentos_deduzidos:
         avisos.append(_aviso("info", "momento_deduzido", nome_arquivo or "arquivo",
                              f"{momentos_deduzidos} processo(s) não tinham o momento atual no arquivo: deduzi pelas regras a partir do último "
@@ -492,6 +507,10 @@ def html_da_conferencia(resumos, rejeitados, fichas, avisos, oculto, lote, nome_
                  f"<td>{r['processos']}</td><td>{_e(ficha.data_br(r['data_base']) or '-')}</td></tr>")
     h.append("</table>")
     h.append(bloco_de_planilha_fora_do_modelo(resumos, lote))
+    if fichas:
+        h.append(lacunas_tela.quadro(fichas, mapeamento=[m for r in resumos for m in r.get("mapeamento", [])],
+                                     colunas_sem_destino=[c for r in resumos for c in r.get("sem_destino", [])],
+                                     aberto=any(r.get("formato") == "tabela_livre" for r in resumos), incluir_sem_destino=False))
     if rejeitados:
         h.append("<h2>Arquivos que não consegui usar"
                  + ajuda("Estes arquivos foram deixados de lado: nada deles entra no relatório. Corrija o problema (o motivo está ao lado), "
@@ -536,7 +555,8 @@ def html_da_conferencia(resumos, rejeitados, fichas, avisos, oculto, lote, nome_
         h.append("<h2>Colunas sem destino"
                  + ajuda("Colunas do seu arquivo que o programa não sabe onde guardar. Elas não entram nas fichas, mas ficam registradas na aba "
                          "\"Campos não migrados\" quando a planilha for gerada, para você não perder a informação.")
-                 + "</h2><p class='dica'>Estas colunas do arquivo não têm lugar na ficha. Nada se perde: "
+                 + "</h2><p><b>Colunas do seu arquivo que ainda não têm destino.</b></p>"
+                 "<p class='dica'>Estas colunas do arquivo não têm lugar na ficha. Nada se perde: "
                  "elas aparecem na aba \"Campos não migrados\" quando a planilha for gerada.</p>"
                  "<table class='t'><tr><th>Arquivo</th><th>Coluna</th><th>Exemplos</th></tr>"
                  + "".join(f"<tr><td>{_e(n)}</td><td>{_e(str(c.get('coluna')))}</td><td>{_e(' | '.join(map(str, (c.get('amostra') or [])[:3])))}</td></tr>"

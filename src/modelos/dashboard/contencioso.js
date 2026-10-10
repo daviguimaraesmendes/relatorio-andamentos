@@ -26,6 +26,7 @@
       + P("resultado", "Distribuição de resultados", "", { altura: "alto" })
       + P("defesa", "Onde a defesa ganha e onde perde", "", { altura: "alto" })
       + "</div>"
+      + h.montarContingencia()
       + '<div class="sec"><span class="n">03</span><h2>Causa-raiz e prevenção</h2><div class="regua"></div></div>'
       + '<div class="grade">'
       + '<div class="painel largo" id="p-pareto"><h3>Quais teses geram o passivo <button type="button" class="btn sec nao-imprimir" id="b-pareto" style="float:right;padding:3px 10px;font-size:11px">ver por R$</button></h3><div class="sub" id="sub-pareto"></div>'
@@ -156,6 +157,8 @@
       { label: "Parcialmente procedente", data: bk.map((x) => x[1].par), backgroundColor: h.css("--alerta") },
       { label: "Procedente", data: bk.map((x) => x[1].des), backgroundColor: h.css("--critico") }] }, options: h.opBarra({ horizontal: true, empilhado: true, legenda: true }) });
     $("sub-defesa").textContent = merito.length + " processos julgados no mérito (fora: acordos, extinções, incompetência e processos em que o cliente é autor)";
+
+    h.desenharContingencia(ctx);          // bloco de contingência: só aparece quando a planilha traz passivo, provisão ou pagamentos
 
     /* ---- 03 causa-raiz ---- */
     const agg = {};

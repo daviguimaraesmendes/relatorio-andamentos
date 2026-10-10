@@ -657,7 +657,7 @@ class MigrarDeModelo(Base):
         self.assertEqual(r.request.path, "/migracao/converter")
         self.assertIn("Prévia: 6 processo(s)", t)
         self.assertEqual(self.m["leitores"].chamadas_ler[-1]["mapeamento"],
-                         {"Proc.": "numero", "Empresa": "cliente", "Foro": "vara", "Valor": "valor_causa"})
+                         {"Proc.": "numero", "Empresa": "cliente", "Foro": "vara", "Anotações": None, "Valor": "valor_causa"})
         self.assertIn("Sem destino (1)", t)
         self.assertEqual(len(comum.projetos()), 1)       # prévia não cria nada
         r, t = self.post("/migracao/converter", {**base, "acao": "converter"})

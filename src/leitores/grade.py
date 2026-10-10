@@ -17,6 +17,12 @@ Três peças:
    totais (e as lista, em um aviso `linhas_ignoradas`); recusa e lista número com dígito errado; usa o valor
    em cache das células de fórmula e avisa (`formula_sem_valor`) quando não há; nada se perde em silêncio.
 
+Contingência (relatórios de passivo contingente): reconhece passivo potencial (e atualizado), ativo potencial,
+depósito judicial (Sim/Não e valor), "%" ao lado da provisão, provisão constituída, CNPJ processado e pagamento
+realizado; "NATUREZA DA AÇÃO" é lida como ASSUNTO (não como classe processual); "REMOTA - justificativa" vira o grau
+(`probabilidade`) mais o texto (`justificativa_probabilidade`); fórmulas simples sem valor guardado (`=G4-K4`) são
+calculadas pelo programa (aviso `formula_calculada`); tabelas de critérios, legendas e totais no rodapé não viram processo.
+
 Limites conhecidos: só lê cabeçalho de uma linha; células mescladas contam só na célula de cima/esquerda;
 `.xls` antigo e `.ods` não são lidos (o detector avisa para salvar como `.xlsx`).
 """
@@ -27,6 +33,7 @@ import math
 import re
 import warnings
 import zipfile
+from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -83,9 +90,9 @@ SINONIMOS = {
                          "distribuicao", "data da distribuicao", "distribuido em", "ajuizado em", "data da propositura",
                          "data distribuicao", "data de entrada"),
     "data_citacao": ("data de citacao", "citacao", "data da citacao", "citado em"),
-    "classe": ("classe", "classe processual", "tipo de acao", "tipo de processo", "natureza", "natureza da acao",
-               "tipo da acao"),
-    "assunto": ("assunto", "assuntos", "assunto principal", "assunto do processo"),
+    "classe": ("classe", "classe processual", "tipo de acao", "tipo de processo", "tipo da acao"),
+    "assunto": ("assunto", "assuntos", "assunto principal", "assunto do processo", "natureza da acao", "natureza",
+                "natureza do processo", "natureza da demanda"),
     "area": ("area do direito", "area", "area juridica", "ramo do direito", "ramo", "area do processo"),
     "materia_principal": ("materia principal", "materia", "tese", "tese principal", "materia do processo",
                           "causa de pedir"),
@@ -103,7 +110,8 @@ SINONIMOS = {
                       "recurso"),
     "resultado": ("resultado", "desfecho", "resultado do processo", "resultado final", "decisao final"),
     "probabilidade": ("probabilidade", "probabilidade do resultado", "probabilidade de perda", "risco",
-                      "classificacao de risco", "classificacao do risco"),
+                      "classificacao de risco", "classificacao do risco", "possibilidade de perda", "chance de perda",
+                      "risco de perda", "prognostico", "grau de risco", "classificacao da perda"),
     "valor_arbitrado": ("valor arbitrado em juizo", "valor arbitrado", "condenacao arbitrada", "valor da condenacao",
                         "condenacao", "valor condenado"),
     "valor_estimado": ("valor estimado", "estimativa", "valor estimado da condenacao"),
@@ -111,13 +119,63 @@ SINONIMOS = {
     "valor_acordo": ("valor do acordo", "valor acordo", "valor acordado", "acordo"),
     "valor_economizado": ("valor economizado", "economia", "economia efetiva"),
     "custas": ("custas processuais", "custas", "custas judiciais"),
-    "depositos_recursais": ("depositos recursais", "deposito recursal", "depositos", "deposito"),
+    "depositos_recursais": ("depositos recursais", "deposito recursal", "depositos", "deposito",
+                            "valor do deposito judicial", "valor do deposito", "valor depositado", "deposito judicial valor",
+                            "valor dos depositos judiciais", "depositos judiciais", "valor do deposito recursal"),
     "garantias": ("garantias processuais", "garantia", "garantias", "garantia do juizo"),
     "data_transito": ("data do transito em julgado", "transito em julgado", "data de transito", "data do transito",
                       "transito", "data do transito em julgado"),
     "taxa_resolucao_dias": ("taxa de resolucao em dias", "taxa de resolucao dias", "taxa de resolucao",
                             "tempo de resolucao", "dias para resolucao", "prazo de resolucao", "duracao em dias"),
     "percentual_exito": ("percentual de exito", "exito", "taxa de exito", "percentual exito"),
+    # contingência
+    "passivo_potencial": ("passivo potencial", "passivo", "valor contingenciado", "contingencia", "valor da contingencia",
+                          "valor em risco", "passivo contingente", "passivo estimado", "risco financeiro"),
+    "passivo_atualizado": ("passivo potencial atualizado", "passivo atualizado", "passivo potencial corrigido",
+                           "contingencia atualizada", "passivo potencial atualizado correcao"),
+    "ativo_potencial": ("ativo potencial", "ativo contingente", "credito potencial", "valor a receber"),
+    "percentual_provisao": ("percentual de provisao", "percentual provisao", "percentual provisionado",
+                            "percentual da provisao", "indice de provisao", "perc provisao", "pct provisao"),
+    "provisao": ("provisao constituida", "provisao", "valor provisionado", "provisao contabil", "valor da provisao",
+                 "provisionamento"),
+    "deposito_judicial": ("deposito judicial realizado", "deposito judicial", "houve deposito judicial",
+                          "deposito realizado", "ha deposito judicial", "deposito judicial sim nao"),
+    "cnpj_processado": ("cnpj", "cnpj processado", "cnpj da empresa processada", "cnpj do reu", "cnpj da reclamada",
+                        "cnpj empresa", "cnpj da empresa"),
+    "pagamento_realizado": ("pagamento realizado", "pagamento", "pagamentos realizados", "valor pago",
+                            "valor do pagamento", "pagamento efetuado"),
+    "justificativa_probabilidade": ("justificativa", "justificativa da probabilidade",
+                                    "justificativa da possibilidade de perda", "justificativa do risco",
+                                    "fundamento da classificacao", "motivo da classificacao"),
+}
+
+# Casamentos EXATOS que não valem 100%: o nome é parecido, mas o campo pode não ser o mesmo. {(destino, forma): confiança}
+CONFIANCA_DA_FORMA = {("assunto", "natureza da acao"): 0.85, ("assunto", "natureza"): 0.8,
+                      ("assunto", "natureza do processo"): 0.8, ("assunto", "natureza da demanda"): 0.85,
+                      ("materia_principal", "natureza da acao"): 0.75, ("materia_principal", "natureza"): 0.7,
+                      ("passivo_potencial", "passivo"): 0.9, ("passivo_potencial", "contingencia"): 0.85,
+                      ("pagamento_realizado", "pagamento"): 0.9, ("cnpj_processado", "cnpj"): 0.8,
+                      ("justificativa_probabilidade", "justificativa"): 0.85}
+# Formas que servem como segunda opção de OUTRO campo (aparece como candidato, nunca vence o primeiro)
+FORMAS_EXTRAS = {"materia_principal": ("natureza da acao", "natureza")}
+# Cabeçalhos com palavras a mais, reconhecidos por padrão: (expressão sobre a chave sem acento, destino, confiança)
+PADROES = (
+    (r"^cnpj\b.*\b(processad[oa]s?|reu|reus|reclamad[oa]s?|empresa|devedor[a]?|demandad[oa]s?)\b", "cnpj_processado", 0.92),
+    (r"^passivo (potencial )?(atualizado|corrigido)\b", "passivo_atualizado", 0.95),
+    (r"^deposito judicial realizado\b", "deposito_judicial", 0.95),
+    (r"^valor (do |dos )?depositos? (judicia(l|is)|recursais?)\b", "depositos_recursais", 0.95),
+    (r"^provisao (constituida|contabil)\b", "provisao", 0.95),
+    (r"^pagamentos? (realizados?|efetuados?)\b", "pagamento_realizado", 0.95),
+    (r"^justificativa\b.*\b(probabilidade|perda|risco|classificacao)\b", "justificativa_probabilidade", 0.92),
+)
+# Explicação mostrada na tela de mapeamento junto da confiança de um destino
+COMENTARIOS_DO_DESTINO = {
+    "assunto": ("Colunas chamadas \"Natureza da ação\" costumam trazer o assunto ou a matéria (por exemplo, indenização por danos "
+                "morais), não a classe processual do tribunal (por exemplo, Procedimento Comum Cível); por isso a coluna foi "
+                "ligada a Assunto, com confiança menor. Confira e troque se preferir."),
+    "percentual_provisao": "Coluna \"%\" ao lado da provisão ou da possibilidade de perda: lida como percentual de provisão (0,5 = 50%).",
+    "probabilidade": ("Se a célula trouxer o grau e a justificativa juntos (\"REMOTA - processo extinto...\"), o grau vai para "
+                      "Probabilidade e o texto para Justificativa da probabilidade."),
 }
 _PALAVRAS_FRACAS = {"de", "da", "do", "das", "dos", "e", "a", "o", "as", "os", "em", "para", "ao", "por", "com", "es", "s",
                     "r"}
@@ -143,12 +201,17 @@ def _tokens(k):
     return {t for t in k.split() if t not in _PALAVRAS_FRACAS}
 
 
+def _chave_com_percentual(texto):
+    """Chave do cabeçalho em que o sinal % vale a palavra "percentual" ("% provisão" -> "percentual provisao")."""
+    return base.chave(str(texto).replace("%", " percentual "))
+
+
 def _construir_indice():
     indice = {}
     for destino in (*ficha.CAMPOS, *ESPECIAIS):
-        formas = {_expandir(base.chave(s)) for s in SINONIMOS.get(destino, ())}
+        formas = {_expandir(_chave_com_percentual(s)) for s in (*SINONIMOS.get(destino, ()), *FORMAS_EXTRAS.get(destino, ()))}
         if destino in ficha.CAMPOS:
-            formas.add(_expandir(base.chave(ficha.CAMPOS[destino][0])))
+            formas.add(_expandir(_chave_com_percentual(ficha.CAMPOS[destino][0])))
         formas.discard("")
         indice[destino] = [(f, _tokens(f)) for f in sorted(formas)]
     return indice
@@ -173,7 +236,7 @@ _EXATOS = _construir_exatos()
 
 def destino_exato(rotulo):
     """Campo da ficha (ou destino especial) cujo nome conhecido é IGUAL ao rótulo (sem acento, caixa ou pontuação); None se não houver."""
-    return _EXATOS.get(_expandir(base.chave(rotulo)))
+    return _EXATOS.get(_expandir(_chave_com_percentual(rotulo)))
 
 
 def rotulo_do_destino(destino):
@@ -194,19 +257,29 @@ def pontuar_cabecalho(cabecalho):
     return list(_pontuar(str(cabecalho)))
 
 
+def _sem_parenteses(texto):
+    return re.sub(r"[(\[][^)\]]*[)\]]", " ", str(texto))
+
+
 @functools.lru_cache(maxsize=8192)
 def _pontuar(cabecalho):
-    h = _expandir(base.chave(cabecalho))
+    h = _expandir(_chave_com_percentual(cabecalho))
     if not h:
         return ()
+    h_limpo = _expandir(_chave_com_percentual(_sem_parenteses(cabecalho)))      # "Valor da causa (R$)" ~ "Valor da causa"
     ht = _tokens(h)
     achados = []
     for destino, formas in _INDICE.items():
         melhor = 0.0
         for forma, ft in formas:
             if h == forma:
-                melhor = 1.0
-                break
+                melhor = max(melhor, CONFIANCA_DA_FORMA.get((destino, forma), 1.0))
+                if melhor >= 1.0:
+                    break
+                continue
+            if h_limpo and h_limpo != h and h_limpo == forma:
+                melhor = max(melhor, min(0.97, CONFIANCA_DA_FORMA.get((destino, forma), 0.97)))
+                continue
             if ht and ft and (ft <= ht or ht <= ft):
                 melhor = max(melhor, 0.9 * math.sqrt(min(len(ft), len(ht)) / max(len(ft), len(ht))))
             else:
@@ -217,6 +290,10 @@ def _pontuar(cabecalho):
                         melhor = max(melhor, r * 0.88)
         if melhor >= LIMIAR_MIN:
             achados.append((round(melhor, 3), destino))
+    for padrao, destino, conf in PADROES:         # cabeçalhos com palavras a mais ("CNPJ DA EMPRESA X PROCESSADA")
+        if re.search(padrao, h) or (h_limpo != h and re.search(padrao, h_limpo)):
+            atual = max((c for c, d in achados if d == destino), default=0.0)
+            achados = [(c, d) for c, d in achados if d != destino] + [(max(atual, conf), destino)]
     # "AUTOR/RECLAMANTE", "RÉU/RECLAMADO": cada parte é um nome conhecido do MESMO campo -> o cabeçalho inteiro também
     partes = [x for x in re.split(r"\s*[/|]\s*|\s+ou\s+", cabecalho.strip(), flags=re.I) if x.strip()]
     if len(partes) > 1:
@@ -248,6 +325,37 @@ def _dinheiro_ok(valor):
     return v is not None or problema is None
 
 
+def _sim_nao_ok(valor):
+    v, problema = base.converter_sim_nao(valor)
+    return v is not None or problema is None
+
+
+def _numero_ok(valor):
+    v, problema = base.converter_numero(valor)
+    return v is not None or problema is None
+
+
+_VIZINHAS_DO_PERCENTUAL = {"provisao", "probabilidade", "passivo_potencial", "passivo_atualizado", "percentual_provisao"}
+
+
+def _so_percentual(cabecalho):
+    """O cabeçalho é só o sinal de porcentagem ("%", "% ", "perc.")?"""
+    return _chave_com_percentual(cabecalho) in ("percentual", "perc", "pct", "porcentagem")
+
+
+def _destino_da_vizinha(cabecalhos, i):
+    """Destino (melhor palpite) da coluna preenchida mais próxima à esquerda ou, falhando, à direita de `i`."""
+    for passo in (-1, 1):
+        j = i + passo
+        while 0 <= j < len(cabecalhos) and base.vazio(cabecalhos[j]):
+            j += passo
+        if 0 <= j < len(cabecalhos) and not _so_percentual(cabecalhos[j]):
+            achados = pontuar_cabecalho(cabecalhos[j])
+            if achados and achados[0][1] in _VIZINHAS_DO_PERCENTUAL and achados[0][0] >= LIMIAR_AUTO:
+                return achados[0][1]
+    return None
+
+
 def propor_mapeamento(cabecalhos, amostras=None):
     """Casa colunas e campos. `cabecalhos`: textos (None/'' = coluna sem cabeçalho, ignorada); `amostras`: lista
     (uma por coluna) de valores de exemplo (opcional; melhora a decisão).
@@ -260,6 +368,9 @@ def propor_mapeamento(cabecalhos, amostras=None):
             continue
         cands = pontuar_cabecalho(cab)
         amo = amostras[i] if i < len(amostras) else []
+        if _so_percentual(cab):          # coluna "%": só vale ao lado da provisão ou da possibilidade de perda
+            vizinha = _destino_da_vizinha(cabecalhos, i)
+            cands = [(0.85, "percentual_provisao")] if vizinha in _VIZINHAS_DO_PERCENTUAL else []
         cnj = _razao(amo, _tem_cnj)
         if cnj is not None and cnj >= 0.5 and not any(d == "numero" and s >= 0.9 for s, d in cands):
             cands = sorted([(s, d) for s, d in cands if d != "numero"] + [(0.9, "numero")], key=lambda x: (-x[0], x[1]))
@@ -267,6 +378,11 @@ def propor_mapeamento(cabecalhos, amostras=None):
         for s, d in cands:
             if d in ficha.CAMPOS and ficha.CAMPOS[d][2] in ("data", "dinheiro") and len([v for v in amo if not base.vazio(v)]) >= 3:
                 r = _razao(amo, _data_ok if ficha.CAMPOS[d][2] == "data" else _dinheiro_ok)
+                if r is not None and r < 0.3:
+                    s = round(s * 0.5, 3)
+            elif d in ficha.CAMPOS and ficha.CAMPOS[d][2] in ("sim_nao", "numero") and len([v for v in amo if not base.vazio(v)]) >= 3:
+                teste = _sim_nao_ok if ficha.CAMPOS[d][2] == "sim_nao" else _numero_ok
+                r = _razao(amo, teste)
                 if r is not None and r < 0.3:
                     s = round(s * 0.5, 3)
             if s >= LIMIAR_MIN:
@@ -361,10 +477,11 @@ def aplicar_mapeamento_do_usuario(registros, mapeamento, avisos, onde):
 class Grade:
     """Uma aba (ou um CSV): `linhas[i][j]` é a célula da linha i+1, coluna j+1."""
 
-    def __init__(self, nome, linhas, formulas=None, formatos=None, epoch=None, oculta=False):
+    def __init__(self, nome, linhas, formulas=None, formatos=None, epoch=None, oculta=False, textos_formulas=None):
         self.nome = nome
         self.linhas = linhas
         self.formulas = formulas or set()
+        self.textos_formulas = textos_formulas or {}        # {(i, j): "=G4-K4"}, para recalcular fórmula sem valor guardado
         self.formatos = formatos or {}
         self.epoch = epoch
         self.oculta = oculta
@@ -422,7 +539,7 @@ def _carregar_xlsx(caminho, max_linhas):
                         fmt = getattr(c, "number_format", None)
                         if fmt and fmt != "General":
                             formatos[(i, j)] = fmt
-                formulas = set()
+                formulas, textos = set(), {}
                 if wb_f is not None:
                     wf = wb_f[ws.title]
                     wf.reset_dimensions()
@@ -430,8 +547,10 @@ def _carregar_xlsx(caminho, max_linhas):
                         for j, c in enumerate(row):
                             if getattr(c, "data_type", None) == "f":
                                 formulas.add((i, j))
+                                if isinstance(c.value, str):
+                                    textos[(i, j)] = c.value
                 grades.append(Grade(ws.title, linhas, formulas, formatos, getattr(wb_v, "epoch", None),
-                                    getattr(ws, "sheet_state", "visible") != "visible"))
+                                    getattr(ws, "sheet_state", "visible") != "visible", textos))
             except Exception as e:      # noqa: BLE001
                 avisos.append(base.aviso("erro", "arquivo_ilegivel", f"aba {ws.title!r}",
                                          f"A aba não pôde ser lida: {type(e).__name__}."))
@@ -549,6 +668,157 @@ def classificar_grades(grades):
     return None
 
 
+# ---------------------------------------------------------------- fórmulas simples
+
+class _FormulaNaoCalculavel(Exception):
+    """A fórmula usa algo que o cálculo simples não conhece (outra aba, função, texto): o valor fica vazio."""
+
+
+_TOKEN_FORMULA = re.compile(
+    r"\s*(?:(?P<num>\d+(?:[.,]\d+)?)|(?P<ref>\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?)"
+    r"|(?P<func>[A-Za-zÀ-ÿ]+)\s*\(|(?P<op>[-+*/(),;]))")
+
+
+class _AvaliadorDeFormula:
+    """Soma, subtração, multiplicação, divisão, parênteses, SUM/SOMA e referências a células da MESMA aba. Nada de eval."""
+
+    def __init__(self, grade, texto, profundidade):
+        from openpyxl.utils import column_index_from_string
+        self._coluna = column_index_from_string
+        self.grade, self.profundidade = grade, profundidade
+        corpo = texto.strip()
+        if not corpo.startswith("=") or "!" in corpo or "[" in corpo or '"' in corpo:
+            raise _FormulaNaoCalculavel(texto)
+        self.tokens, pos, corpo = [], 0, corpo[1:]
+        while pos < len(corpo):
+            m = _TOKEN_FORMULA.match(corpo, pos)
+            if not m or m.end() == pos:
+                if corpo[pos:].strip() == "":
+                    break
+                raise _FormulaNaoCalculavel(texto)
+            pos = m.end()
+            tipo = m.lastgroup
+            self.tokens.append((tipo, m.group(tipo)))
+        self.p = 0
+
+    def _ver(self):
+        return self.tokens[self.p] if self.p < len(self.tokens) else (None, None)
+
+    def _tomar(self):
+        t = self._ver()
+        self.p += 1
+        return t
+
+    def avaliar(self):
+        valor = self._soma()
+        if self.p != len(self.tokens):
+            raise _FormulaNaoCalculavel("sobrou")
+        return valor
+
+    def _soma(self):
+        v = self._produto()
+        while self._ver() in (("op", "+"), ("op", "-")):
+            op = self._tomar()[1]
+            w = self._produto()
+            v = v + w if op == "+" else v - w
+        return v
+
+    def _produto(self):
+        v = self._fator()
+        while self._ver() in (("op", "*"), ("op", "/")):
+            op = self._tomar()[1]
+            w = self._fator()
+            if op == "*":
+                v = v * w
+            else:
+                if w == 0:
+                    raise _FormulaNaoCalculavel("divisão por zero")
+                v = v / w
+        return v
+
+    def _fator(self):
+        tipo, valor = self._tomar()
+        if tipo == "op" and valor in "+-":
+            f = self._fator()
+            return -f if valor == "-" else f
+        if tipo == "op" and valor == "(":
+            v = self._soma()
+            if self._tomar() != ("op", ")"):
+                raise _FormulaNaoCalculavel("parêntese")
+            return v
+        if tipo == "num":
+            return Decimal(valor.replace(",", "."))
+        if tipo == "ref":
+            valores = self._celulas(valor)
+            if len(valores) != 1 or ":" in valor:
+                raise _FormulaNaoCalculavel("intervalo fora de SOMA")
+            return valores[0]
+        if tipo == "func":
+            if base.chave(valor) not in ("sum", "soma"):
+                raise _FormulaNaoCalculavel(valor)
+            total, primeiro = Decimal(0), True
+            while True:
+                if self._ver() == ("op", ")"):
+                    self._tomar()
+                    break
+                if not primeiro:
+                    if self._tomar()[1] not in (",", ";"):
+                        raise _FormulaNaoCalculavel("argumentos")
+                primeiro = False
+                seguinte = self.tokens[self.p + 1] if self.p + 1 < len(self.tokens) else (None, None)
+                if self._ver()[0] == "ref" and seguinte in (("op", ","), ("op", ";"), ("op", ")")):
+                    total += sum(self._celulas(self._tomar()[1]), Decimal(0))
+                else:
+                    total += self._soma()
+            return total
+        raise _FormulaNaoCalculavel("expressão")
+
+    def _celulas(self, ref):
+        partes = ref.replace("$", "").upper().split(":")
+        pontos = []
+        for parte in partes:
+            m = re.fullmatch(r"([A-Z]{1,3})(\d+)", parte)
+            if not m:
+                raise _FormulaNaoCalculavel(ref)
+            pontos.append((int(m.group(2)) - 1, self._coluna(m.group(1)) - 1))
+        (i1, j1), (i2, j2) = pontos[0], pontos[-1]
+        i1, i2, j1, j2 = min(i1, i2), max(i1, i2), min(j1, j2), max(j1, j2)
+        if (i2 - i1 + 1) * (j2 - j1 + 1) > 5000:
+            raise _FormulaNaoCalculavel("intervalo grande")
+        return [self._numero(i, j) for i in range(i1, i2 + 1) for j in range(j1, j2 + 1)]
+
+    def _numero(self, i, j):
+        v = self.grade.celula(i, j)
+        if base.vazio(v) and (i, j) in self.grade.textos_formulas:
+            if self.profundidade >= 6:
+                raise _FormulaNaoCalculavel("fórmulas encadeadas demais")
+            v = calcular_formula(self.grade, i, j, self.profundidade + 1)
+            if v is None:
+                raise _FormulaNaoCalculavel("célula de fórmula sem valor")
+        if base.vazio(v):
+            return Decimal(0)                  # célula em branco vale zero em uma conta
+        if isinstance(v, bool):
+            raise _FormulaNaoCalculavel("lógico")
+        if isinstance(v, (int, float, Decimal)):
+            return Decimal(str(v))
+        valor, problema = base.converter_dinheiro(v)
+        if valor is None:
+            raise _FormulaNaoCalculavel("texto")
+        return Decimal(valor)
+
+
+def calcular_formula(grade, i, j, profundidade=0):
+    """Valor (Decimal) de uma fórmula simples (`=G4-K4`, `=SOMA(A2:A9)`), ou None se não der para calcular sem inventar.
+    Só olha células da mesma aba; função desconhecida, texto, outra aba e divisão por zero voltam None."""
+    texto = grade.textos_formulas.get((i, j))
+    if not texto:
+        return None
+    try:
+        return _AvaliadorDeFormula(grade, texto, profundidade).avaliar().quantize(Decimal("0.01"))
+    except (_FormulaNaoCalculavel, InvalidOperation, ArithmeticError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------- extração
 
 def col_letra(j):
@@ -557,7 +827,7 @@ def col_letra(j):
 
 
 _ERROS_EXCEL = {"#N/A", "#N/D", "#VALUE!", "#VALOR!", "#REF!", "#DIV/0!", "#NAME?", "#NOME?", "#NULL!", "#NUM!", "#NÚM!"}
-_TOTAL = re.compile(r"^(sub ?)?total|^totais|^soma\b|^media\b")
+_TOTAL = re.compile(r"^(sub ?)?total|^totais|^soma\b|^media\b|^valor total|^criterios?\b|^legenda\b")
 
 
 def _repete_cabecalho(cabecalho, linha):
@@ -596,10 +866,20 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
     processos, ignoradas = [], []
     lidas = []             # linhas (índices) que viraram processo
     com_erro = []          # células com valor de erro do Excel
+    calculadas = []        # células de fórmula sem valor guardado que o programa calculou ("L12")
+    resolvidas = set()     # (linha, coluna) das fórmulas calculadas
+    rodape = False         # depois de uma linha de total ou de um quadro de critérios, texto sem número é rodapé, não erro
     i0 = indice_cab + 1
     for i in range(i0, len(grade.linhas)):
-        linha = grade.linhas[i]
+        linha = list(grade.linhas[i])
         numero_linha = i + 1
+        for j in por_coluna:               # fórmula sem valor guardado (=G4-K4): calcula quando é conta simples
+            if (i, j) in grade.formulas and j < len(linha) and base.vazio(linha[j]) and ficha.CAMPOS.get(
+                    por_coluna[j], ("", "", ""))[2] in ("dinheiro", "numero"):
+                calculado = calcular_formula(grade, i, j)
+                if calculado is not None:
+                    linha[j] = calculado
+                    resolvidas.add((i, j))
         nao_vazias = [j for j, v in enumerate(linha) if not base.vazio(v)]
         if not nao_vazias:
             continue
@@ -611,9 +891,13 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
             ignoradas.append(f"linha {numero_linha}: cabeçalho repetido")
             continue
         if not texto_num or not base.achar_numeros(texto_num):
-            eh_total = bool(_TOTAL.match(base.chave(texto_num or primeira)))
+            eh_total = any(_TOTAL.match(base.chave(t)) for t in (texto_num, primeira) if t)
+            if eh_total:
+                rodape = True
             if eh_total or len(nao_vazias) <= 2:
                 ignoradas.append(f"linha {numero_linha}: {(texto_num or primeira)[:50]}")
+            elif rodape:                    # quadro de critérios / legenda abaixo dos totais: não é processo nem erro
+                ignoradas.append(f"linha {numero_linha}: rodapé ({(texto_num or primeira)[:40]})")
             elif not texto_num:
                 avisos.append(base.aviso("atencao", "linha_sem_numero", onde_linha,
                                          "A linha tem dados mas a coluna do número do processo está vazia; linha não lida.", []))
@@ -625,6 +909,7 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
         avisos.extend(av_num)
         if principal is None:
             continue
+        rodape = False                      # voltou a ter processo: o que veio antes era total de bloco, não o fim da tabela
         campos, extras = {}, {}
         aba_de_encerrados = bool(re.search(r"arquivad|encerrad|baixad", base.chave(nome or "")))     # aba "Arquivados": processo inativo
         andamentos_texto, ultimo_texto, fecho, lista_andamentos = "", None, None, []
@@ -662,8 +947,13 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
                     continue
             avisos.extend(_traduzir(conv["avisos"], onde_cel))
             extras.update(conv["extras"])
+            if (i, j) in resolvidas:
+                calculadas.append(f"{col_letra(j)}{numero_linha}")
             if conv["valor"] is not None:
                 campos[destino] = base.montar_campo(destino, conv["valor"], base.origem_do_campo(destino, e_formula))
+        justificativa = extras.pop("justificativa_probabilidade", None)      # "REMOTA - texto": o texto vai para o seu campo
+        if justificativa and "justificativa_probabilidade" not in campos:
+            campos["justificativa_probabilidade"] = base.montar_campo("justificativa_probabilidade", justificativa, "migrado")
         lidas.append(i)
         ultimo = ultimo_texto
         if ultimo is None and "ultimo_andamento" in campos:
@@ -684,7 +974,7 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
     faltando = {}
     for j in por_coluna:
         formulas_col = [i for i in lidas if (i, j) in grade.formulas]
-        vazias = [i for i in formulas_col if base.vazio(grade.celula(i, j))]
+        vazias = [i for i in formulas_col if base.vazio(grade.celula(i, j)) and (i, j) not in resolvidas]
         if formulas_col and len(vazias) == len(formulas_col):
             faltando[j] = [f"{col_letra(j)}{i + 1}" for i in vazias]
     for j, celulas in faltando.items():
@@ -695,6 +985,10 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
                                  "calculado guardado no arquivo (salvo sem cache); foram lidas como vazias."
                                  + (" É uma coluna calculada: o valor se refaz ao abrir no Excel." if derivada else ""),
                                  celulas[:10]))
+    if calculadas:
+        avisos.append(base.aviso("info", "formula_calculada", onde_aba,
+                                 f"{len(calculadas)} célula(s) de fórmula não tinham valor guardado no arquivo; o programa fez a conta "
+                                 "(soma, subtração, multiplicação ou divisão simples). Confira os valores.", calculadas[:10]))
     if com_erro:
         avisos.append(base.aviso("atencao", "celula_com_erro", onde_aba,
                                  f"{len(com_erro)} célula(s) com erro do Excel (#N/D, #REF!...) foram lidas como vazias.", com_erro[:10]))
@@ -728,10 +1022,23 @@ def extrair_processos(grade, indice_cab, registros, cliente_padrao=None, avisos=
 
 
 def registros_publicos(grade, registros, indice_cab=0):
-    """Mapeamento no formato exposto em RelatorioLido["mapeamento"]."""
+    """Mapeamento no formato exposto em RelatorioLido["mapeamento"]. Chave aditiva `comentario`: por que o destino foi
+    escolhido, quando isso merece explicação (por exemplo, "Natureza da ação" lida como Assunto, não como Classe)."""
     return [{"aba": grade.nome, "coluna": r["coluna"], "campo": r["campo"], "rotulo_campo": rotulo_do_destino(r["campo"]) if r["campo"] else None,
              "confianca": r["confianca"], "aplicado": r["aplicado"], "candidatos": r["candidatos"],
-             "ambigua": r["ambigua"], "amostra": _amostra(grade, indice_cab + 1, r["indice"]), "indice": r["indice"]} for r in registros]
+             "ambigua": r["ambigua"], "amostra": _amostra(grade, indice_cab + 1, r["indice"]), "indice": r["indice"],
+             "comentario": _comentario_do_destino(r)} for r in registros]
+
+
+def _comentario_do_destino(reg):
+    campo = reg.get("campo")
+    if not campo or campo not in COMENTARIOS_DO_DESTINO:
+        return ""
+    if campo == "assunto" and not base.chave(reg["coluna"]).startswith("natureza"):
+        return ""
+    if campo == "percentual_provisao" and not _so_percentual(reg["coluna"]):
+        return ""
+    return COMENTARIOS_DO_DESTINO[campo]
 
 
 def carregar(caminho):
