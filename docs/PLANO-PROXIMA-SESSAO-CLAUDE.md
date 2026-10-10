@@ -128,7 +128,7 @@ Só depois da Parte A (ou, se Davi preferir, com o Sonnet médio já escolhido).
 6. Outros sistemas além de 1º grau/2º grau/TST (STF etc.): não mapeados.
 7. Windows: o instalador veio da outra linha de trabalho; o PDPJ e o login "só quando precisa" não foram testados lá.
 8. Release/tag `v2.0.0-beta7` e notas no GitHub (só com ordem do Davi).
-9. Apagar a pasta de teste da sessão anterior se Davi autorizar (`.../scratchpad/teste-assistente/`, com PDFs reais).
+9. (feito em 2026-10-09) A pasta de teste com PDFs reais foi apagada a pedido do Davi.
 
 ## 7. Como a sessão anterior testou (para repetir)
 
