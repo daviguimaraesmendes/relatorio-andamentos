@@ -597,5 +597,97 @@ class SessaoDaRodada2Grau(Base):
         self.assertEqual(e.chamadas, [(7, 1), (7, 2)])
 
 
+TL3 = [item(301, "2026-10-10T09:00:00.000", "Recebidos os autos no TST", cod=0),
+       item(302, "2026-10-10T09:05:00.000", "Despacho", documento=True, tipo="Despacho", cod=3),
+       item(202, "2026-10-09T10:05:00.000", "Acórdão", documento=True, tipo="Acórdão", cod=2),
+       item(104, "2026-08-01T09:00:00.000", "Contestação", documento=True, tipo="Contestação", cod=1)]
+TL2_TST = TL2 + [item(210, "2026-10-09T11:00:00.000", "Remetidos os autos ao TST para julgamento de recurso de revista", cod=0)]
+
+
+class Tst(Base):
+    def lido(self, terceira="sessao", achar3=True, relato=None, estado=None, lista=None):
+        s1, _ = sessao(timeline=TIMELINE + [SOBE], outra=False)
+        s2, _ = sessao(timeline=TL2_TST, instancia=2, outra=True)
+        s2.grau = 2
+        s3, ch3 = sessao(timeline=TL3, acervo=achar3, instancia=3, outra=True)
+        s3.grau = 3
+        estado = {} if estado is None else estado
+        lista = [] if lista is None else lista
+        relato = {} if relato is None else relato
+        obter3 = {"sessao": lambda: s3, "nenhuma": lambda: None, "sem": None}[terceira]
+        n = pje_trt.coletar_processo(s1, self.proc, estado, lista, 5, 10, None, relato, segunda=lambda: s2, terceira=obter3)
+        return n, estado, lista, relato, ch3
+
+    def test_le_os_tres_graus_e_rotula_o_tst(self):
+        n, estado, lista, relato, _ = self.lido()
+        self.assertEqual(relato["graus_lidos"], ["1", "2", "3"])
+        self.assertEqual({e.get("grau") for e in lista}, {"1º grau", "2º grau", "TST"})
+        self.assertEqual(sorted(estado[N1]["trt"]), ["1", "2", "3"])
+        self.assertEqual(estado[N1]["trt"]["3"]["documentos"], ["302"])                 # só o documento do TST
+        self.assertEqual(relato["instancia_tst"]["atual"], 3)
+        self.assertEqual(relato["avisos"], [])                                         # leu o TST: nada a conferir à mão
+
+    def test_documento_do_tst_e_pedido_com_grau_3(self):
+        _, _, _, _, ch3 = self.lido()
+        self.assertTrue(all("grau=3" in p for p in ch3.pedidos if "/conteudo" in p))
+        self.assertEqual(sum("/conteudo" in p for p in ch3.pedidos), 1)
+
+    def test_nenhum_documento_duplicado_entre_os_graus(self):
+        _, _, lista, _, _ = self.lido()
+        ids_doc = [e["doc_id"] for e in lista if e["tipo_evento"] == "documento"]
+        self.assertEqual(len(ids_doc), len(set(ids_doc)))
+        self.assertEqual(sorted(ids_doc), ["102", "104", "202", "302"])
+
+    def test_sem_login_do_tst_avisa(self):
+        _, estado, _, relato, _ = self.lido(terceira="nenhuma")
+        self.assertEqual(relato["graus_lidos"], ["1", "2"])
+        self.assertTrue(any("TST" in a["mensagem"] for a in relato["avisos"]))
+        self.assertEqual(sorted(estado[N1]["trt"]), ["1", "2"])
+
+    def test_processo_fora_do_acervo_do_tst(self):
+        _, _, _, relato, _ = self.lido(achar3=False)
+        self.assertEqual(relato["graus_lidos"], ["1", "2"])
+        self.assertIn("não está no acervo do TST", relato["avisos"][0]["mensagem"])
+
+    def test_segunda_rodada_nao_repete(self):
+        _, estado, lista, _, _ = self.lido()
+        antes = len(lista)
+        n, _, lista, _, ch3 = self.lido(estado=estado, lista=lista)
+        self.assertEqual((n, len(lista)), (0, antes))
+        self.assertFalse([p for p in ch3.pedidos if "/conteudo" in p])
+
+
+class SessaoDaRodadaTst(Base):
+    def entrar_falso(self):
+        chamadas = []
+
+        def entrar(nav, trt, consulta=True, grau=1):
+            chamadas.append((trt, grau))
+        entrar.chamadas = chamadas
+        return entrar
+
+    def test_um_login_do_tst_por_rodada_qualquer_que_seja_o_trt(self):
+        e, ctx = self.entrar_falso(), object()
+        outro_trt = numero_ficticio(3, j=5, tr=11)
+        a = pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: PaginaFalsa(), entrar=e, grau=3)
+        b = pje_trt.sessao_da_rodada(ctx, outro_trt, abrir_pagina=lambda c: PaginaFalsa(), entrar=e, grau=3)
+        self.assertIs(a, b)
+        self.assertEqual(a.grau, 3)
+        self.assertEqual(len(e.chamadas), 1)
+
+    def test_contexto_proprio_para_cada_grau_superior(self):
+        navegador = mock.MagicMock()
+        navegador.new_context.side_effect = lambda **kw: mock.MagicMock()
+        ctx = mock.MagicMock()
+        ctx.browser = navegador
+        e = self.entrar_falso()
+        usados = []
+        for grau in (1, 2, 3):
+            pje_trt.sessao_da_rodada(ctx, N1, abrir_pagina=lambda c: (usados.append(c), PaginaFalsa())[1], entrar=e, grau=grau)
+        self.assertIs(usados[0], ctx)
+        self.assertEqual(len({id(u) for u in usados}), 3)                             # três contextos diferentes
+        self.assertEqual(navegador.new_context.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

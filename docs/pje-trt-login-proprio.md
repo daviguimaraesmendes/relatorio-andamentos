@@ -51,8 +51,13 @@ e as chamadas são as mesmas (`/pje-comum-api/api/...`), com `grau=2` no PDF. No
 **Os dois graus precisam de contextos de navegador separados:** no mesmo contexto o login do 2º grau sobrescreve os cookies do
 1º e os PDFs do 1º passam a falhar (visto na coleta real). `pje_trt._contexto_para` abre um contexto próprio para o 2º grau.
 
-**Tribunal Superior (TST):** o PJe do TRT não lê o TST. Quando o 2º grau registra remessa ao TST (ou recurso de revista),
-o leitor avisa (`grau_nao_lido`, "conferir no TST à mão"). O TST é outro sistema (falta mapear).
+**TST (testado em 2026-10-09):** é o mesmo PJe, em outro endereço: login em `https://pje.tst.jus.br/tst/login.seam`
+(um único TST para todos os TRTs), mesma conta, mesmo caminho, mesmas chamadas. Depois do login cai em
+`https://pje.tst.jus.br/pjekz/`. O processo vem com `instancia: 3` e `outraInstancia: true`, e a linha do tempo traz os
+documentos dos três níveis (`codigoInstancia` 1, 2 e 3: o TST aparece como `TST/3`) e só os andamentos do TST. O leitor lê
+o TST (grau "3") quando o 2º grau registra remessa ao TST ou recurso de revista, e pega só os documentos `codigoInstancia 3`;
+o PDF sai com `grau=3`. Se o login do TST não estiver disponível ou o processo não estiver lá, avisa para conferir à mão
+(`grau_nao_lido`). Um login do TST por rodada, qualquer que seja o TRT do processo; cada nível tem seu contexto de navegador.
 
 A parte abaixo ("Resultado em uma frase" e adiante) descreve o caminho pela Consulta Processual, que **deixou de
 servir**; fica como registro histórico.

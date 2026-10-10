@@ -496,6 +496,20 @@ class SegundoGrau(Base):
         self.assertEqual(pdpj.url_login(7, 2), "https://pje.trt7.jus.br/segundograu/login.seam")
         self.assertEqual(pdpj.url_login(11, "2"), "https://pje.trt11.jus.br/segundograu/login.seam")
 
+    def test_url_de_login_do_tst(self):
+        self.assertEqual(pdpj.url_login(7, 3), "https://pje.tst.jus.br/tst/login.seam")
+        self.assertEqual(pdpj.url_login(11, 3), "https://pje.tst.jus.br/tst/login.seam")      # o TST é um só, qualquer que seja o TRT
+
+    def test_logado_no_tst(self):
+        class N:
+            def __init__(self, u):
+                self._u = u
+
+            def url(self):
+                return self._u
+        self.assertTrue(pdpj._logado(N("https://pje.tst.jus.br/pjekz/painel/usuario-externo")))
+        self.assertFalse(pdpj._logado(N("https://pje.tst.jus.br/tst/login.seam")))
+
     def test_logado_no_1_e_no_2_grau_mas_nao_nas_telas_de_login(self):
         class N:
             def __init__(self, u):

@@ -545,7 +545,8 @@ def coletar_processo(context, proc, estado, lista, historico, cota, desde=None, 
     if sessao is not None:
         try:
             return pje_trt.coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relato,
-                                            segunda=lambda: pje_trt.sessao_da_rodada(context, numero, grau=2))
+                                            segunda=lambda: pje_trt.sessao_da_rodada(context, numero, grau=2),
+                                            terceira=lambda: pje_trt.sessao_da_rodada(context, numero, grau=3))
         except pje_trt.NaoNoAcervo as e:
             print(f"  {e} Usando a consulta pública para este processo.", flush=True)
         except pje_trt.SessaoExpirada as e:

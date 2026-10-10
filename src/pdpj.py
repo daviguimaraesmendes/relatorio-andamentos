@@ -39,8 +39,13 @@ URL_LOGIN = "https://pje.trt{n}.jus.br/primeirograu/login.seam"
 URL_LOGIN_2G = "https://pje.trt{n}.jus.br/segundograu/login.seam"
 
 
+URL_LOGIN_TST = "https://pje.tst.jus.br/tst/login.seam"
+
+
 def url_login(trt, grau=1):
-    """Página de login do PJe do TRT: o 1º e o 2º grau são sistemas separados, com a mesma conta do PDPJ."""
+    """Página de login do PJe: o 1º grau, o 2º grau e o TST (`grau=3`) são sistemas separados, com a mesma conta do PDPJ."""
+    if int(grau) == 3:
+        return URL_LOGIN_TST
     return (URL_LOGIN_2G if int(grau) == 2 else URL_LOGIN).format(n=trt)
 OTP_SELETORES = "input[name='otp'], input#otp, input[autocomplete='one-time-code']"
 USUARIO_SELETORES = ("input[name='username'], input#username, input[autocomplete='username'], "
@@ -278,7 +283,7 @@ def _logado(nav):
     u = nav.url()
     partes = u.split("/")
     host = partes[2] if len(partes) > 2 else ""
-    return (("/pjekz/" in u or "/segundograu/" in u) and "login.seam" not in u and "acesso-negado" not in u
+    return (("/pjekz/" in u or "/segundograu/" in u or "/tst/" in u) and "login.seam" not in u and "acesso-negado" not in u
             and not host.startswith("sso."))
 
 

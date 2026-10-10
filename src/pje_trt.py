@@ -165,7 +165,7 @@ def credenciais_ok():
     return all(acesso.situacao_pdpj().values())
 
 
-_CONTEXTOS_2G = {}   # id do contexto original -> contexto isolado do 2º grau (cookies próprios)
+_CONTEXTOS_2G = {}   # (id do contexto original, grau) -> contexto isolado do 2º grau / TST (cookies próprios)
 
 
 def _contexto_para(context, grau):
@@ -176,17 +176,23 @@ def _contexto_para(context, grau):
     navegador = getattr(context, "browser", None)
     if navegador is None:
         return context
-    if id(context) not in _CONTEXTOS_2G:
+    chave = (id(context), int(grau))
+    if chave not in _CONTEXTOS_2G:
         import janela
-        _CONTEXTOS_2G[id(context)] = navegador.new_context(
+        _CONTEXTOS_2G[chave] = navegador.new_context(
             accept_downloads=True, viewport={"width": janela.TAMANHO[0], "height": janela.TAMANHO[1]},
             permissions=janela.PERMISSOES)
-    return _CONTEXTOS_2G[id(context)]
+    return _CONTEXTOS_2G[chave]
 
 
 def _avisar(texto):
     AVISOS.append(texto)
     print(texto + " Usando a consulta pública.", flush=True)
+
+
+def _chave(trt, grau):
+    """O TST é um sistema só para todos os TRTs: um login por rodada, qualquer que seja o TRT do processo."""
+    return (0, 3) if int(grau) == 3 else (trt, int(grau))
 
 
 def sessao_da_rodada(context, numero, abrir_pagina=None, entrar=None, grau=1):
@@ -197,8 +203,8 @@ def sessao_da_rodada(context, numero, abrir_pagina=None, entrar=None, grau=1):
     trt = trt_do_numero(numero)
     if trt is None or not credenciais_ok():
         return None
-    chave = (trt, int(grau))
-    rotulo = f"TRT{trt}" + ("" if int(grau) == 1 else f" ({int(grau)}º grau)")
+    chave = _chave(trt, grau)
+    rotulo = "TST" if int(grau) == 3 else f"TRT{trt}" + ("" if int(grau) == 1 else f" ({int(grau)}º grau)")
     if chave in _TENTADOS:
         contexto, sessao = _SESSOES.get(chave, (None, None))
         if sessao is not None and contexto is context:
@@ -235,9 +241,9 @@ def encerrar_sessao(context, numero):
     """A sessão caiu no meio da rodada: não entra de novo (seria outra tentativa de login); o resto vai pela consulta pública."""
     trt = trt_do_numero(numero)
     if trt is not None:
-        for grau in (1, 2):
-            _TENTADOS.add((trt, grau))
-            _SESSOES[(trt, grau)] = (context, None)
+        for grau in (1, 2, 3):
+            _TENTADOS.add(_chave(trt, grau))
+            _SESSOES[_chave(trt, grau)] = (context, None)
 
 
 def zerar_rodada():
@@ -283,14 +289,15 @@ def instancia_do_processo(sessao, id_processo):
         return {"atual": None, "outra_instancia": None, "verificado_em": datetime.datetime.now().isoformat(timespec="seconds")}
 
 
-def coletar_processo(sessao, proc, estado, lista, historico, cota, desde=None, relato=None, segunda=None):
-    """Lê o processo pelo PJe do advogado. `segunda` (opcional) devolve a sessão do 2º grau (login só quando preciso).
+def coletar_processo(sessao, proc, estado, lista, historico, cota, desde=None, relato=None, segunda=None, terceira=None):
+    """Lê o processo pelo PJe do advogado. `segunda` e `terceira` (opcionais) devolvem a sessão do 2º grau e a do TST
+    (login só quando preciso).
     O `relato` do chamador só recebe o resultado quando a leitura TERMINA: se a sessão cair no meio (SessaoExpirada) e a
     coleta seguir pela consulta pública, nada do que o PJe tinha anotado (graus lidos, aviso de 2º grau) sobra para
     confundir o relato da consulta pública."""
     relato = relato if relato is not None else {}
     parcial = {"graus_lidos": [], "graus_falhos": [], "avisos": []}
-    baixados = _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, parcial, segunda)
+    baixados = _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, parcial, segunda, terceira)
     for chave, valor in parcial.items():
         if isinstance(valor, list):
             relato[chave] = valor if chave == "graus_lidos" else list(relato.get(chave, [])) + valor
@@ -307,23 +314,31 @@ def _aviso(relato, numero, mensagem, grau="2"):
     relato["graus_falhos"].append({"grau": grau, "motivo": mensagem})
 
 
-def _ler_2o_grau(segunda, numero, relato):
-    """(sessão do 2º grau, processo achado, andamentos, documentos do 2º grau, instância) ou None, com o aviso no relato."""
-    s2 = segunda() if segunda else None
-    if s2 is None:
+ROTULOS = {"1": "1º grau", "2": "2º grau", "3": "TST"}
+
+
+def _ler_grau_superior(obter, numero, relato, grau):
+    """(sessão, processo achado, andamentos, documentos próprios desse grau, instância) ou None, com o aviso no relato.
+    Os documentos dos graus de baixo vêm na mesma linha do tempo, mas já foram lidos nas leituras deles."""
+    nome = ROTULOS[str(grau)]
+    sess = obter() if obter else None
+    if sess is None:
         return None
     try:
-        achado = s2.buscar(numero)
+        achado = sess.buscar(numero)
     except NaoNoAcervo:
-        _aviso(relato, numero, "O processo não está no acervo do 2º grau do advogado logado (pode já estar em tribunal superior). "
-                               "Conferir o recurso à mão.")
+        _aviso(relato, numero, f"O processo não está no acervo do {nome} do advogado logado. Conferir à mão.", grau=str(grau))
         return None
-    movs, docs = itens_da_timeline(s2.timeline(achado["id"]))
-    docs = [d for d in docs if d.get("cod_instancia") == 2]             # os documentos do 1º grau já vêm da leitura do 1º grau
-    return s2, achado, movs, docs, instancia_do_processo(s2, achado["id"])
+    movs, docs = itens_da_timeline(sess.timeline(achado["id"]))
+    docs = [d for d in docs if d.get("cod_instancia") == int(grau)]
+    return sess, achado, movs, docs, instancia_do_processo(sess, achado["id"])
 
 
-def _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relato, segunda=None):
+def _sobe_ao_tst(movs):
+    return any(TST.search(m[2] or "") and re.search(r"remess|remetid|subida|autos", m[2] or "", re.I) for m in movs)
+
+
+def _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relato, segunda=None, terceira=None):
     import coletor
     import trt
     numero = proc["numero"]
@@ -342,13 +357,20 @@ def _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relat
 
     graus = {GRAU: (sessao, achado, movs, docs)}
     if motivo:
-        lido = _ler_2o_grau(segunda, numero, relato) if segunda else None
+        lido = _ler_grau_superior(segunda, numero, relato, 2) if segunda else None
         if lido:
             s2, achado2, movs2, docs2, instancia2 = lido
             graus["2"] = (s2, achado2, movs2, docs2)
             relato["instancia_2g"] = instancia2
-            if any(TST.search(m[2] or "") and re.search(r"remess|remetid|subida|autos", m[2] or "", re.I) for m in movs2):
-                _aviso(relato, numero, "O processo parece ter subido ao TST, que esta ferramenta não lê. Conferir no TST à mão.", grau="TST")
+            if _sobe_ao_tst(movs2):
+                lido3 = _ler_grau_superior(terceira, numero, relato, 3) if terceira else None
+                if lido3:
+                    s3, achado3, movs3, docs3, instancia3 = lido3
+                    graus["3"] = (s3, achado3, movs3, docs3)
+                    relato["instancia_tst"] = instancia3
+                elif terceira is None or not relato["avisos"]:
+                    _aviso(relato, numero, "O processo parece ter subido ao TST e o TST não foi lido (login do TST indisponível). "
+                                           "Conferir no TST à mão.", grau="3")
         elif segunda is None:
             _aviso(relato, numero, f"O 2º grau não foi lido pelo PJe do advogado ({motivo}). Conferir o recurso à mão.")
         elif not relato["avisos"]:
@@ -362,7 +384,7 @@ def _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relat
         reg = reg_proc.get(grau)
         primeira_vez = reg is None
         reg = reg or {}
-        nivel = f"{grau}º grau" if varios or grau != "1" else None
+        nivel = ROTULOS[grau] if varios or grau != "1" else None
         conhecidos = set(reg.get("movimentos", []))
         if primeira_vez:
             novos = [m for m in mv if coletor._depois(m[1], desde)] if desde else mv[:historico]
@@ -374,7 +396,7 @@ def _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relat
                 ev.update(data=data, chave=chave, grau=nivel)
                 lista.append(ev)
                 ids.add(ev["id"])
-        print(f"  {grau}º grau: andamentos: {len(mv)} nos autos, {len(novos)} novo(s)", flush=True)
+        print(f"  {ROTULOS[grau]}: andamentos: {len(mv)} nos autos, {len(novos)} novo(s)", flush=True)
 
         docs_conhecidos = set(reg.get("documentos", []))
         falhas = dict(reg.get("falhas_documentos", {}))
@@ -419,7 +441,7 @@ def _coletar_processo(sessao, proc, estado, lista, historico, cota, desde, relat
                 ids.add(ev["id"])
             print(f"  documento {'baixado' if arquivo else 'sem arquivo'}: {nome}", flush=True)
             coletor.pausa(comum.config()["coleta"]["pausa_entre_documentos_s"])
-        print(f"  {grau}º grau: documentos: {len(dc)} nos autos, {len(novos_docs)} novo(s)", flush=True)
+        print(f"  {ROTULOS[grau]}: documentos: {len(dc)} nos autos, {len(novos_docs)} novo(s)", flush=True)
         docs_conhecidos.update(fora_da_selecao)
         novo[grau] = {"movimentos": sorted({m[0] for m in mv} | conhecidos), "documentos": sorted(docs_conhecidos),
                       "falhas_documentos": falhas}

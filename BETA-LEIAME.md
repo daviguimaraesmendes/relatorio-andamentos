@@ -1,6 +1,16 @@
-# Relatório de Andamentos — versão 2.0.0-beta6
+# Relatório de Andamentos — versão 2.0.0-beta7
 
 Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você já usa, a montagem e a atualização de relatórios completos (texto, planilha e dashboard). O acesso ao jus.br e aos TRTs é o mesmo que já funciona; a aba **Atualizar** da versão anterior continua no painel, como plano B.
+
+## 000000. Novo no beta7 (2º grau e TST pelo PJe, "Configurar tudo", login só quando precisa)
+
+**Abra o painel de novo depois de atualizar.**
+
+1. **Processos trabalhistas lidos nos três níveis, sem captcha:** com as credenciais do PDPJ cadastradas, a coleta lê o processo no **1º grau**, no **2º grau** e no **TST** pelo PJe do advogado (mesma conta, mesmo caminho; o endereço de entrada muda). Cada andamento e documento sai marcado com o nível ("1º grau", "2º grau", "TST"). O 2º grau e o TST só são consultados quando o processo tem sinal de recurso (andamentos de recurso e remessa, ou o aviso do PJe). Se um nível não puder ser lido, a coleta avisa para conferir à mão.
+2. **Botão "Configurar tudo":** uma tela guiada (menu lateral e tela Início) para cadastrar, num só lugar, seus dados, a conta do PDPJ (CPF, senha e autenticador), o certificado do jus.br, a IA e os testes. O autenticador do PDPJ é independente do do jus.br.
+3. **Estadual e Federal pelo jus.br com certificado, Trabalhista pelo PJe próprio:** o login com certificado só acontece quando algum processo precisa dele.
+4. **Mais segurança no login do PDPJ:** a trava contra repetição de tentativa é gravada **antes** de qualquer credencial ser enviada; nunca há segunda tentativa na mesma rodada, mesmo se o navegador for reaberto; o código do autenticador não é reutilizado na mesma janela de 30 segundos; mensagens e diagnósticos nunca guardam o que foi digitado.
+5. **Os testes automáticos não tocam mais no cofre real do computador.**
 
 ## 00000. Novo no beta6 (visual novo, login próprio no PJe do TRT e Claude pelo Claude Code)
 
@@ -12,7 +22,7 @@ Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você 
 4. **Claude pelo Claude Code (sem chave de API):** novo tipo de provedor de IA externa, que usa o login da sua assinatura. Não é IA local: o texto vai à Anthropic. Mesmo consentimento por cliente, pseudonimização e registro de envios.
 5. **IA local sob demanda e instalador do Windows**, vindos da outra linha de trabalho.
 
-**Ainda não feito:** ler o processo dentro do PJe do 2º grau e do TST; o botão "Configurar tudo".
+**Ainda não feito (era do beta6):** ler o 2º grau e o TST e o botão "Configurar tudo" (feitos no beta7).
 
 ## 0000. Novo no beta5 (a partir dos logs reais da sua rodada de 08/10/2026)
 
