@@ -1,5 +1,7 @@
 # Como retomar a Fase 2 na próxima sessão
 
+> **Próxima sessão (beta7 em diante):** comece por `docs/PLANO-PROXIMA-SESSAO-CLAUDE.md` (teste comparativo Sonnet x Haiku e atualização de um relatório real com o Claude). O resto deste arquivo é histórico das fases anteriores.
+
 Atualizado em 08/10/2026, ao fim do **beta 5** (seção abaixo; o beta 3 vem depois) (seção "Beta 2.0.0-beta3" abaixo). **Nenhum agente está rodando.** Tudo está commitado e enviado ao branch `claude/gallant-pasteur-etzpu5`.
 
 ## Onde estamos
