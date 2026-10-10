@@ -117,6 +117,20 @@ class TestValores(unittest.TestCase):
         self.assertEqual(ficha.derivar_contingencia({"provisao": {"valor": "10.00", "origem": "humano"}}), [])
 
 
+    def test_derivar_situacao_pelo_ativo_da_ficha(self):
+        f = ficha.nova_ficha(ficticio.numero_ficticio(1))
+        self.assertTrue(ficha.derivar_situacao(f))
+        self.assertEqual((ficha.obter(f, "situacao"), ficha.origem(f, "situacao")), ("Ativo", "derivado"))
+        g = ficha.nova_ficha(ficticio.numero_ficticio(2))
+        g["ativo"] = False
+        ficha.derivar_situacao(g)
+        self.assertEqual(ficha.obter(g, "situacao"), "Encerrado")
+        h = ficha.nova_ficha(ficticio.numero_ficticio(3))
+        ficha.definir(h, "situacao", "Suspenso", "humano")        # o que a pessoa informou nunca é trocado
+        self.assertFalse(ficha.derivar_situacao(h))
+        self.assertEqual(ficha.obter(h, "situacao"), "Suspenso")
+
+
 # ================================================================ fórmulas
 
 class TestFormulas(unittest.TestCase):
@@ -380,8 +394,10 @@ class TestLacunas(unittest.TestCase):
     def test_o_que_o_programa_busca_ou_deduz_e_o_que_precisa_de_voce(self):
         for campo in ("vara", "municipio", "uf", "classe", "valor_causa"):
             self.conferir(campo, 0, 12, lacunas.BUSCAVEL, lacunas.BUSCAVEL)
-        for campo in ("area", "materia_principal", "resultado", "situacao"):
+        for campo in ("area", "materia_principal", "resultado"):
             self.conferir(campo, 0, 12, lacunas.DEDUZIVEL, lacunas.DEDUZIVEL)
+        # a situação (Ativo/Encerrado) o programa já deduz do ativo/arquivado: entra "a confirmar"
+        self.assertEqual((self.campos["situacao"]["preenchidos"], self.campos["situacao"]["a_confirmar"]), (12, 12))
         for campo in ("cliente", "responsavel"):
             self.conferir(campo, 0, 12, lacunas.VOCE, lacunas.VOCE)
 

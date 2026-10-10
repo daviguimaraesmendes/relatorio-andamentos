@@ -969,6 +969,7 @@
   "/configurar POST -> configurar_salvar",
   "/documento GET -> documento",
   "/entregas GET -> entregas_ver_entregas",
+  "/entregas/atualizar-agora POST -> entregas_atualizar_agora",
   "/entregas/baixar GET -> entregas_baixar",
   "/entregas/gerar POST -> entregas_gerar_agora",
   "/entregas/mostrar POST -> entregas_mostrar",

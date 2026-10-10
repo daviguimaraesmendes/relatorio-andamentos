@@ -305,6 +305,19 @@ class MotorDosModos(Base):
         self.assertEqual(sorted(e["id"] for e in self.eventos() if e["status"] == "relatado"), relatados)
         self.assertEqual(len(self.espiao.pedidos), self.N, "nenhuma coleta nova: só a da montagem do primeiro mês")
 
+    def test_atualizar_sem_coletar_preenche_a_aba_faltas_da_migracao(self):
+        """Sem o quadro vindo da tela de migração, a atualização leve o recalcula sobre as fichas (e usa o mapeamento guardado)."""
+        self.preparar(n=3)
+        import openpyxl
+        r = fluxos.atualizar_sem_coletar(self.slug, ["xlsx_b"])
+        self.assertTrue(r["ok"], r["resumo"])
+        planilha = next(Path(a) for a in r["arquivos"] if Path(a).suffix == ".xlsx")
+        aba = next((ws for ws in openpyxl.load_workbook(planilha) if "faltas" in ws.title.lower()), None)
+        self.assertIsNotNone(aba, "a planilha tem a aba Faltas da migração")
+        linhas = [l for l in aba.iter_rows(min_row=2, values_only=True) if any(l)]
+        self.assertTrue(linhas, "a aba Faltas da migração saiu vazia")
+        self.assertTrue(any("Vara" in str(l[1]) for l in linhas), "os campos do modelo aparecem com o que falta")
+
     def test_atualizar_sem_coletar_com_o_relatorio_vazio_explica(self):
         self.preparar(n=2)
         with fluxos._em(self.slug):

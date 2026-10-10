@@ -1,6 +1,16 @@
-# Relatório de Andamentos — versão 2.0.0-beta7
+# Relatório de Andamentos — versão 2.0.0-beta8
 
 Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você já usa, a montagem e a atualização de relatórios completos (texto, planilha e dashboard). O acesso ao jus.br e aos TRTs é o mesmo que já funciona; a aba **Atualizar** da versão anterior continua no painel, como plano B.
+
+## 0000000. Novo no beta8 (planilha de contingências, "o que falta" e dois modos de trabalho)
+
+**Abra o painel de novo depois de atualizar.**
+
+1. **Planilha "desformatada" de contingências entra no modelo melhorado:** o leitor reconhece passivo potencial e atualizado, ativo potencial, percentual de provisão, provisão, depósito judicial, CNPJ processado, pagamento realizado e a justificativa do grau de probabilidade, e leva tudo para colunas novas da planilha (modelo B) e para o dashboard (passivo por probabilidade, provisão x passivo, depósitos, encerrados com pagamento).
+2. **Quadro "O que falta para a transição":** depois de ler o arquivo, o programa mostra campo a campo o que veio, o que ele busca nos tribunais, o que deduz pelas regras/IA (marcado "a confirmar") e o que só você sabe. O mesmo quadro vai para a aba **Faltas da migração** da planilha, também nas atualizações seguintes.
+3. **Dois modos:** **Montagem completa** (coleta tudo, resume com IA, monta planilha, texto e painéis) e **Atualização leve** (só o que mudou). Há também o atalho **Atualizar planilha e painéis agora (sem coletar)**, que não usa tribunal, login nem IA.
+4. **Situação (Ativo/Encerrado)** é deduzida do processo estar ativo ou na aba de arquivados, e o **momento atual** é deduzido pelas regras a partir do histórico quando o arquivo não o traz (origem "derivado": confira na revisão).
+5. **Claude no projeto:** `docs/claude-no-projeto.md` traz a recomendação de modelo e esforço por tarefa (Haiku médio para mapear/normalizar/extrair; Sonnet médio para resumir documentos), e `CLAUDE.md` as regras para quem desenvolve com o Claude Code.
 
 ## 000000. Novo no beta7 (2º grau e TST pelo PJe, "Configurar tudo", login só quando precisa)
 

@@ -343,6 +343,7 @@ def fichas_do_relatorio(rel, nome_arquivo=None):
                                      f"{rotulo}: o valor {valor!r} não entrou na ficha (fora do padrão ou campo desconhecido)."))
         if not ficha.obter(f, "cliente") and rel.get("cliente"):
             ficha.definir(f, "cliente", rel["cliente"], "migrado")
+        ficha.derivar_contingencia(f["campos"])      # depósito sim/não e % de provisão, sem inventar dinheiro (igual ao Assistente)
         for v in p.get("vinculados") or []:
             if v.get("numero"):
                 ficha.vincular(f, v["numero"], v.get("tipo") or "mesma_acao")
@@ -350,12 +351,21 @@ def fichas_do_relatorio(rel, nome_arquivo=None):
         if texto or (rel.get("formato") in ("docx_a", "xlsx_b") and rel.get("data_base")):
             f["linha_de_base"] = {"data_base": rel.get("data_base"), "andamentos_texto": texto,
                                   "arquivo": nome_arquivo or rel.get("arquivo"), "ultimo_andamento": p.get("ultimo_andamento")}
+        if not ficha.obter(f, "momento_atual") and p.get("andamentos"):
+            # relatório sem coluna de momento atual (planilha de contingências): deduz do histórico pelas regras
+            movs = [{"data": a.get("data"), "texto": a.get("texto") or "", "grau": None} for a in p["andamentos"]]
+            deduzido, evidencia = taxonomia.momento_por_regras(movs)
+            if deduzido:
+                ficha.definir(f, "momento_atual", deduzido, "derivado", evidencia=evidencia)
         momento, situacao = ficha.obter(f, "momento_atual"), ficha.obter(f, "situacao")
         ativo = taxonomia.momento_ativo(momento) if momento else None
         if ativo is not None:
             f["ativo"] = ativo
         elif situacao == "Encerrado":
             f["ativo"] = False
+        elif p.get("ativo") is False:
+            f["ativo"] = False       # o leitor viu o processo numa aba de arquivados/encerrados (ou na coluna Ativo = Não)
+        ficha.derivar_situacao(f)
         fichas.append(f)
     return fichas, avisos
 
@@ -1487,6 +1497,16 @@ def _moldes(perfil, clientes, explicitos, usar_ultimas):
     return {"docx_a": docx, "xlsx_b": xlsx}
 
 
+def _faltas_da_migracao(fichas, guardado):
+    """Quadro "o que falta" recalculado sobre as fichas de agora (campos que a coleta já preencheu saem da lista).
+    Usa o mapeamento de colunas guardado na importação; sem ele, só olha as fichas. Nunca impede a entrega."""
+    try:
+        import lacunas
+        return lacunas.lacunas(fichas, mapeamento=guardado.get("mapeamento"), colunas_sem_destino=guardado.get("colunas_sem_destino"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def entregar(projeto=None, entregas=None, *, data_base=None, moldes=None, tipo="entrega", fichas=None,
              parametros_extra=None, campos_nao_migrados=None, dashboard_modo="embutido", recalcular=None,
              usar_ultimas=True, rodada=None, marcar_relatados=True, ao_progresso=None):
@@ -1525,6 +1545,8 @@ def entregar(projeto=None, entregas=None, *, data_base=None, moldes=None, tipo="
         extra_parametros = {**(parametros_extra or {})}
         nao_migrados = campos_nao_migrados if campos_nao_migrados is not None else extra_parametros.get("campos_nao_migrados")
         parametros = {**perfil.get("parametros", {}), **extra_parametros}
+        if not subconjunto and "xlsx_b" in entregas and not parametros.get("faltas_da_migracao"):
+            parametros["faltas_da_migracao"] = _faltas_da_migracao(todas, parametros.get("migracao_lacunas") or {})
         historico = _mod("historico")
         try:
             retratos = list(historico.carregar(slug))

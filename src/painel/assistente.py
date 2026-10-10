@@ -368,6 +368,7 @@ def fichas_do_relatorio(rel, nome_arquivo=None):
             f["ativo"] = False
         elif p.get("ativo") is False:
             f["ativo"] = False       # o leitor viu o processo numa aba de arquivados/encerrados (ou na coluna Ativo = Não)
+        ficha.derivar_situacao(f)
         fichas.append(f)
     if derivados_de_contingencia.get("deposito_judicial"):
         avisos.append(_aviso("info", "contingencia_derivada", nome_arquivo or "arquivo",
@@ -690,7 +691,8 @@ def mesclar_no_atual(novas):
 
 def criar_relatorio(nome, fichas, arquivos, resumos):
     """Cria o projeto, grava as fichas e o perfil, copia os arquivos enviados para entrada/ e torna o
-    relatório o ativo. Devolve o slug."""
+    relatório o ativo. Devolve o slug. Guarda no perfil o mapeamento das colunas lidas: é ele que permite à planilha
+    (inclusive na atualização leve) preencher a aba "Faltas da migração" com a origem de cada campo."""
     slug = comum.criar_projeto(nome)
     comum.usar_projeto(slug)
     ficha.salvar(fichas)
@@ -702,6 +704,10 @@ def criar_relatorio(nome, fichas, arquivos, resumos):
     perfil = per.carregar()
     if entregas:
         perfil["entregas"] = entregas
+    mapa = [m for r in resumos for m in (r.get("mapeamento") or [])]
+    sem_destino = [c for r in resumos for c in (r.get("sem_destino") or [])]
+    if mapa or sem_destino:
+        perfil.setdefault("parametros", {})["migracao_lacunas"] = {"mapeamento": mapa, "colunas_sem_destino": sem_destino}
     per.salvar(perfil)
     for a in arquivos:
         copiar_para_entrada(a["caminho"], a["nome"])

@@ -359,6 +359,16 @@ def derivar_contingencia(campos):
     return derivados
 
 
+def derivar_situacao(f):
+    """Preenche `situacao` (Ativo/Encerrado) quando o arquivo não trouxe: vem do próprio `ativo` da ficha (momento atual,
+    aba de arquivados ou coluna Ativo). Origem "derivado" (confira na revisão); nunca sobrescreve valor informado.
+    Devolve True se preencheu."""
+    if obter(f, "situacao"):
+        return False
+    return definir(f, "situacao", "Ativo" if f.get("ativo", True) else "Encerrado", "derivado",
+                   evidencia="deduzido de o processo estar ativo ou arquivado/encerrado")
+
+
 # ---------------------------------------------------------------- vínculos
 
 def vincular(ficha, numero, tipo):

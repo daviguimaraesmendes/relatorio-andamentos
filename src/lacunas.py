@@ -130,6 +130,7 @@ def fichas_do_relatorio(rel):
             ativo = False
         if ativo is not None:
             f["ativo"] = ativo
+        fch.derivar_situacao(f)
         fichas.append(f)
     return fichas
 
