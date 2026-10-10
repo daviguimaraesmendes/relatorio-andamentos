@@ -34,8 +34,8 @@ from pathlib import Path
 
 from . import base, grade
 
-ABAS_AUXILIARES = ("indicador", "dashboard", "dinamica", "historico", "campos nao migrados", "grafico", "esboco",
-                   "quadro", "resumo", "sumario", "capa")
+ABAS_AUXILIARES = ("indicador", "dashboard", "dinamica", "historico", "campos nao migrados", "faltas da migracao", "grafico",
+                   "esboco", "quadro", "resumo", "sumario", "capa")
 ROTULOS_PARAMETRO = {
     "headcount": ("headcount", "numero de funcionarios", "funcionarios", "numero de empregados", "empregados",
                   "colaboradores", "numero de colaboradores", "quantidade de funcionarios", "total de funcionarios",

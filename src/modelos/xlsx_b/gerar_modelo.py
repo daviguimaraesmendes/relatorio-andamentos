@@ -6,16 +6,23 @@ o `openpyxl` é usado aqui, uma vez, para criá-lo (como o spike S1 fazia com o 
 
 Abas:
   Processos           tabela do Excel `tblProcessos`: as 29 colunas do modelo B + 8 colunas extras OCULTAS
-                      (momento atual, último andamento, citação, fase, classe, assunto, acordo, observações);
+                      (momento atual, último andamento, citação, fase, classe, assunto, acordo, observações)
+                      + 9 colunas de CONTINGÊNCIA no fim (38 em diante, também ocultas até haver dado: passivo
+                      potencial e atualizado, ativo potencial, % e valor da provisão, depósito judicial, CNPJ da
+                      empresa processada, pagamento realizado, justificativa da probabilidade);
                       validação de dados em Situação, Probabilidade, Resultado etc.; colunas calculadas
                       Valor Economizado e Taxa de resolução (fórmulas com referência estruturada).
                       Vem com UMA linha em branco (a tabela do Excel precisa de ao menos uma); o escritor
                       a aproveita para o primeiro processo.
   Parâmetros          headcount, data de referência, fator de correção, empresas do grupo.
-  Indicadores         acervo, tempo e recursos, resultados e financeiro, só com COUNTIFS/SUMIFS/AVERAGE/
-                      MEDIAN (sem FILTER nem funções dinâmicas), mais quadros por situação/resultado/área.
-  Dashboard           gráficos básicos ligados aos Indicadores e ao Histórico.
+  Indicadores         acervo, tempo e recursos, resultados, financeiro e CONTINGÊNCIA (passivo potencial total,
+                      provisão, passivo por probabilidade, depósitos judiciais, pagamentos, valor economizado), só
+                      com COUNTIFS/SUMIFS/AVERAGE/MEDIAN (sem FILTER nem funções dinâmicas), mais quadros por
+                      situação/resultado/área/probabilidade.
+  Dashboard           gráficos básicos ligados aos Indicadores e ao Histórico (e cartões/gráfico de contingência).
   Histórico           retrato mensal (CONTRATOS 9): uma linha por data-base.
+  Faltas da migração  o que falta para a transição de um relatório migrado (por campo: preenchidos, origem, o que
+                      fazer); vem vazia no modelo e o escritor a preenche na migração (lacunas.py).
   Campos não migrados colunas do arquivo antigo sem destino no modelo (nada se perde em silêncio).
 
 O arquivo é determinístico (mesmas entradas, mesmos bytes, para a mesma versão do openpyxl).
@@ -43,12 +50,13 @@ import ficha                                                               # noq
 import taxonomia                                                           # noqa: E402
 from escritores import xlsx_b                                              # noqa: E402
 
-TABELA, TABELA_HIST, TABELA_NM = "tblProcessos", "tblHistorico", "tblNaoMigrados"
+TABELA, TABELA_HIST, TABELA_NM, TABELA_FALTAS = "tblProcessos", "tblHistorico", "tblNaoMigrados", "tblFaltas"
 DATA_FIXA = datetime.datetime(2026, 10, 7, 12, 0, 0)
 ZIP_DATA = (2026, 10, 7, 12, 0, 0)
 LARGURAS = {"autores": 30, "reus": 30, "vara": 32, "municipio": 18, "objeto": 40, "andamentos": 70,
             "numero": 26, "outras_partes": 26, "observacoes": 30, "materia_principal": 26, "assunto": 24,
-            "momento_atual": 34, "valor_arbitrado": 18, "valor_estimado": 16}
+            "momento_atual": 34, "valor_arbitrado": 18, "valor_estimado": 16, "justificativa_probabilidade": 40,
+            "cnpj_processado": 24, "passivo_potencial": 18, "passivo_atualizado": 20, "provisao": 18, "pagamento_realizado": 18}
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 BORDA = Side(style="thin", color="BFBFBF")
 PROB = {"Provável": "FFC7CE", "Possível": "FFEB9C", "Remota": "C6EFCE"}
@@ -66,6 +74,8 @@ def _esta_linha(nome):
 def _formato(campo):
     if campo == "percentual_exito":
         return "0.0%"
+    if campo == "percentual_provisao":
+        return "0%"
     tipo = ficha.CAMPOS.get(campo, ("", "", "texto", None))[2]
     return {"data": "dd/mm/yyyy", "dinheiro": "#,##0.00", "numero": "0"}.get(tipo)
 
@@ -134,6 +144,7 @@ def _processos(wb):
         "situacao": list(taxonomia.SITUACAO), "probabilidade": list(taxonomia.PROBABILIDADE),
         "resultado": list(taxonomia.RESULTADO), "area": list(taxonomia.AREA),
         "ativo": ["Sim", "Não"], "houve_recurso": ["Sim", "Não"], "terceirizado": ["Sim", "Não"],
+        "deposito_judicial": ["Sim", "Não"],
     }
     for campo, itens in listas.items():
         formula = '"' + ",".join(itens) + '"'
@@ -143,11 +154,12 @@ def _processos(wb):
         col = _letra(indice[campo])
         dv.add(f"{col}2")
         ws.add_data_validation(dv)
-    dv = DataValidation(type="decimal", operator="between", formula1="0", formula2="1", allow_blank=True,
-                        showErrorMessage=True, errorStyle="warning", errorTitle=cab["percentual_exito"],
-                        error="Use uma fração entre 0 e 1 (0,85 = 85%).")
-    dv.add(f"{_letra(indice['percentual_exito'])}2")
-    ws.add_data_validation(dv)
+    for campo in ("percentual_exito", "percentual_provisao"):
+        dv = DataValidation(type="decimal", operator="between", formula1="0", formula2="1", allow_blank=True,
+                            showErrorMessage=True, errorStyle="warning", errorTitle=cab[campo],
+                            error="Use uma fração entre 0 e 1 (0,85 = 85%).")
+        dv.add(f"{_letra(indice[campo])}2")
+        ws.add_data_validation(dv)
     return indice
 
 
@@ -258,21 +270,50 @@ def _indicadores(wb):
         "Valor arbitrado em juízo, ou o valor da execução quando o arbitrado está vazio.", "#,##0.00")
     ind("economia", "Economia efetiva", f'={pos["causa_lancado"]}-{pos["realizado"]}',
         "Valor da causa − valor realizado, só dos encerrados com valor lançado.", "#,##0.00")
+    secao("Contingência")
+    passivo, atualiz, prov, ativo_pot = R["passivo_potencial"], R["passivo_atualizado"], R["provisao"], R["ativo_potencial"]
+    prob, dep_sn, dep_val, pago, econ = (R["probabilidade"], R["deposito_judicial"], R["depositos_recursais"],
+                                         R["pagamento_realizado"], R["valor_economizado"])
+    ind("passivo_total", "Passivo potencial total", f"=SUM({passivo})", "Soma da coluna Passivo Potencial.", "#,##0.00")
+    ind("passivo_ativos", "Passivo potencial dos processos ativos", f'=SUMIFS({passivo},{ativo},"Sim")',
+        "Passivo Potencial dos processos com Ativo = Sim.", "#,##0.00")
+    ind("passivo_atualizado", "Passivo potencial atualizado (encerrados)", f"=SUM({atualiz})",
+        "Soma da coluna Passivo Potencial Atualizado (correção e juros).", "#,##0.00")
+    ind("provisao_total", "Provisão constituída total", f"=SUM({prov})", "Soma da coluna Provisão Constituída.", "#,##0.00")
+    ind("ativo_potencial", "Ativo potencial total", f"=SUM({ativo_pot})", "Soma da coluna Ativo Potencial (créditos).", "#,##0.00")
+    ind("passivo_remota", "Passivo potencial (ativos): perda remota", f'=SUMIFS({passivo},{prob},"Remota",{ativo},"Sim")',
+        "Passivo Potencial dos processos ativos com Probabilidade = Remota.", "#,##0.00")
+    ind("passivo_possivel", "Passivo potencial (ativos): perda possível", f'=SUMIFS({passivo},{prob},"Possível",{ativo},"Sim")',
+        "Passivo Potencial dos processos ativos com Probabilidade = Possível.", "#,##0.00")
+    ind("passivo_provavel", "Passivo potencial (ativos): perda provável", f'=SUMIFS({passivo},{prob},"Provável",{ativo},"Sim")',
+        "Passivo Potencial dos processos ativos com Probabilidade = Provável.", "#,##0.00")
+    ind("depositos_qtd", "Processos com depósito judicial", f'=COUNTIFS({dep_sn},"Sim")',
+        "Coluna Depósito Judicial Realizado? = Sim.", "0")
+    ind("depositos_valor", "Total de depósitos judiciais", f"=SUM({dep_val})", "Soma da coluna Depósitos Recursais (valor depositado).",
+        "#,##0.00")
+    ind("pagamentos", "Pagamentos realizados", f"=SUM({pago})", "Soma da coluna Pagamento Realizado.", "#,##0.00")
+    ind("economizado", "Valor economizado", f"=SUM({econ})", "Soma da coluna Valor Economizado (passivo atualizado − pagamento).",
+        "#,##0.00")
     # quadros que alimentam os gráficos
     quadros = {}
-    for chave, titulo, campo, valores in (
-            ("situacao", "Processos por situação", "situacao", list(taxonomia.SITUACAO)),
-            ("resultado", "Processos por resultado", "resultado", list(taxonomia.RESULTADO)),
-            ("area", "Processos por área", "area", list(taxonomia.AREA)),
-            ("prob", "Processos por probabilidade", "probabilidade", list(taxonomia.PROBABILIDADE))):
+    for chave, titulo, campo, valores, soma in (
+            ("situacao", "Processos por situação", "situacao", list(taxonomia.SITUACAO), None),
+            ("resultado", "Processos por resultado", "resultado", list(taxonomia.RESULTADO), None),
+            ("area", "Processos por área", "area", list(taxonomia.AREA), None),
+            ("prob", "Processos por probabilidade", "probabilidade", list(taxonomia.PROBABILIDADE), None),
+            ("passivo_prob", "Passivo potencial dos ativos por probabilidade", "probabilidade", list(taxonomia.PROBABILIDADE),
+             "passivo_potencial")):
         linha[0] += 1
         ws.cell(linha[0], 1, titulo).font = Font(bold=True, color="1F4E78")
-        ws.cell(linha[0], 2, "Processos").font = Font(bold=True)
+        ws.cell(linha[0], 2, "Valor (R$)" if soma else "Processos").font = Font(bold=True)
         linha[0] += 1
         ini = linha[0]
         for v in valores:
             ws.cell(linha[0], 1, v)
-            ws.cell(linha[0], 2, f"=COUNTIFS({R[campo]},A{linha[0]})").number_format = "0"
+            if soma:
+                ws.cell(linha[0], 2, f'=SUMIFS({R[soma]},{R[campo]},A{linha[0]},{ativo},"Sim")').number_format = "#,##0.00"
+            else:
+                ws.cell(linha[0], 2, f"=COUNTIFS({R[campo]},A{linha[0]})").number_format = "0"
             linha[0] += 1
         quadros[chave] = (titulo, ini, linha[0] - 1)
     ws["A1"].font = ws["B1"].font = ws["C1"].font = Font(bold=True)
@@ -319,12 +360,31 @@ def _nao_migrados(wb):
     return ws
 
 
+def _faltas(wb):
+    ws = wb.create_sheet("Faltas da migração")
+    cabecalhos = ["Grupo", "Campo", "Preenchidos", "Total", "Percentual", "Origem", "O que fazer"]
+    for i, c in enumerate(cabecalhos, start=1):
+        cel = ws.cell(1, i, c)
+        cel.font = Font(bold=True, color="FFFFFF")
+        cel.fill = HEADER_FILL
+    for i, (larg, fmt) in enumerate([(30, None), (34, None), (13, "0"), (10, "0"), (12, "0%"), (46, None), (90, None)], start=1):
+        ws.column_dimensions[_letra(i)].width = larg
+        if fmt:
+            ws.cell(2, i).number_format = fmt
+    tabela = Table(displayName=TABELA_FALTAS, ref="A1:G2")
+    tabela.tableStyleInfo = TableStyleInfo(name="TableStyleLight9", showRowStripes=True)
+    ws.add_table(tabela)
+    ws.freeze_panes = "A2"
+    return ws
+
+
 def _dashboard(wb, ind, pos, quadros, hist):
     ws = wb.create_sheet("Dashboard")
     ws["A1"] = "Resumo da carteira"
     ws["A1"].font = Font(bold=True, size=14, color="1F4E78")
     kpis = [("Processos", "total", "0"), ("Ativos", "ativos", "0"), ("Taxa de êxito", "exito", "0.0%"),
-            ("Economia efetiva", "economia", "#,##0.00")]
+            ("Economia efetiva", "economia", "#,##0.00"), ("Passivo potencial", "passivo_total", "#,##0.00"),
+            ("Provisão constituída", "provisao_total", "#,##0.00")]
     for i, (rotulo, chave, fmt) in enumerate(kpis):
         col = 1 + 2 * i
         ws.cell(3, col, rotulo).font = Font(bold=True, color="595959")
@@ -342,7 +402,7 @@ def _dashboard(wb, ind, pos, quadros, hist):
         g.add_data(Reference(ind, min_col=2, min_row=ini, max_row=fim), titles_from_data=False)
         g.set_categories(Reference(ind, min_col=1, min_row=ini, max_row=fim))
         g.legend = None
-        g.y_axis.title = "Processos"
+        g.y_axis.title = "Valor (R$)" if chave == "passivo_prob" else "Processos"
         g.x_axis.delete = False
         g.y_axis.delete = False
         g.height, g.width = 7.5, 14
@@ -351,6 +411,7 @@ def _dashboard(wb, ind, pos, quadros, hist):
     barras("Processos por resultado", "resultado", "H6")
     barras("Processos por área", "area", "A22")
     barras("Processos por probabilidade", "prob", "H22")
+    barras("Passivo potencial dos ativos por probabilidade (R$)", "passivo_prob", "H38")
     linhas = LineChart()
     linhas.title = "Evolução do acervo (retrato mensal)"
     linhas.add_data(Reference(hist, min_col=2, max_col=3, min_row=1, max_row=2), titles_from_data=True)
@@ -371,10 +432,11 @@ def construir():
     _parametros(wb)
     ind, pos, quadros = _indicadores(wb)
     hist = _historico(wb)
+    _faltas(wb)
     _nao_migrados(wb)
     _dashboard(wb, ind, pos, quadros, hist)
-    # ordem das abas: Processos, Parâmetros, Indicadores, Dashboard, Histórico, Campos não migrados
-    ordem = ["Processos", "Parâmetros", "Indicadores", "Dashboard", "Histórico", "Campos não migrados"]
+    # ordem das abas: Processos, Parâmetros, Indicadores, Dashboard, Histórico, Faltas da migração, Campos não migrados
+    ordem = ["Processos", "Parâmetros", "Indicadores", "Dashboard", "Histórico", "Faltas da migração", "Campos não migrados"]
     wb._sheets = [wb[n] for n in ordem]
     wb.active = 0
     return wb

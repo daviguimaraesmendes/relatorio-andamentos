@@ -36,6 +36,12 @@ Colunas reconhecidas (por similaridade de cabeçalho, sem acento nem caixa): as 
 "Momento atual do processo", "Valor do acordo", ...). Abas: as que têm cabeçalho com o número do processo
 (pelo cabeçalho, não pelo nome), "Parâmetros" (empresas do grupo, data de referência, headcount) e
 "Histórico" (uma linha por data-base, com colunas de totais).
+
+Contingência: quando a planilha tem as colunas Passivo Potencial, Provisão Constituída, Ativo Potencial, Pagamento Realizado ou
+Depósito Judicial Realizado?, os dois modelos de painel ganham o bloco "Contingência e provisão" (cartões de passivo potencial dos
+processos ativos, provisão e cobertura, perda provável, ativo potencial, depósitos e pagamentos, e o passivo e a provisão por
+probabilidade Provável/Possível/Remota). O passivo potencial lançado passa a ser a exposição do processo. Sem esses dados o bloco
+fica oculto e nada muda nos números de sempre.
 """
 import datetime
 import hashlib

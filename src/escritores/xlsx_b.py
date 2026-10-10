@@ -15,8 +15,11 @@ Duas camadas no mesmo módulo (um só conjunto de testes, um só caminho de cód
    `molde`: Path do .xlsx do cliente (atualização) ou None (cria do modelo padrão em
    src/modelos/xlsx_b/, gerado por gerar_modelo.py). `estado`: {"cliente", "data_base" (ISO), "fichas",
    "eventos" (aprovados), "perfil", "parametros"}; chaves opcionais: "historico" (retratos mensais
-   anteriores, CONTRATOS 9) e "campos_nao_migrados" (como `RelatorioLido["colunas_sem_destino"]`, com
-   "valores": {numero: valor} opcional). O Resultado é um dict com as chaves do contrato (destino,
+   anteriores, CONTRATOS 9), "campos_nao_migrados" (como `RelatorioLido["colunas_sem_destino"]`, com
+   "valores": {numero: valor} opcional) e "faltas_da_migracao" (resultado de `lacunas.lacunas`, também aceito em
+   `estado["parametros"]`; vira a aba "Faltas da migração"). Colunas de contingência (passivo potencial, provisão,
+   depósito judicial...) são extras do modelo; o escritor as torna visíveis quando alguma ficha tem valor nelas.
+   O Resultado é um dict com as chaves do contrato (destino,
    processos_atualizados, processos_novos, ignorados, mudancas, avisos, textos_gravados) mais
    valores_gravados, partes_alteradas, partes_removidas e cache_formulas.
 
@@ -1547,7 +1550,22 @@ _COLUNAS = [
     ("assunto", "Assunto", "objetivo", True, ("Assunto principal",)),
     ("valor_acordo", "Valor do Acordo", "julgamento", True, ("Acordo (R$)", "Valor acordo")),
     ("observacoes", "Observações", "objetivo", True, ("Observação", "Obs.", "Comentários")),
+    # contingência (passivo contingente): extras no FIM da tabela (colunas 38 em diante); ficam ocultas até haver dado
+    # (o escritor as ativa sozinho quando alguma ficha tem valor) ou até o perfil as listar
+    ("passivo_potencial", "Passivo Potencial", "julgamento", True, ("Passivo", "Passivo contingente", "Valor contingenciado")),
+    ("passivo_atualizado", "Passivo Potencial Atualizado", "julgamento", True,
+     ("Passivo atualizado", "Passivo potencial atualizado (correção)", "Passivo potencial corrigido")),
+    ("ativo_potencial", "Ativo Potencial", "julgamento", True, ("Ativo contingente", "Crédito potencial")),
+    ("percentual_provisao", "Percentual de Provisão", "julgamento", True, ("% de provisão", "% provisão", "Percentual provisionado")),
+    ("provisao", "Provisão Constituída", "julgamento", True, ("Provisão", "Valor provisionado")),
+    ("deposito_judicial", "Depósito Judicial Realizado?", "julgamento", True, ("Depósito judicial", "Houve depósito judicial")),
+    ("cnpj_processado", "CNPJ da Empresa Processada", "objetivo", True, ("CNPJ", "CNPJ processado", "CNPJ do réu")),
+    ("pagamento_realizado", "Pagamento Realizado", "julgamento", True, ("Pagamento", "Valor pago")),
+    ("justificativa_probabilidade", "Justificativa da Probabilidade", "julgamento", True,
+     ("Justificativa", "Justificativa do risco", "Justificativa da possibilidade de perda")),
 ]
+CONTINGENCIA = ("passivo_potencial", "passivo_atualizado", "ativo_potencial", "percentual_provisao", "provisao",
+                "deposito_judicial", "cnpj_processado", "pagamento_realizado", "justificativa_probabilidade")
 CAMPOS_B = {c[0]: c[1] for c in _COLUNAS}                       # campo da ficha -> cabeçalho do modelo B
 PAPEIS = {c[0]: c[2] for c in _COLUNAS}
 COLUNAS_PADRAO = tuple(c[0] for c in _COLUNAS if not c[3])      # as 29 colunas do modelo B, em ordem
@@ -1929,6 +1947,10 @@ class _Gravacao:
                 continue
             vistos.add(n)
             self.fichas.append(f)
+        # campos de contingência que alguma ficha tem: valem mesmo que o perfil não os liste (os dados lançados não se perdem)
+        self.contingencia_com_dados = {c for c in CONTINGENCIA if any(fi.obter(f, c) not in (None, "") for f in self.fichas)}
+        if modo_modelo and self.ativas is not None:
+            self.ativas |= self.contingencia_com_dados
         dono = {}
         for f in self.fichas:
             for n in fi.todos_os_numeros(f):
@@ -1949,12 +1971,13 @@ class _Gravacao:
                                         "deste relatório; esses andamentos não foram gravados.", sorted(map(str, sem_ficha))))
 
     def ativa(self, campo):
-        return self.ativas is None or campo in self.ativas
+        return self.ativas is None or campo in self.ativas or campo in self.contingencia_com_dados
 
     def executar(self):
         self.processos()
         self.parametros()
         self.historico()
+        self.faltas_da_migracao()
         self.campos_nao_migrados()
 
     # ---- abas de processos -------------------------------------------------------------
@@ -2331,6 +2354,51 @@ class _Gravacao:
             else:
                 novas.append(linha(retratos[iso]))
         ed.escrever_celulas(celulas)
+        _preencher_tabela(ed, novas)
+        ed.aplicar()
+
+    def faltas_da_migracao(self):
+        """Aba "Faltas da migração": o que falta para a transição (relatório de lacunas, `lacunas.lacunas`). O estado traz o
+        resultado em `faltas_da_migracao` (ou em `parametros["faltas_da_migracao"]`); sem ele, a aba fica como está. Repetir a
+        gravação não duplica linhas (a linha é igual quando grupo, campo e contagens são iguais)."""
+        lac = self.estado.get("faltas_da_migracao") or (self.estado.get("parametros") or {}).get("faltas_da_migracao")
+        if not lac:
+            return
+        import lacunas
+        linhas = lacunas.linhas_para_planilha(lac)
+        if not linhas:
+            return
+        achado = self._tabela_com("faltasdamigracao", ("grupo", "campo", "preenchidos"))
+        if not achado:
+            self.acc["avisos"].append(_aviso(
+                "info", "faltas_da_migracao_sem_aba", "faltas_da_migracao",
+                "Esta planilha não tem a aba 'Faltas da migração'; o quadro do que falta para a transição consta na tela de "
+                "migração e no relatório de qualidade."))
+            return
+        nome, tabela = achado
+        ed = self._edicao_simples(nome, tabela, linha_cabecalho=1)
+        cols = {_chave_cab(t): c for c, t in ed.cabecalhos.items() if t}
+        obrigatorias = ("grupo", "campo", "preenchidos", "total", "percentual", "origem", "oquefazer")
+        if any(k not in cols for k in obrigatorias):
+            return
+        def como_texto(v):
+            if v is None:
+                return ""
+            return str(int(v)) if isinstance(v, (int, float, Decimal)) and float(v).is_integer() else str(v)
+        ja = set()
+        for r in range(ed.lin1, ed.lin2 + 1):
+            ja.add(tuple(como_texto(ed.valor(r, cols[k])) for k in ("grupo", "campo", "preenchidos", "total")))
+        novas = []
+        for d in linhas:
+            chave = (str(d["Grupo"]), str(d["Campo"]), str(d["Preenchidos"]), str(d["Total"]))
+            if chave in ja:
+                continue
+            ja.add(chave)
+            linha = {cols["grupo"]: d["Grupo"], cols["campo"]: d["Campo"], cols["preenchidos"]: d["Preenchidos"],
+                     cols["total"]: d["Total"], cols["origem"]: d["Origem"], cols["oquefazer"]: d["O que fazer"]}
+            if d["Percentual"] is not None:
+                linha[cols["percentual"]] = d["Percentual"]
+            novas.append({c: v for c, v in linha.items() if v not in (None, "")})
         _preencher_tabela(ed, novas)
         ed.aplicar()
 

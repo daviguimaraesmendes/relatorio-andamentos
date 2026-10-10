@@ -38,6 +38,14 @@ Origem de cada campo e quem vence (maior prioridade nunca é sobrescrita por men
 
 Datas ficam em ISO (AAAA-MM-DD); dinheiro, em texto decimal com ponto e 2 casas
 ("1234.56"), para não ter erro de ponto flutuante. Use dinheiro() e data() para ler.
+
+Grupo "contingencia" (relatórios de passivo contingente): `passivo_potencial` (valor em risco), `passivo_atualizado`
+(com correção e juros), `ativo_potencial` (crédito a receber), `percentual_provisao` (fração: 0,5 = 50%), `provisao`
+(valor provisionado), `deposito_judicial` (Sim/Não), `cnpj_processado`, `pagamento_realizado` e
+`justificativa_probabilidade` (o texto que acompanha o grau: "REMOTA - processo extinto..."). `depositos_recursais`
+continua sendo o VALOR depositado; `deposito_judicial` é o Sim/Não. `derivar_contingencia` completa um a partir do
+outro (origem "derivado"): valor depositado maior que zero implica "Sim"; o percentual de provisão sai de
+provisão ÷ passivo quando falta. Nunca inventa valores em dinheiro.
 """
 import datetime
 import re
@@ -101,10 +109,24 @@ CAMPOS = {
     "data_transito": ("Data do trânsito em julgado", "julgamento", "data", None),
     "taxa_resolucao_dias": ("Taxa de resolução (dias)", "julgamento", "numero", None),
     "percentual_exito": ("Percentual de êxito", "julgamento", "numero", None),
+    # contingência (relatórios de passivo contingente: valor em risco, provisão contábil, depósitos)
+    "passivo_potencial": ("Passivo potencial", "contingencia", "dinheiro", None),
+    "passivo_atualizado": ("Passivo potencial atualizado (correção)", "contingencia", "dinheiro", None),
+    "ativo_potencial": ("Ativo potencial", "contingencia", "dinheiro", None),
+    "percentual_provisao": ("Percentual de provisão", "contingencia", "numero", None),
+    "provisao": ("Provisão constituída", "contingencia", "dinheiro", None),
+    "deposito_judicial": ("Depósito judicial realizado?", "contingencia", "sim_nao", None),
+    "cnpj_processado": ("CNPJ da empresa processada", "contingencia", "texto", None),
+    "pagamento_realizado": ("Pagamento realizado", "contingencia", "dinheiro", None),
+    "justificativa_probabilidade": ("Justificativa da probabilidade", "contingencia", "texto", None),
 }
 # O que é "julgamento humano": o leitor de relatórios grava estes campos com origem "humano"
 # (alguém os digitou no relatório antigo) e julgamento.py só os sugere quando estão vazios.
 CAMPOS_DE_JULGAMENTO = tuple(n for n, c in CAMPOS.items() if c[1] == "julgamento")
+# Campos de contingência (passivo, provisão, depósitos): também são lançados à mão por quem acompanha o risco e nenhum
+# tribunal os informa; os leitores os gravam como "humano". Os que são frações (0,5 = 50%) estão em PERCENTUAIS.
+CAMPOS_DE_CONTINGENCIA = tuple(n for n, c in CAMPOS.items() if c[1] == "contingencia")
+PERCENTUAIS = ("percentual_exito", "percentual_provisao")
 
 
 def agora():
@@ -262,7 +284,7 @@ def definir(ficha, nome, valor, origem_nova, evidencia=None, forcar=False):
                 definir(ficha, "momento_qualificador", qualificador, origem_nova, evidencia, forcar=True)
             return gravou
     _, _, tipo, vocab = CAMPOS[nome]
-    valor = _normalizar_valor(tipo, vocab, valor)
+    valor = _normalizar_valor(tipo, vocab, valor, nome)
     if valor in (None, ""):
         return False
     atual_origem, atual = origem(ficha, nome), obter(ficha, nome)
@@ -287,7 +309,7 @@ def limpar(ficha, nome):
         ficha[nome] = ""
 
 
-def _normalizar_valor(tipo, vocab, valor):
+def _normalizar_valor(tipo, vocab, valor, nome=None):
     if valor is None or valor == "":
         return None
     if tipo == "data":
@@ -296,9 +318,12 @@ def _normalizar_valor(tipo, vocab, valor):
         return parse_dinheiro(valor)
     if tipo == "numero":
         try:
-            return float(str(valor).replace(",", ".").replace("%", "").strip())
+            numero = float(str(valor).replace(",", ".").replace("%", "").strip())
         except ValueError:
             return None
+        if nome in PERCENTUAIS and ("%" in str(valor) or abs(numero) > 1):
+            numero = round(numero / 100.0, 6)       # "50%" e 50 viram 0,5; 0,5 já é fração
+        return numero
     if tipo == "sim_nao":
         n = str(valor).strip().lower()
         return {"sim": "Sim", "s": "Sim", "true": "Sim", "1": "Sim", "nao": "Não", "não": "Não", "n": "Não",
@@ -307,6 +332,31 @@ def _normalizar_valor(tipo, vocab, valor):
     if vocab == "momento_atual" and texto.upper() in taxonomia.MOMENTO_ATUAL:
         return texto.upper()
     return taxonomia.normalizar(vocab, texto) if vocab else texto
+
+
+def derivar_contingencia(campos):
+    """Completa, em `campos` ({nome: {"valor", "origem", ...}}), o que dá para calcular sem inventar:
+    - `deposito_judicial` = "Sim" quando `depositos_recursais` é maior que zero e o Sim/Não não foi informado;
+    - `percentual_provisao` = provisão ÷ passivo potencial (4 casas) quando o percentual não foi informado.
+    Registra origem "derivado". Devolve a lista dos nomes derivados."""
+    def valor(nome):
+        c = campos.get(nome)
+        return c.get("valor") if isinstance(c, dict) else None
+
+    derivados = []
+    dep = dinheiro(valor("depositos_recursais"))
+    if valor("deposito_judicial") in (None, "") and dep is not None and dep > 0:
+        campos["deposito_judicial"] = {"valor": "Sim", "origem": "derivado", "em": agora(),
+                                       "evidencia": "há valor de depósito lançado"}
+        derivados.append("deposito_judicial")
+    prov, passivo = dinheiro(valor("provisao")), dinheiro(valor("passivo_potencial"))
+    if valor("percentual_provisao") in (None, "") and prov is not None and passivo is not None and passivo > 0 and prov >= 0:
+        fracao = round(float(prov / passivo), 4)
+        if fracao <= 1.0:
+            campos["percentual_provisao"] = {"valor": fracao, "origem": "derivado", "em": agora(),
+                                             "evidencia": "provisão ÷ passivo potencial"}
+            derivados.append("percentual_provisao")
+    return derivados
 
 
 # ---------------------------------------------------------------- vínculos

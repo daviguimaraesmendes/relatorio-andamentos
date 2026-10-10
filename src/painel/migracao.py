@@ -22,6 +22,10 @@ chama `leitores.ler(caminho, formato, mapeamento={coluna: campo})`. A conversão
 novo (para ter pasta saida/ própria) e entrega pelos escritores via `painel.entregas.gerar`; as colunas
 sem destino seguem em `parametros["campos_nao_migrados"]` do estado, para a aba "Campos não migrados".
 
+O quadro "O que falta para a transição" (painel/lacunas_tela.py, calculado por lacunas.py) aparece na tela de mapeamento e na
+prévia: por grupo de campos, quantos processos têm cada campo, de onde ele vem e o que fazer. Ao converter, o mesmo relatório de
+lacunas segue em `parametros["faltas_da_migracao"]` e vira a aba "Faltas da migração" da planilha.
+
 Sem o leitor ou os escritores (outros workstreams), a tela explica em português o que falta.
 """
 import html
@@ -32,6 +36,7 @@ from flask import abort, request
 import ficha
 from painel import assistente as ass
 from painel import entregas as ent
+from painel import lacunas_tela
 from painel import perfil as per
 from painel.base import _ir, _msg, ajuda
 from painel.entregas import ESTILO_FLUXO, Indisponivel, modulo
@@ -49,19 +54,26 @@ DESTINO_NO_TEXTO = {"numero": "Nº do processo", "andamentos": "Andamentos", "au
 _e = html.escape
 
 
+def _com_comentario(item, origem):
+    """Leva junto o `comentario` do leitor (por que o destino foi escolhido), quando houver."""
+    if origem.get("comentario"):
+        item["comentario"] = origem["comentario"]
+    return item
+
+
 def normalizar_mapeamento(bruto):
     """Qualquer formato de mapeamento -> [{"coluna", "campo", "confianca"}] na ordem recebida."""
     itens = []
     if isinstance(bruto, dict):
         for coluna, v in bruto.items():
             if isinstance(v, dict):
-                itens.append({"coluna": str(coluna), "campo": v.get("campo") or "", "confianca": v.get("confianca")})
+                itens.append(_com_comentario({"coluna": str(coluna), "campo": v.get("campo") or "", "confianca": v.get("confianca")}, v))
             else:
                 itens.append({"coluna": str(coluna), "campo": v or "", "confianca": None})
     elif isinstance(bruto, (list, tuple)):
         for v in bruto:
             if isinstance(v, dict) and v.get("coluna") is not None:
-                itens.append({"coluna": str(v["coluna"]), "campo": v.get("campo") or "", "confianca": v.get("confianca")})
+                itens.append(_com_comentario({"coluna": str(v["coluna"]), "campo": v.get("campo") or "", "confianca": v.get("confianca")}, v))
     return itens
 
 
@@ -105,7 +117,33 @@ def _selecao_do_formulario(form, linhas):
     return {l["coluna"]: (form.get(f"map_{i}") or "") for i, l in enumerate(linhas) if f"map_{i}" in form}
 
 
-def html_do_mapeamento(dados, selecionado, previa, oculto, lote, nome):
+def _sem_destino(dados, selecionado):
+    """Colunas sem destino no mapeamento atual (uma vez cada, mesmo que a coluna apareça em duas abas)."""
+    vistas, saida = set(), []
+    for l in dados["colunas"]:
+        if l["coluna"] in vistas or (selecionado.get(l["coluna"], l["campo"]) or ""):
+            continue
+        vistas.add(l["coluna"])
+        saida.append({"coluna": l["coluna"], "amostra": l.get("amostra", [])})
+    return saida
+
+
+def quadro_de_lacunas(dados, selecionado, fichas=None):
+    """HTML do quadro "O que falta para a transição" para o mapeamento atual. Sem `fichas`, relê o arquivo com o mapeamento
+    escolhido. Nunca levanta exceção: a tela de mapeamento não pode cair por causa de um quadro informativo."""
+    try:
+        if fichas is None:
+            escolhas = {c: (campo or None) for c, campo in selecionado.items()}      # "(não usar)" = None: a coluna fica de fora
+            rel = _ler_com_mapeamento(dados, escolhas if (escolhas and dados["arquivo"]["formato"] == "tabela_livre") else None)
+            fichas, _ = ass.fichas_do_relatorio(rel)
+        mapa = [{"coluna": l["coluna"], "campo": selecionado.get(l["coluna"], l["campo"]) or ""} for l in dados["colunas"]]
+        sem = _sem_destino(dados, selecionado)
+        return lacunas_tela.quadro(fichas, mapeamento=mapa, colunas_sem_destino=sem, incluir_sem_destino=False)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def html_do_mapeamento(dados, selecionado, previa, oculto, lote, nome, quadro_html=""):
     h = []
     arq = dados["arquivo"]
     editavel = arq["formato"] == "tabela_livre"
@@ -142,13 +180,14 @@ def html_do_mapeamento(dados, selecionado, previa, oculto, lote, nome):
                        + "</select>")
         else:
             seletor = _e(dict(opcoes).get(atual, atual) or "(sem destino)")
+        comentario = (f"<br><span class='dica'>{_e(l['comentario'])}</span>" if l.get("comentario") and atual == l["campo"] else "")
         h.append(f"<tr><td>{_e(l['coluna'])}</td><td class='dica'>{_e(' | '.join(map(str, l.get('amostra', [])[:3])))}</td>"
-                 f"<td>{seletor}</td><td>{conf}</td><td>{_e(planilha)}</td><td>{_e(texto)}</td></tr>")
+                 f"<td>{seletor}{comentario}</td><td>{conf}</td><td>{_e(planilha)}</td><td>{_e(texto)}</td></tr>")
     h.append("</table>")
-    sem = [l for l in dados["colunas"] if not (selecionado.get(l["coluna"], l["campo"]) or "")]
+    sem = _sem_destino(dados, selecionado)
     h.append(f"<h2>Sem destino ({len(sem)})"
              + ajuda("Colunas do seu arquivo que não foram ligadas a nenhum campo. Nada se perde: elas seguem para a aba \"Campos não "
-                     "migrados\" da planilha nova.") + "</h2>")
+                     "migrados\" da planilha nova.") + "</h2><p><b>Colunas do seu arquivo que ainda não têm destino.</b></p>")
     if sem:
         h.append("<p class='dica'>Nada se perde: estas colunas vão para a aba \"Campos não migrados\" da planilha.</p><ul>"
                  + "".join(f"<li>{_e(l['coluna'])}</li>" for l in sem) + "</ul>")
@@ -161,6 +200,7 @@ def html_do_mapeamento(dados, selecionado, previa, oculto, lote, nome):
                            f"<td>{_e(str(ficha.obter(f, 'momento_atual') or ''))}</td><td>{_e(ficha.dinheiro_br(ficha.obter(f, 'valor_causa')))}</td></tr>"
                            for f in previa["amostra"]) + "</table>"
                  + (f"<p>{previa['avisos']} aviso(s) na leitura (aparecem na tela de conferência da migração se você importar o arquivo).</p>" if previa["avisos"] else ""))
+    h.append(quadro_html)
     h.append("<h2>Para onde converter"
              + ajuda("Os formatos que o programa vai gerar a partir do seu arquivo. Pode marcar mais de um.") + "</h2>")
     dicas_modelo = {"docx_a": "Um arquivo Word com os andamentos em texto corrido por processo.",
@@ -245,7 +285,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
     @app.get("/migracao/mapear")
     def migracao_mapear():
         pasta, dados = _carregar(request.args.get("lote", ""))
-        return pagina("Mapeamento das colunas", html_do_mapeamento(dados, {}, None, oculto, pasta.name, _nome_sugerido(dados)))
+        return pagina("Mapeamento das colunas", html_do_mapeamento(dados, {}, None, oculto, pasta.name, _nome_sugerido(dados),
+                                                                   quadro_de_lacunas(dados, {})))
 
     # ---------------------------------------------------- mapeamento das colunas dentro de Importar e Atualizar
 
@@ -362,7 +403,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         pasta, dados = _carregar(request.form.get("lote", ""))
         selecionado = _selecao_do_formulario(request.form, dados["colunas"])
         try:
-            rel = _ler_com_mapeamento(dados, {c: campo for c, campo in selecionado.items() if campo} if dados["arquivo"]["formato"] == "tabela_livre" else None)
+            rel = _ler_com_mapeamento(dados, {c: (campo or None) for c, campo in selecionado.items()}
+                                      if dados["arquivo"]["formato"] == "tabela_livre" else None)
         except Indisponivel as erro:
             return _ir(f"/migracao/mapear?lote={pasta.name}", str(erro))
         except Exception as erro:  # noqa: BLE001
@@ -372,7 +414,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         nome = request.form.get("nome", "").strip() or _nome_sugerido(dados)
         if request.form.get("acao") != "converter":
             previa = {"total": len(fichas), "amostra": fichas[:5], "avisos": len(avisos)}
-            return pagina("Mapeamento das colunas", html_do_mapeamento(dados, selecionado, previa, oculto, pasta.name, nome))
+            return pagina("Mapeamento das colunas", html_do_mapeamento(dados, selecionado, previa, oculto, pasta.name, nome,
+                                                                       quadro_de_lacunas(dados, selecionado, fichas)))
         modelos = [m for m in request.form.getlist("modelos") if m in MODELOS_DE_DESTINO]
         if not modelos:
             return _ir(f"/migracao/mapear?lote={pasta.name}", "Escolha pelo menos um modelo de destino (texto, planilha ou painel).")
@@ -387,7 +430,14 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         if estilo in per.ESTILOS:
             perfil["estilo_texto"] = estilo
         per.salvar(perfil)
-        sem_destino = [{"coluna": l["coluna"], "amostra": l.get("amostra", [])} for l in dados["colunas"] if not selecionado.get(l["coluna"], l["campo"])]
-        saida = ent.gerar(modelos, "migracao", parametros_extra={"campos_nao_migrados": sem_destino})
+        sem_destino = _sem_destino(dados, selecionado)
+        extras = {"campos_nao_migrados": sem_destino}
+        try:      # o que falta para a transição vai para a aba "Faltas da migração" da planilha (nunca impede a conversão)
+            import lacunas
+            mapa = [{"coluna": l["coluna"], "campo": selecionado.get(l["coluna"], l["campo"]) or ""} for l in dados["colunas"]]
+            extras["faltas_da_migracao"] = lacunas.lacunas(fichas, mapeamento=mapa, colunas_sem_destino=sem_destino)
+        except Exception:  # noqa: BLE001
+            pass
+        saida = ent.gerar(modelos, "migracao", parametros_extra=extras)
         msg = f"Relatório convertido: {nome}. {len(fichas)} processo(s).\n" + ent.resumo_do_resultado(saida)
         return ass._com_cookie(_ir("/entregas", msg), slug)

@@ -21,6 +21,7 @@
       + P("faixas", "Há quanto tempo sem andamento", "Processos ativos, por tempo desde o último andamento")
       + P("atraso_momento", "Processos parados há mais de 90 dias", "Por momento atual")
       + "</div>"
+      + h.montarContingencia()
       + '<div class="sec"><span class="n">03</span><h2>Ao longo do tempo</h2><div class="regua"></div></div>'
       + '<div id="aviso-serie"></div><div class="grade">'
       + P("serie_qtd", "Processos ao longo do tempo", "Carteira inteira (não segue os filtros)", { largo: true })
@@ -56,6 +57,8 @@
     if (ind.ativos) h.grafico("faixas", { type: "bar", data: { labels: FAIXAS, datasets: [{ label: "Processos ativos", data: FAIXAS.map((f) => ind.faixas[f]),
       backgroundColor: FAIXAS.map((f, i) => (f === "sem data" ? h.cat("outros") : comAlfa(base, 0.35 + i * 0.16))), borderRadius: 4, maxBarThickness: 48 }] }, options: h.opBarra({}) });
     h.barrasDeMapa("atraso_momento", h.contar(ativos.filter((r) => dias(r) != null && dias(r) > 90), (r) => r.momento || "(sem momento)"), 10, h.cat(1));
+
+    h.desenharContingencia(ctx);          // bloco de contingência: só aparece quando a planilha traz passivo, provisão ou pagamentos
 
     const serie = h.serieHistorica({ total: ctx.indTodos.total, ativos: ctx.indTodos.ativos, encerrados: ctx.indTodos.encerrados, valorCausa: null, valorEstimado: null, valorEconomizado: null });
     $("aviso-serie").innerHTML = serie.filter((p) => !p.atual).length < 1 ? '<div class="nota">A série histórica aparece quando houver ao menos um retrato anterior (aba "Histórico" da planilha ou retratos mensais). Hoje só existe o retrato desta planilha.</div>' : "";

@@ -20,6 +20,8 @@
  *     vinculado (agravo, apenso) de outra linha, vira UMA linha; o resto vai para a aba de qualidade.
  *   - dinheiro é somado em centavos inteiros (sem erro de ponto flutuante).
  *   - exposição (risco) só de processo ativo e com o cliente no polo passivo.
+ *   - contingência (colunas Passivo Potencial, Provisão Constituída, Depósito Judicial Realizado?...): o bloco "Contingência e
+ *     provisão" só aparece quando a planilha tem esses dados; passivo potencial, quando lançado, é a exposição do processo.
  * O estado fica em DASH.estado (usado pelos testes): {registros, unicos, filtrados, ind, qualidade, dataBase}.
  */
 const DASH = (function () {
@@ -72,6 +74,14 @@ const DASH = (function () {
     else if ((s.match(/\./g) || []).length > 1 || /\.\d{3}$/.test(s)) s = s.replace(/\./g, "");
     const n = parseFloat(s);
     return isFinite(n) ? n : null;
+  }
+  /** Percentual como fração: 0,5 e "50%" e 50 valem 50%. */
+  function parseFracao(v) {
+    if (v == null || v === "" || typeof v === "boolean") return null;
+    const temPct = typeof v === "string" && v.includes("%");
+    const n = parseDinheiro(v);
+    if (n == null) return null;
+    return temPct || Math.abs(n) > 1 ? n / 100 : n;
   }
   function serialParaISO(n) {
     if (!(n > 20000 && n < 80000)) return null;
@@ -173,7 +183,16 @@ const DASH = (function () {
     arbitrado: ["valor arbitrado em juizo", "valor arbitrado"],
     prob: ["probabilidade (do resultado)", "probabilidade"],
     valorEstimado: ["valor estimado"], valorExec: ["valor da execucao"], valorAcordo: ["valor do acordo", "valor acordo"],
-    custas: ["custas processuais"], depositos: ["depositos recursais"], garantias: ["garantias processuais"],
+    custas: ["custas processuais"], depositos: ["depositos recursais", "valor do deposito judicial", "valor do deposito"],
+    garantias: ["garantias processuais"],
+    passivo: ["passivo potencial", "passivo contingente", "passivo"],
+    passivoAtual: ["passivo potencial atualizado", "passivo atualizado"],
+    ativoPot: ["ativo potencial"],
+    percProv: ["percentual de provisao", "% de provisao", "% provisao"],
+    provisao: ["provisao constituida", "provisao"],
+    depJud: ["deposito judicial realizado?", "deposito judicial realizado", "deposito judicial"],
+    pagamento: ["pagamento realizado", "pagamentos realizados"],
+    justificativa: ["justificativa da probabilidade", "justificativa"],
     resultado: ["resultado"], economizado: ["valor economizado"],
     transito: ["data do transito em julgado", "transito em julgado"],
     resolDias: ["taxa de resolucao (em dias)", "taxa de resolucao (dias)", "taxa de resolucao"],
@@ -329,6 +348,10 @@ const DASH = (function () {
       cliente: txt(get("cliente")) || CFG.cliente || "", responsavel: txt(get("responsavel")),
       valorCausa: parseDinheiro(get("valorCausa")), arbitrado: parseDinheiro(get("arbitrado")), valorEstimado: parseDinheiro(get("valorEstimado")),
       valorExec: parseDinheiro(get("valorExec")), valorAcordo: parseDinheiro(get("valorAcordo")), economizadoCol: parseDinheiro(get("economizado")),
+      passivo: parseDinheiro(get("passivo")), passivoAtual: parseDinheiro(get("passivoAtual")), ativoPot: parseDinheiro(get("ativoPot")),
+      provisao: parseDinheiro(get("provisao")), percProv: parseFracao(get("percProv")), pagamento: parseDinheiro(get("pagamento")),
+      depositoValor: parseDinheiro(get("depositos")), depositoJudicial: (() => { const n = norm(get("depJud")); return n.startsWith("sim") ? true : n.startsWith("nao") ? false : null; })(),
+      justificativa: txt(get("justificativa")),
       transito: paraISO(get("transito")), resolDiasCol: parseDinheiro(get("resolDias")),
       prob: idx.prob != null ? normProb(get("prob")) : null,
       terceirizado: (() => { const n = norm(get("terceirizado")); return n.startsWith("sim") ? "Terceirizado" : n.startsWith("nao") ? "Próprio" : null; })(),
@@ -360,7 +383,8 @@ const DASH = (function () {
     rec.dataEnc = rec.ativo ? null : (rec.transito || rec.ultimoAnd);
     rec.resolDias = rec.resolDiasCol != null && rec.resolDiasCol > 0 ? rec.resolDiasCol
       : (!rec.ativo && rec.dataEnc && rec.dataAjuiz ? Math.max(diasEntre(rec.dataAjuiz, rec.dataEnc), 0) : null);
-    rec.valorExposicao = rec.valorEstimado != null ? rec.valorEstimado : rec.arbitrado != null ? rec.arbitrado : rec.valorExec != null ? rec.valorExec : rec.valorCausa;
+    // passivo potencial lançado é, por definição, o valor em risco do processo; sem ele, valem as regras de sempre
+    rec.valorExposicao = rec.passivo != null ? rec.passivo : rec.valorEstimado != null ? rec.valorEstimado : rec.arbitrado != null ? rec.arbitrado : rec.valorExec != null ? rec.valorExec : rec.valorCausa;
     rec.econ = calcularEconomia(rec);
     return rec;
   }
@@ -438,6 +462,57 @@ const DASH = (function () {
     });
   }
 
+  /* ---------------------------------------------------------------- contingência */
+  /** Totais de contingência da seleção. `tem` = alguma linha traz passivo, provisão, ativo potencial ou pagamento. Passivo e provisão
+   *  por probabilidade contam só processo ATIVO (o passivo de encerrado já virou pagamento ou economia). */
+  function contingencia(D) {
+    const tem = D.some((r) => r.passivo != null || r.provisao != null || r.ativoPot != null || r.pagamento != null || r.passivoAtual != null);
+    const ativos = D.filter((r) => r.ativo);
+    const zerar = () => ({ "Provável": 0, "Possível": 0, "Remota": 0, semProb: 0 });
+    const passivoProb = zerar(), provisaoProb = zerar();
+    ativos.forEach((r) => {
+      const k = r.prob || "semProb";
+      if (r.passivo != null) passivoProb[k] = Math.round((passivoProb[k] + r.passivo) * 100) / 100;
+      if (r.provisao != null) provisaoProb[k] = Math.round((provisaoProb[k] + r.provisao) * 100) / 100;
+    });
+    const passivoAtivos = somar(ativos, (r) => r.passivo), provisao = somar(D, (r) => r.provisao);
+    return {
+      tem, passivoAtivos, passivoTotal: somar(D, (r) => r.passivo), passivoAtualizado: somar(D, (r) => r.passivoAtual),
+      provisao, coberturaProvisao: passivoAtivos ? provisao / passivoAtivos : null, ativoPotencial: somar(D, (r) => r.ativoPot),
+      pagamentos: somar(D, (r) => r.pagamento), passivoProb, provisaoProb,
+      depositosQtd: D.filter((r) => r.depositoJudicial === true || (r.depositoValor || 0) > 0).length, depositosValor: somar(D, (r) => r.depositoValor),
+      comPassivo: D.filter((r) => r.passivo != null).length
+    };
+  }
+  function htmlContingencia() {
+    return '<div id="sec-contingencia" hidden><div class="sec"><span class="n">R$</span><h2>Contingência e provisão</h2><div class="regua"></div></div>'
+      + '<div class="kpis" id="kpis-contingencia"></div><div class="grade" style="margin-top:16px">'
+      + html_painel("passivo_prob", "Passivo potencial por probabilidade", "Processos ativos com passivo lançado")
+      + html_painel("provisao_prob", "Provisão constituída por probabilidade", "Processos ativos com provisão lançada")
+      + "</div></div>";
+  }
+  function desenharContingencia(ctx) {
+    const c = ctx.ind.contingencia, bloco = $("sec-contingencia");
+    if (!bloco) return;
+    bloco.hidden = !c.tem;
+    if (!c.tem) return;
+    $("kpis-contingencia").innerHTML =
+      kpi("passivo_potencial", "Passivo potencial (ativos)", fmtBRLc(c.passivoAtivos), c.comPassivo + " processo(s) com passivo lançado", c.passivoAtivos, "b")
+      + kpi("provisao", "Provisão constituída", fmtBRLc(c.provisao), c.coberturaProvisao != null ? Math.round(c.coberturaProvisao * 100) + "% do passivo potencial dos ativos" : "sem passivo lançado nos ativos", c.provisao, "c")
+      + kpi("passivo_provavel", "Passivo com perda provável", fmtBRLc(c.passivoProb["Provável"]), "processos ativos, probabilidade \"Provável\"", c.passivoProb["Provável"], "b")
+      + kpi("ativo_potencial", "Ativo potencial", fmtBRLc(c.ativoPotencial), "créditos a receber lançados", c.ativoPotencial, "d")
+      + kpi("depositos_judiciais", "Depósitos judiciais", fmtNum(c.depositosQtd), c.depositosValor ? "R$ " + fmtDec(c.depositosValor, 2) + " depositados" : "processo(s) com depósito", c.depositosQtd, "n")
+      + (c.pagamentos || c.passivoAtualizado ? kpi("pagamentos", "Pagamentos realizados", fmtBRLc(c.pagamentos), "passivo atualizado dos encerrados: " + fmtBRLc(c.passivoAtualizado), c.pagamentos, "d") : "");
+    const ordem = ["Provável", "Possível", "Remota", "semProb"], nomes = { semProb: "Sem probabilidade" };
+    [["passivo_prob", c.passivoProb, "Passivo potencial"], ["provisao_prob", c.provisaoProb, "Provisão"]].forEach(([id, mapa, rotulo]) => {
+      const tem = ordem.some((k) => mapa[k] > 0);
+      marcarVazio(id, !tem);
+      if (!tem) { if (GRAFICOS[id]) { GRAFICOS[id].destroy(); delete GRAFICOS[id]; } const td = $("td-" + id); if (td) td.innerHTML = ""; return; }
+      grafico(id, { type: "bar", data: { labels: ordem.map((k) => nomes[k] || k), datasets: [{ label: rotulo, data: ordem.map((k) => mapa[k]),
+        backgroundColor: ordem.map((k) => css(COR_PROB[k])), borderRadius: 4, maxBarThickness: 40 }] }, options: opBarra({ dinheiro: true }) });
+    });
+  }
+
   /* ---------------------------------------------------------------- indicadores */
   function indicadores(D, dataBase) {
     const ativos = D.filter((r) => r.ativo), encerr = D.filter((r) => !r.ativo);
@@ -464,6 +539,7 @@ const DASH = (function () {
       faixas[d <= 15 ? "até 15 dias" : d <= 30 ? "16 a 30 dias" : d <= 60 ? "31 a 60 dias" : d <= 90 ? "61 a 90 dias" : "mais de 90 dias"]++;
     });
     return {
+      contingencia: contingencia(D),
       total: D.length, ativos: ativos.length, encerrados: encerr.length,
       judiciais: D.filter((r) => r.natureza === "Judicial").length, administrativos: D.filter((r) => r.natureza === "Administrativo").length,
       valorCausaAtivos: somar(ativos, (r) => r.valorCausa), valorCausaTotal: somar(D, (r) => r.valorCausa),
@@ -493,6 +569,10 @@ const DASH = (function () {
     add("dv", "erro", "Número CNJ com dígito verificador inválido", lista(U.filter((r) => r.cnj && r.dvOk === false), ref), "Provável erro de digitação; confira com o tribunal.");
     add("sem_causa", "atencao", "Sem valor da causa interpretável", lista(U.filter((r) => r.valorCausa == null), ref), "Não entram nas somas de valor.");
     if (U.some((r) => r.temColunaProb)) add("ativo_sem_prob", "atencao", "Processo ativo sem probabilidade", lista(U.filter((r) => r.ativo && !r.prob && r.polo !== "ativo"), ref), "A exposição aparece como \"sem probabilidade\".");
+    if (U.some((r) => r.passivo != null)) {
+      add("ativo_sem_passivo", "atencao", "Processo ativo sem passivo potencial", lista(U.filter((r) => r.ativo && r.passivo == null && r.polo !== "ativo"), ref), "Fica fora dos totais de contingência.");
+      add("deposito_sem_valor", "atencao", "Depósito judicial marcado como Sim, sem valor depositado", lista(U.filter((r) => r.depositoJudicial === true && !(r.depositoValor > 0)), ref), "Informe o valor depositado.");
+    }
     add("enc_sem_res", "atencao", "Encerrado sem resultado lançado", lista(U.filter((r) => !r.ativo && !r.classeRes), ref), "Fora das taxas de desfecho.");
     add("conflito", "atencao", "Coluna \"Ativo\" em conflito com o momento atual", lista(U.filter((r) => r.conflitoAtivo), ref), "Vale a coluna \"Ativo\"; revise a linha.");
     const enc = U.filter((r) => !r.ativo);
@@ -647,7 +727,7 @@ const DASH = (function () {
     TAB.pagina = 0; desenharTabela(D);
     document.documentElement.dataset.pronto = "1";
   }
-  const AJUDAS = { $, esc, norm, fmtNum, fmtDec, fmtBRL, fmtBRLc, fmtPct, fmtData, somar, contar, topo, unicos, kpi, html_painel, grafico, opBarra, opRosca, barrasDeMapa, roscaDeMapa,
+  const AJUDAS = { montarContingencia: htmlContingencia, desenharContingencia, $, esc, norm, fmtNum, fmtDec, fmtBRL, fmtBRLc, fmtPct, fmtData, somar, contar, topo, unicos, kpi, html_painel, grafico, opBarra, opRosca, barrasDeMapa, roscaDeMapa,
     marcarVazio, cat, css, curto, etiquetaProb, empresaDoGrupo, serieHistorica, diasEntre, MOTIVOS, COR_PROB, RESULTADOS, grupo: () => GRUPO, parametros: () => PARAMETROS, cfg: CFG };
 
   function carregar(grade, origem) {
@@ -740,7 +820,7 @@ const DASH = (function () {
     estado, CFG, AJUDAS,
     registrarModelo(m) { modelo = m; },
     /** Utilidades expostas para testes e para os modelos. */
-    util: { norm, parseDinheiro, paraISO, dvConfere, classeResultado, limparTribunal, lerPlanilha, deduplicar },
+    util: { norm, parseDinheiro, parseFracao, paraISO, dvConfere, classeResultado, limparTribunal, lerPlanilha, deduplicar },
     iniciar() {
       ligarAbas(); ligarImpressao(); ligarCarregador();
       if (CFG.modo === "embutido" && CFG.dados) {

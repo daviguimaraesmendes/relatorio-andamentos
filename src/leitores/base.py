@@ -22,6 +22,7 @@ Códigos de aviso usados (estáveis):
     formula_sem_valor (atencao; info nas colunas derivadas), linhas_ignoradas, aba_ignorada   (info)
     rotulo_aproximado, momento_com_qualificador, situacao_era_momento, fecho_fora_do_fim      (info)
     andamentos_sem_marcador, bloco_sem_resumo, data_base_ausente, revisoes_no_documento       (info)
+    formula_calculada                                                                         (info)
 
 Convenções de valor (iguais às da ficha, `ficha.CAMPOS`): datas em ISO, dinheiro em texto decimal
 ("1234.56"), sim/não como "Sim"/"Não", números como float. `percentual_exito` é guardado como FRAÇÃO
@@ -234,6 +235,7 @@ def converter_data(bruto, epoch=None):
 # ---------------------------------------------------------------- dinheiro e números
 
 _TOKEN_NUM = re.compile(r"-?\d[\d.,]*")
+_MILHAR_COM_ESPACO = re.compile(r"(?<![\d.,])(\d{1,3})[ \u202f]((?:\d{3}[ \u202f]?)+)(?=[,.]\d{2}\b|\b)")
 
 
 def _parse_dinheiro_seguro(bruto):
@@ -254,15 +256,19 @@ def converter_dinheiro(bruto):
         valor = _parse_dinheiro_seguro(bruto)
         return valor, (None if valor is not None else "invalido")
     texto = limpar_texto(bruto)
-    if eh_vazio_logico(texto, amplo=True):
+    sem_moeda = re.sub(r"(?i)^\s*[-−–]?\s*r\$\s*", lambda m: "-" if re.search(r"[-−–]", m.group(0)) else "", texto).strip()
+    if eh_vazio_logico(texto, amplo=True) or eh_vazio_logico(sem_moeda, amplo=True):     # "-", "R$ -", "N/A"
         return None, None
+    negativo = bool(re.match(r"(?i)^\s*[−–-]\s*(r\$)?\s*\d", texto)) or bool(re.search(r"\d\s*[−–-]\s*$", texto))   # "-R$ 1.234,56", "1.234,56-"
+    texto = _MILHAR_COM_ESPACO.sub(r"\1\2", texto)                                       # "R$ 1 234,56"
     tokens = _TOKEN_NUM.findall(texto)
     if not tokens:
         return None, "invalido"
     if len({t.rstrip(".,") for t in tokens}) > 1:
         return None, "ambiguo"
     valor = _parse_dinheiro_seguro(tokens[0].rstrip(".,"))
-    if valor is not None and texto.startswith("(") and texto.endswith(")") and not valor.startswith("-"):
+    if valor is not None and not valor.startswith("-") and (
+            negativo or (texto.startswith("(") and texto.endswith(")"))):
         valor = "-" + valor
     return valor, (None if valor is not None else "invalido")
 
@@ -355,6 +361,26 @@ def _candidatos_vocabulario(vocabulario, texto, limite=3):
 _QUALIFICADOR = re.compile(r"^(.*?)\s*[\(\[]\s*([^()\[\]]+?)\s*[\)\]]\s*\.?$")
 
 
+_GRAU_E_JUSTIFICATIVA = re.compile(r"^\s*([A-Za-zÀ-ÿ]+)\s*(?:[-–—:;/]+|\(|\.(?=\s))?\s*(.*)$", re.S)
+
+
+def separar_probabilidade(texto):
+    """'REMOTA - Processo extinto sem resolução do mérito' -> ('Remota', 'Processo extinto sem resolução do mérito').
+    O grau é a PRIMEIRA palavra (REMOTA/POSSÍVEL/PROVÁVEL, com ou sem acento, também 'remoto'); o resto vira a justificativa.
+    -> (grau canônico | None, justificativa | ""). Sem grau reconhecido na primeira palavra: (None, "") e quem chama
+    segue o caminho normal do vocabulário."""
+    m = _GRAU_E_JUSTIFICATIVA.match(limpar_texto(texto))
+    if not m:
+        return None, ""
+    grau = taxonomia.normalizar("probabilidade", m.group(1))
+    if grau is None:
+        return None, ""
+    justificativa = re.sub(r"\s+", " ", m.group(2)).strip()
+    if justificativa.endswith(")") and justificativa.count("(") < justificativa.count(")"):
+        justificativa = justificativa[:-1].strip()
+    return grau, justificativa
+
+
 def separar_qualificador(texto):
     """'CUMPRIMENTO DE SENTENÇA (HONORÁRIOS SUSPENSOS)' -> ('CUMPRIMENTO DE SENTENÇA', 'HONORÁRIOS SUSPENSOS')."""
     t = limpar_texto(texto)
@@ -383,9 +409,9 @@ def normalizar_rotulo(vocabulario, texto, estrito=False):
 # ---------------------------------------------------------------- conversão de campo da ficha
 
 def origem_do_campo(campo, e_formula=False):
-    """Colunas de julgamento digitadas por pessoa entram como 'humano'; as demais, 'migrado'. Célula de fórmula
-    nunca é 'humano' (ninguém a digitou)."""
-    if campo in ficha.CAMPOS_DE_JULGAMENTO and not e_formula:
+    """Colunas de julgamento e de contingência digitadas por pessoa entram como 'humano'; as demais, 'migrado'.
+    Célula de fórmula nunca é 'humano' (ninguém a digitou)."""
+    if (campo in ficha.CAMPOS_DE_JULGAMENTO or campo in ficha.CAMPOS_DE_CONTINGENCIA) and not e_formula:
         return "humano"
     return "migrado"
 
@@ -412,7 +438,7 @@ def converter_campo(campo, bruto, formato_celula=None, epoch=None):
             saida["avisos"].append(("atencao", "valor_invalido", f"{rotulo}: {limpar_texto(bruto)!r} {motivo}; campo deixado vazio.", []))
         saida["valor"] = valor
     elif tipo == "numero":
-        valor, problema = converter_numero(bruto, percentual=(campo == "percentual_exito"), formato_celula=formato_celula)
+        valor, problema = converter_numero(bruto, percentual=(campo in ficha.PERCENTUAIS), formato_celula=formato_celula)
         if problema:
             saida["avisos"].append(("atencao", "valor_invalido", f"{rotulo}: {limpar_texto(bruto)!r} não é um número; campo deixado vazio.", []))
         saida["valor"] = valor
@@ -425,6 +451,13 @@ def converter_campo(campo, bruto, formato_celula=None, epoch=None):
         texto = limpar_texto(bruto)
         if eh_vazio_logico(texto, amplo=False):
             return saida
+        if campo == "probabilidade":
+            grau, justificativa = separar_probabilidade(texto)
+            if grau is not None:
+                saida["valor"] = grau
+                if justificativa:
+                    saida["extras"]["justificativa_probabilidade"] = justificativa
+                return saida
         if vocab == "momento_atual":
             base, qualificador = separar_qualificador(texto)
             canonico, certeza, candidatos = normalizar_rotulo("momento_atual", base, estrito=True)

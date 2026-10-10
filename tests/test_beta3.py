@@ -1288,8 +1288,8 @@ class TestPlanilhaDeContingencias(unittest.TestCase):
         self.assertEqual(len(p["andamentos"]), 3)
         self.assertEqual(rel["data_base"], "2026-09-18", "sem data-base escrita, vale a data do fecho 'sem atualizações'")
         self.assertIn("data_base_deduzida", [a["codigo"] for a in rel["avisos"]])
-        nao_lidas = {c["coluna"].strip() for c in rel["colunas_sem_destino"]}
-        self.assertIn("PROVISÃO CONSTITUÍDA", nao_lidas, "coluna própria do cliente não se perde: vai para 'campos não migrados'")
+        self.assertEqual(mapa["PROVISÃO CONSTITUÍDA"], ("provisao", True), "a provisão tem campo próprio (contingência)")
+        self.assertEqual({c["coluna"].strip() for c in rel["colunas_sem_destino"]}, set(), "nada ficou sem destino")
 
     def test_observacao_comum_continua_observacao(self):
         import leitores
