@@ -201,6 +201,37 @@ def gerar(entregas=None, tipo="entrega", rodada=None, fichas=None, parametros_ex
     return fluxos.entregar(comum.PROJETO, entregas, tipo=tipo, rodada=rodada, fichas=fichas, parametros_extra=parametros_extra)
 
 
+def atualizar_sem_coletar(entregas=None, data_base=None):
+    """"Atualizar planilha e painéis agora (sem coletar)": regenera as entregas escolhidas só das fichas e eventos já
+    aprovados. Sem login, sem tribunal, sem fila, sem IA. Quem faz é `fluxos.atualizar_sem_coletar`."""
+    fluxos = modulo("fluxos", "A geração dos arquivos")
+    return fluxos.atualizar_sem_coletar(comum.PROJETO, entregas, data_base=data_base)
+
+
+VOLTAS_DO_ATALHO = ("/entregas", "/fluxo", "/fluxo/progresso")      # só estes endereços recebem a pessoa de volta
+AJUDA_DO_ATALHO = ("Refaz a planilha e o painel só com o que já está guardado e aprovado neste computador: não entra no jus.br nem "
+                   "nos TRTs, não pede login nem certificado e não usa inteligência artificial. Demora segundos. Serve para ver a planilha e os "
+                   "painéis atualizados depois de você aprovar ou corrigir algo. Cria uma pasta nova em saida/ (nada antigo é apagado) e "
+                   "não marca os andamentos como \"já relatados\": isso só acontece ao gerar as entregas do ciclo completo.")
+
+
+def html_do_atalho(oculto, p, volta="/entregas"):
+    """O quadro do atalho "Atualizar planilha e painéis agora (sem coletar)" (formulário que posta em /entregas/atualizar-agora)."""
+    e = html.escape
+    rotulos = {"xlsx_b": "Planilha (.xlsx)", "dashboard": "Painel com gráficos (.html)", "docx_a": "Relatório em texto (.docx)"}
+    marcadas = [x for x in ("xlsx_b", "dashboard") if x in p["entregas"]] or ["xlsx_b", "dashboard"]
+    caixas = "".join(f"<label style='margin-right:14px'><input type='checkbox' name='entregas' value='{k}' "
+                     f"{'checked' if k in marcadas else ''}> {e(v)}</label>" for k, v in rotulos.items())
+    return (f"<form class='caixa' method='post' action='/entregas/atualizar-agora' onsubmit=\"return confirm('Refazer agora os arquivos "
+            "marcados só com o que já está aprovado? Não entra em tribunal nem usa IA; cria uma pasta nova em saida/ e não apaga nada.')\">"
+            f"{oculto}<input type='hidden' name='volta' value='{e(volta)}'>"
+            "<b>Atualizar planilha e painéis agora (sem coletar)</b>" + ajuda(AJUDA_DO_ATALHO) +
+            "<p class='dica'>Refaz os arquivos só com o que já está aprovado aqui: sem tribunal, sem login e sem IA.</p>"
+            f"<p>{caixas}</p><button class='principal'>Atualizar agora, sem coletar</button>"
+            + ajuda("Gera já os arquivos marcados. Se nada novo foi aprovado, eles saem iguais aos de antes (com as correções que você fez "
+                    "nas fichas). Ao terminar, a mensagem no alto diz em que pasta ficaram.") + "</form>")
+
+
 def _guardar_textos(fichas, resultado, data_base, arquivo):
     """`Resultado["textos_gravados"]` -> `ficha["ultimo_texto_gravado"]` (CONTRATOS §5)."""
     por_numero = {f["numero"]: f for f in fichas}
@@ -266,7 +297,10 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                  "manualmente\".</p></div>")
         h.append(f"<p class='dica'>Arquivos que você enviou ficam em <b>{e(str(pasta_entrada()))}</b>; os que o programa entrega, em "
                  f"<b>{e(str(pasta_saida()))}</b>. Nada aqui sai do seu computador.</p>")
-        h.append(f"<form class='caixa' method='post' action='/entregas/gerar'>{oculto}<b>Gerar agora</b>"
+        h.append(html_do_atalho(oculto, p, "/entregas"))
+        h.append(f"<form class='caixa' method='post' action='/entregas/gerar' onsubmit=\"return confirm('Gerar agora os arquivos marcados? "
+                 "Os andamentos aprovados que entrarem passam a constar como já relatados. Pode levar alguns instantes.')\">"
+                 f"{oculto}<b>Gerar agora</b>"
                  + ajuda("Monta os arquivos marcados a partir dos andamentos que você já aprovou. Cada geração cria uma pasta nova em "
                          "saida/ e nunca apaga nem sobrescreve as anteriores nem o arquivo que você enviou. Os andamentos aprovados "
                          "que entram no arquivo passam a constar como \"já relatado\". Nada sai do computador.")
@@ -349,6 +383,33 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         saida = gerar(pedidas, "entrega")
         _ULTIMA_QUALIDADE[comum.PROJETO] = saida.get("qualidade", _ULTIMA_QUALIDADE.get(comum.PROJETO))
         return _ir("/entregas", resumo_do_resultado(saida))
+
+    @app.post("/entregas/atualizar-agora")
+    def entregas_atualizar_agora():
+        token_ok()
+        volta = request.form.get("volta") if request.form.get("volta") in VOLTAS_DO_ATALHO else "/entregas"
+        if not comum.PROJETO:
+            return _ir(volta, "Não há relatório aberto. Importe relatórios ou crie um novo relatório para começar.")
+        pedidas = [x for x in request.form.getlist("entregas") if x in per.ENTREGAS]
+        if not pedidas:
+            return _ir(volta, "Marque pelo menos uma entrega (planilha, painel ou texto) para atualizar.")
+        try:
+            saida = atualizar_sem_coletar(pedidas)
+        except Indisponivel as erro:
+            return _ir(volta, str(erro))
+        except Exception as erro:  # noqa: BLE001 - a tela nunca cai por causa do atalho
+            return _ir(volta, f"Não consegui atualizar agora: {erro}")
+        if not saida.get("rodada"):
+            return _ir(volta, saida.get("resumo") or "Nada a atualizar.")
+        _ULTIMA_QUALIDADE[comum.PROJETO] = saida.get("qualidade", _ULTIMA_QUALIDADE.get(comum.PROJETO))
+        arquivos = [Path(a) for a in saida["arquivos"] if Path(a).suffix.lower() in (".xlsx", ".html", ".docx") and Path(a).name != "qualidade.html"]
+        erros = [a["mensagem"] for a in saida["avisos"] if a.get("nivel") == "erro"]
+        texto = (("Atualizado sem coletar nada (sem tribunal, sem IA)." if saida["ok"] else "Não deu para atualizar tudo.")
+                 + f"\nOs arquivos foram gravados na pasta: {saida['rodada']}"
+                 + ("\n" + "\n".join(f"- {a.name}" for a in arquivos) if arquivos else "")
+                 + ("\nProblemas:\n" + "\n".join(erros) if erros else "")
+                 + "\nPara abrir a pasta, use \"Mostrar a pasta\" em Arquivos entregues (tela Entregas).")
+        return _ir(volta, texto)
 
     @app.post("/entregas/qualidade")
     def entregas_qualidade_agora():
