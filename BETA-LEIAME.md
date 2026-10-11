@@ -10,7 +10,10 @@ Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você 
 2. **Quadro "O que falta para a transição":** depois de ler o arquivo, o programa mostra campo a campo o que veio, o que ele busca nos tribunais, o que deduz pelas regras/IA (marcado "a confirmar") e o que só você sabe. O mesmo quadro vai para a aba **Faltas da migração** da planilha, também nas atualizações seguintes.
 3. **Dois modos:** **Montagem completa** (coleta tudo, resume com IA, monta planilha, texto e painéis) e **Atualização leve** (só o que mudou). Há também o atalho **Atualizar planilha e painéis agora (sem coletar)**, que não usa tribunal, login nem IA.
 4. **Situação (Ativo/Encerrado)** é deduzida do processo estar ativo ou na aba de arquivados, e o **momento atual** é deduzido pelas regras a partir do histórico quando o arquivo não o traz (origem "derivado": confira na revisão).
-5. **Claude no projeto:** `docs/claude-no-projeto.md` traz a recomendação de modelo e esforço por tarefa (Haiku médio para mapear/normalizar/extrair; Sonnet médio para resumir documentos), e `CLAUDE.md` as regras para quem desenvolve com o Claude Code.
+5. **Campo "Grau de tramitação"** (1º grau, 2º grau, TST): é o sinal para ler o 2º grau/TST. A coleta só vai lá quando há sinal de recurso (visto no 1º grau ou indicado nesse campo); a ferramenta atualiza o campo a cada coleta e nunca sobrescreve o que você escreveu.
+6. **Sem IA, resumir depois:** documentos que ficaram só com a frase automática ganham o botão **"Resumir os que ficaram sem IA"** em Revisar (com estimativa antes de confirmar e respeito ao consentimento).
+7. **Aprovar todas as atualizações de uma vez** na Triagem (mostra quantas têm alerta e exige marcar "li os alertas"; o que é bloqueado por regra continua de fora).
+8. **Claude no projeto:** `docs/claude-no-projeto.md` traz a recomendação de modelo e esforço por tarefa (Haiku médio para mapear/normalizar/extrair; Sonnet médio para resumir documentos), e `CLAUDE.md` as regras para quem desenvolve com o Claude Code.
 
 ## 000000. Novo no beta7 (2º grau e TST pelo PJe, "Configurar tudo", login só quando precisa)
 
