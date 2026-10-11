@@ -800,8 +800,33 @@ def processar_resultado(slug, numero, resultado, profundidade=None):
                 f_principal["ultima_coleta"]["graus"] = resultado["graus"]
             if resultado.get("no_tst"):
                 f_principal["ultima_coleta"]["no_tst"] = True      # tramita no TST (movimentos pelo DataJud)
+            _atualizar_grau_tramitacao(f_principal, resultado)
             ficha.salvar(fichas)
         return {"eventos": len(novos), "capa": mudou_capa}
+
+
+_ORDEM_DO_GRAU = {"1º grau": 1, "2º grau": 2, "TST": 3}
+_GRAU_DO_CODIGO = {"1": "1º grau", "2": "2º grau", "3": "TST"}
+
+
+def _atualizar_grau_tramitacao(f, resultado):
+    """Mantém `grau_tramitacao` da ficha com o MAIOR grau que a coleta leu (`graus.lidos`: "1", "2", "3"; o DataJud no TST
+    também conta). Só escreve quando a coleta informou os graus lidos (um coletor que não informa não prova o "1º grau").
+    Valor digitado por pessoa ("humano") nunca é sobrescrito (`ficha.definir`), e a coleta nunca REBAIXA o grau já
+    gravado: se o relatório diz "2º grau" e o 2º grau não pôde ser lido agora, o valor fica (o aviso grau_nao_lido
+    já chama a atenção). Devolve o grau gravado ou None."""
+    lidos = [_GRAU_DO_CODIGO[str(g)] for g in ((resultado.get("graus") or {}).get("lidos") or []) if str(g) in _GRAU_DO_CODIGO]
+    if resultado.get("no_tst"):
+        lidos.append("TST")
+    if not lidos:
+        return None
+    novo = max(lidos, key=_ORDEM_DO_GRAU.get)
+    atual = taxonomia.normalizar("grau_tramitacao", ficha.obter(f, "grau_tramitacao") or "")
+    if atual and _ORDEM_DO_GRAU[atual] > _ORDEM_DO_GRAU[novo]:
+        return None
+    gravou = ficha.definir(f, "grau_tramitacao", novo, "coletado", forcar=True,
+                           evidencia="graus lidos na coleta: " + ", ".join(dict.fromkeys(lidos)))
+    return novo if gravou else None
 
 
 def ao_coletar(slug, processo, resultado):
@@ -1158,7 +1183,10 @@ def _coletar(slug, fichas_alvo, *, profundidade, modo, coletor, fila, fila_opcoe
     por_desde = {}
     for f in fichas_alvo:
         desde = None if historico_todo else desde_do_processo(f, data_base_do_arquivo)
-        itens = [{"numero": f["numero"], "cliente": ficha.obter(f, "cliente") or ""}]
+        # o grau de tramitação da ficha é o sinal para ler o 2º grau/TST; vale só para o processo principal
+        # (o recurso vinculado tem outro número e outro rito)
+        itens = [{"numero": f["numero"], "cliente": ficha.obter(f, "cliente") or "",
+                  "grau_tramitacao": ficha.obter(f, "grau_tramitacao") or None}]
         if incluir_vinculados:
             itens += [{"numero": v["numero"], "cliente": ficha.obter(f, "cliente") or ""} for v in f.get("vinculados", [])]
         por_desde.setdefault(desde, []).extend(itens)

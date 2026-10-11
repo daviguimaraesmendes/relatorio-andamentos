@@ -9,7 +9,8 @@ Abas:
                       (momento atual, último andamento, citação, fase, classe, assunto, acordo, observações)
                       + 9 colunas de CONTINGÊNCIA no fim (38 em diante, também ocultas até haver dado: passivo
                       potencial e atualizado, ativo potencial, % e valor da provisão, depósito judicial, CNPJ da
-                      empresa processada, pagamento realizado, justificativa da probabilidade);
+                      empresa processada, pagamento realizado, justificativa da probabilidade) e, por último, o
+                      GRAU DE TRAMITAÇÃO (1º grau / 2º grau / TST: sinal para a coleta ler o 2º grau/TST; coluna 47);
                       validação de dados em Situação, Probabilidade, Resultado etc.; colunas calculadas
                       Valor Economizado e Taxa de resolução (fórmulas com referência estruturada).
                       Vem com UMA linha em branco (a tabela do Excel precisa de ao menos uma); o escritor
@@ -144,7 +145,7 @@ def _processos(wb):
         "situacao": list(taxonomia.SITUACAO), "probabilidade": list(taxonomia.PROBABILIDADE),
         "resultado": list(taxonomia.RESULTADO), "area": list(taxonomia.AREA),
         "ativo": ["Sim", "Não"], "houve_recurso": ["Sim", "Não"], "terceirizado": ["Sim", "Não"],
-        "deposito_judicial": ["Sim", "Não"],
+        "deposito_judicial": ["Sim", "Não"], "grau_tramitacao": list(taxonomia.GRAU_TRAMITACAO),
     }
     for campo, itens in listas.items():
         formula = '"' + ",".join(itens) + '"'

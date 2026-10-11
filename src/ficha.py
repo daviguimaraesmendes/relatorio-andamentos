@@ -36,6 +36,10 @@ Origem de cada campo e quem vence (maior prioridade nunca é sobrescrita por men
     sugerido (1) proposta automática dos campos de julgamento (julgamento.py); só vira
                 definitiva quando uma pessoa aprova (passa a "humano")
 
+Grau de tramitação (`grau_tramitacao`: "1º grau", "2º grau" ou "TST"): onde o processo está hoje. Serve de SINAL para a
+coleta ir ao 2º grau/TST (junto do indício de recurso visto no 1º grau); a ferramenta o mantém atualizado com o maior grau
+que leu (origem "coletado"), e um valor digitado por pessoa ("humano") nunca é sobrescrito.
+
 Datas ficam em ISO (AAAA-MM-DD); dinheiro, em texto decimal com ponto e 2 casas
 ("1234.56"), para não ter erro de ponto flutuante. Use dinheiro() e data() para ler.
 
@@ -95,6 +99,7 @@ CAMPOS = {
     "fase": ("Fase", "situacao", "texto", "fase"),
     "ultimo_andamento": ("Data do último andamento", "situacao", "data", None),
     "houve_recurso": ("Houve recurso da empresa?", "situacao", "sim_nao", None),
+    "grau_tramitacao": ("Grau de tramitação", "situacao", "texto", "grau_tramitacao"),
     # julgamento
     "resultado": ("Resultado", "julgamento", "texto", "resultado"),
     "probabilidade": ("Probabilidade (do resultado)", "julgamento", "texto", "probabilidade"),

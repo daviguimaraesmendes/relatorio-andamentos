@@ -323,11 +323,18 @@ def itens_do_processo(dados):
 
 def indicio_de_recurso(movimentos, proc=None, reg_proc=None):
     """Por que vale tentar o 2º grau (texto curto) ou None. Indícios: já foi lido antes; o DataJud indicou grau 2
-    (`proc["indicio_2grau"]`); algum andamento fala em remessa, recurso ordinário, distribuição ao relator, acórdão."""
+    (`proc["indicio_2grau"]`); o relatório diz "2º grau"/"TST" (`proc["sinal_grau"]`, vindo do campo `grau_tramitacao` da
+    ficha); algum andamento fala em remessa, recurso ordinário, distribuição ao relator, acórdão."""
     if "2" in (reg_proc or {}):
         return "o 2º grau já tinha sido lido em rodada anterior"
     if (proc or {}).get("indicio_2grau"):
         return "o DataJud indica processo no 2º grau"
+    # sinal do relatório (campo "Grau de tramitação"); no TST o 2º grau é lido antes, pela lógica de quem chama
+    sinal = (proc or {}).get("sinal_grau")
+    if sinal == "2º grau":
+        return "o relatório indica que o processo está no 2º grau"
+    if sinal == "TST":
+        return "o relatório indica que o processo está no TST (o 2º grau é lido antes)"
     for _, _, texto in movimentos:
         if INDICIO_2_GRAU.search(texto or ""):
             return f"andamento \"{' '.join(texto.split())[:70]}\""

@@ -503,7 +503,7 @@ class TestPlanilhaEPainel(unittest.TestCase):
         wb = openpyxl.load_workbook(self.destino)
         ws = wb["Processos"]
         cab = [c.value for c in ws[1]]
-        self.assertEqual(cab[37:], [self.x.CAMPOS_B[c] for c in self.x.CONTINGENCIA])
+        self.assertEqual(cab[37:46], [self.x.CAMPOS_B[c] for c in self.x.CONTINGENCIA])
         ocultas = {c for c, d in ws.column_dimensions.items() if d.hidden}
         for campo in self.x.CONTINGENCIA:
             self.assertNotIn(self.x.col_letra(cab.index(self.x.CAMPOS_B[campo]) + 1), ocultas, campo)
@@ -513,7 +513,7 @@ class TestPlanilhaEPainel(unittest.TestCase):
         self.assertEqual(linha["Percentual de Provisão"], 0.5)
         self.assertEqual(linha["Depósito Judicial Realizado?"], "Não")
         self.assertEqual(linha["CNPJ da Empresa Processada"], cf.cnpj_ficticio(1))
-        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AT13")
+        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AU13")
 
     def test_sem_dado_de_contingencia_as_colunas_continuam_ocultas(self):
         import openpyxl
@@ -610,7 +610,7 @@ class TestPlanilhaEPainel(unittest.TestCase):
         wb = openpyxl.load_workbook(self.x.MODELO_PADRAO)
         self.assertIn("Faltas da migração", wb.sheetnames)
         cab = [c.value for c in wb["Processos"][1]]
-        self.assertEqual(len(cab), 46)
+        self.assertEqual(len(cab), 47)
         self.assertEqual(cab[:37], [self.x.CAMPOS_B[c] for c in self.x.COLUNAS_PADRAO + self.x.COLUNAS_EXTRAS][:37])
 
 
@@ -767,8 +767,8 @@ class TestTelas(unittest.TestCase):
         proc = wb["Processos"]
         cab = [c.value for c in proc[1]]
         from escritores import xlsx_b
-        self.assertEqual(cab[37:], [xlsx_b.CAMPOS_B[c] for c in xlsx_b.CONTINGENCIA])      # contingência no fim, colunas 38 em diante
-        self.assertEqual(len(cab), 46)
+        self.assertEqual(cab[37:46], [xlsx_b.CAMPOS_B[c] for c in xlsx_b.CONTINGENCIA])      # contingência no fim, colunas 38 em diante
+        self.assertEqual(len(cab), 47)
         self.assertEqual(proc.max_row, 13)
         html_ = paineis[0].read_text(encoding="utf-8")
         self.assertIn("Contingência e provisão", html_)
