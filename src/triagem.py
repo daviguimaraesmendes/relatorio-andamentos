@@ -50,6 +50,18 @@ APROVAÇÃO EM LOTE (só verdes, com amostragem obrigatória)
     - Cada evento aprovado em lote ganha `aprovado_por`, `aprovado_em`, `lote` (id do lote) e `triagem`
       ({"nivel", "motivos"}); o lote fica em data/lotes.json (quem, quando, filtro, amostra, ids).
 
+APROVAR TODAS AS ATUALIZAÇÕES (decisão do dono: vale também para amarelos e vermelhos)
+    triagem.preparar_lote_total(eventos, fichas, filtros=None) -> dict
+    triagem.aplicar_lote_total(eventos, fichas, aprovador, filtros=None, agora=None) -> dict
+
+    - Entra todo `rascunho` que passa pelos filtros (cliente, responsável, tribunal, processo e também o nível), SEM
+      amostragem: quem usa isto confirma, na tela, que leu os alertas. O nível de cada linha fica gravado no evento.
+    - O que as travas da revisão linha a linha já recusam continua recusado, em qualquer nível: sem a frase do
+      relatório; documento sem texto legível ou sem arquivo (sem resumo e sem como resumir: resuma à mão);
+      documento que ficou sem resumo de IA e ainda pode ser resumido (use "Resumir os que ficaram sem IA");
+      verde que foi sorteado para a amostra de um lote anterior (precisa do seu olho).
+    - O lote fica em data/lotes.json com "tipo": "todas" (quem, quando, filtro, ids e quantos tinham alerta).
+
 Configuração (config.json, tudo opcional)
     "triagem": {"amostragem_pct": 10, "semente": "triagem-v1", "sugerir_a_partir_de": 20}
 """
@@ -352,3 +364,72 @@ def registrar_lote(entrada):
 def lotes():
     """Lotes já aprovados neste relatório, do mais antigo ao mais recente."""
     return comum.load_json(_arquivo_de_lotes(), [])
+
+
+# ------------------------------------------------------------------ aprovar todas as atualizações
+
+BLOQUEIOS_DO_LOTE_TOTAL = {
+    "sem_frase": "sem a frase do relatório",
+    "sem_texto": "documento sem texto legível ou sem arquivo (resuma à mão)",
+    "resumo_pendente_ia": "documento que ainda pode ser resumido pela IA",
+    "amostra_anterior": "amostra de um lote anterior, esperando a sua conferência",
+}
+
+
+def motivo_de_bloqueio_total(ev):
+    """Por que a aprovação de TODAS não pode incluir este rascunho (código de BLOQUEIOS_DO_LOTE_TOTAL) ou None."""
+    import fluxos
+    if not (ev.get("frase") or "").strip():
+        return "sem_frase"
+    if ev.get("tipo_evento") == "documento" and not (ev.get("conteudo") or "").strip():
+        texto = ""
+        if ev.get("texto_arquivo") and ev.get("status") != "sem_arquivo":
+            try:
+                texto = Path(ev["texto_arquivo"]).read_text(encoding="utf-8")
+            except OSError:
+                texto = ""
+        if not texto.strip():
+            return "sem_texto"
+    if fluxos.precisa_resumo_ia(ev):
+        return "resumo_pendente_ia"
+    if ev.get("amostra_lote"):
+        return "amostra_anterior"
+    return None
+
+
+def preparar_lote_total(eventos, fichas, filtros=None):
+    """O que "Aprovar todas as atualizações" faria agora, sem gravar nada:
+    {"aprovar": [item], "por_nivel": {"verde": n, "amarelo": n, "vermelho": n}, "com_alerta": n,
+     "bloqueados": {codigo: n}, "total_bloqueados": n}. O filtro de nível também vale aqui."""
+    filtros = {k: v for k, v in (filtros or {}).items() if k in ("cliente", "responsavel", "tribunal", "processo", "nivel")}
+    itens = filtrar(classificar_lista(eventos, fichas), **filtros)
+    aprovar, bloqueados = [], {}
+    por_nivel = {n: 0 for n in NIVEIS}
+    for i in itens:
+        motivo = motivo_de_bloqueio_total(i["ev"])
+        if motivo:
+            bloqueados[motivo] = bloqueados.get(motivo, 0) + 1
+            continue
+        aprovar.append(i)
+        por_nivel[i["nivel"]] += 1
+    return {"aprovar": aprovar, "por_nivel": por_nivel, "com_alerta": por_nivel["amarelo"] + por_nivel["vermelho"],
+            "bloqueados": bloqueados, "total_bloqueados": sum(bloqueados.values())}
+
+
+def aplicar_lote_total(eventos, fichas, aprovador, filtros=None, agora=None):
+    """Aprova em lote todas as atualizações liberadas por preparar_lote_total, MODIFICANDO os eventos da lista (quem chama
+    grava com comum.salvar_eventos e registra o lote com registrar_lote). Devolve o registro do lote."""
+    if not (aprovador or "").strip():
+        raise ValueError("Informe quem está aprovando o lote.")
+    agora = agora or datetime.datetime.now()
+    plano = preparar_lote_total(eventos, fichas, filtros)
+    ids = [i["ev"]["id"] for i in plano["aprovar"]]
+    lote_id = f"lote-todas-{agora:%Y%m%d-%H%M%S}-{hashlib.sha1('|'.join(sorted(ids)).encode()).hexdigest()[:6]}"
+    carimbo = agora.isoformat(timespec="seconds")
+    for i in plano["aprovar"]:
+        i["ev"].update(status="aprovado", aprovado_por=aprovador.strip(), aprovado_em=carimbo, lote=lote_id,
+                       lote_tipo="todas", triagem={"nivel": i["nivel"], "motivos": list(i["motivos"])})
+        i["ev"].pop("resumo_pendente_ia", None)
+    return {"id": lote_id, "tipo": "todas", "aprovado_por": aprovador.strip(), "em": carimbo,
+            "filtros": {k: v for k, v in (filtros or {}).items() if v},
+            "aprovados": ids, "amostra": [], "por_nivel": plano["por_nivel"], "bloqueados": plano["bloqueados"]}

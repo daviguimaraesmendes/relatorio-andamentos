@@ -17,7 +17,7 @@ import cadastro
 from comum import config
 from painel import (acesso_tela, assistente, atualizar, base, configuracao, configurar, documentos, entregas, ia,
                     inicio, migracao, pedidos, perfil, planilha_mes, processo, projetos, relatorio_html, revisao_eventos,
-                    revisao_lote)
+                    revisao_lote, revisao_resumir)
 
 app = Flask(__name__)
 TOKEN = secrets.token_urlsafe(24)
@@ -27,7 +27,7 @@ cabecalho = base.cabecalho
 # `inicio` vem ANTES de `base`: sem relatório criado, /inicio e /busca precisam responder antes do desvio para /novo
 for tela in (inicio, base, projetos, revisao_eventos, atualizar, planilha_mes, relatorio_html, configuracao,
              documentos, acesso_tela, configurar, cadastro, revisao_lote, processo, pedidos, ia, assistente, migracao,
-             entregas, perfil):
+             entregas, perfil, revisao_resumir):
     tela.registrar(app, TOKEN, cabecalho, token_ok)
 
 

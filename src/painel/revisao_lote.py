@@ -5,8 +5,9 @@ As regras de nível e do lote estão em triagem.py (sem tela, testável sozinha)
 
     GET  /triagem         lista dos rascunhos por risco + resumo do que o lote faria agora
     POST /triagem/lote    aprova os verdes fora da amostra, em nome de quem revisa, e registra o lote
+    POST /triagem/lote-todas  aprova TODAS as atualizações dos filtros (verdes, amarelas e vermelhas), exigindo "li os alertas"
 
-Amarelos e vermelhos nunca entram no lote (o servidor reclassifica no momento de aprovar). Uma parte
+Amarelos e vermelhos nunca entram no lote dos verdes (o servidor reclassifica no momento de aprovar). Uma parte
 dos verdes (10%, configurável em config.json, "triagem") fica de fora de propósito: é a amostra que
 vai para a revisão manual. Atalhos de teclado na lista: J/K trocam de linha, Enter abre o processo.
 Cada linha leva à visão por processo (painel/processo.py).
@@ -21,6 +22,7 @@ import ficha as fch
 import triagem
 from comum import config, eventos, salvar_eventos
 from painel.base import _msg, ajuda
+from painel.revisao_resumir import bloco_revisar as bloco_sem_ia
 
 POR_PAGINA = 100
 ROTULO_NIVEL = {"vermelho": "Vermelho", "amarelo": "Amarelo", "verde": "Verde"}
@@ -130,7 +132,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         cfg = triagem.configuracao()
         aprovados = sum(e["status"] == "aprovado" for e in lista)
 
-        h = [cabecalho("revisar"), ESTILO_TRIAGEM, "<h1>Triagem da revisão</h1>", _msg(),
+        h = [cabecalho("revisar"), ESTILO_TRIAGEM, "<h1>Triagem da revisão</h1>", _msg(), bloco_sem_ia(),
              "<div class='caixa'><b>O que fazer agora</b><ol>"
              "<li>Comece pelas linhas <b>vermelhas</b> e <b>amarelas</b>: clique no número do processo para ver tudo dele e "
              "aprovar uma a uma.</li>"
@@ -197,9 +199,42 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         recentes = triagem.lotes()[-3:]
         if recentes:
             h.append("<p class='dica'>Últimos lotes: " + "; ".join(
-                f"{html.escape(l['em'].replace('T', ' '))} por {html.escape(l['aprovado_por'])} ({len(l['aprovados'])} aprovada(s), "
-                f"{len(l['amostra'])} na amostra)" for l in reversed(recentes)) + ".</p>")
+                f"{html.escape(l['em'].replace('T', ' '))} por {html.escape(l['aprovado_por'])} "
+                + (f"(todas as atualizações: {len(l['aprovados'])} aprovada(s))" if l.get("tipo") == "todas" else
+                   f"({len(l['aprovados'])} aprovada(s), {len(l['amostra'])} na amostra)") for l in reversed(recentes)) + ".</p>")
         h.append("</div>")
+
+        # ---- aprovar todas as atualizações (verdes, amarelas e vermelhas)
+        total = triagem.preparar_lote_total(lista, fichas, {**filtros, "nivel": nivel})
+        n_total, pn, n_alerta = len(total["aprovar"]), total["por_nivel"], total["com_alerta"]
+        bloq = "".join(f"<li>{total['bloqueados'][c]} {html.escape(t)}</li>" for c, t in triagem.BLOQUEIOS_DO_LOTE_TOTAL.items()
+                       if total["bloqueados"].get(c))
+        h.append("<div class='lote' id='lote-todas'><b>Aprovar todas as atualizações</b>"
+                 + ajuda("Aprova de uma vez todas as linhas dos filtros atuais, inclusive as amarelas e as vermelhas (prazo, valor, "
+                         "audiência, sentença...). Serve para quando você já olhou a lista e quer liberar tudo. Por segurança você precisa "
+                         "marcar que leu os alertas. Linhas sem a frase do relatório, documentos sem texto legível ou que ainda podem ser "
+                         "resumidos pela IA, e verdes separadas como amostra ficam de fora. Não existe botão para desfazer.") +
+                 f"<p>Com os filtros acima, seriam aprovadas <b>{n_total}</b> linha(s): <b>{pn['verde']}</b> verde(s), "
+                 f"<b>{pn['amarelo']}</b> amarela(s) e <b>{pn['vermelho']}</b> vermelha(s).</p>"
+                 + (f"<div class='alerta'><b>{n_alerta} linha(s) têm alerta</b> ({pn['amarelo']} amarela(s), {pn['vermelho']} vermelha(s)) "
+                    "e <b>serão aprovadas mesmo assim</b>. Aprovar é dizer que você conferiu: olhe a lista abaixo antes.</div>"
+                    if n_alerta else "")
+                 + (f"<p class='dica'>Ficam de fora {total['total_bloqueados']} linha(s), que você precisa tratar uma a uma:</p>"
+                    f"<ul class='motivos'>{bloq}</ul>" if total["total_bloqueados"] else "")
+                 + f"<form method='post' action='/triagem/lote-todas' onsubmit=\"return confirm('Aprovar {n_total} linha(s), "
+                   f"sendo {n_alerta} com alerta amarelo ou vermelho? Isso não pode ser desfeito por esta tela.')\">"
+                   f"{oculto}<input type='hidden' name='confirmar' value='1'><input type='hidden' name='esperado' value='{n_total}'>"
+                 + "".join(f"<input type='hidden' name='{k}' value='{html.escape(v)}'>" for k, v in {**filtros, 'nivel': nivel}.items())
+                 + (f"<p><label><input type='checkbox' name='li_alertas' value='1' required> Li os alertas e quero aprovar as "
+                    f"{n_alerta} linha(s) amarela(s) e vermelha(s) mesmo assim</label>"
+                    + ajuda("Marque para confirmar que você olhou as linhas com alerta. Sem isto o botão não envia e o programa "
+                            "também recusa o pedido.") + "</p>" if n_alerta else "")
+                 + f"<p class='dica'>Fica registrado em nome de <b>{html.escape(revisor())}</b>, com data e hora, como aprovação em lote "
+                   "de todas as atualizações.</p>"
+                   f"<button class='principal' {'disabled' if not n_total else ''}>Aprovar todas as atualizações ({n_total})</button>"
+                 + ajuda("Grava a aprovação de todas as linhas contadas acima, em nome de quem está cadastrado como revisor. Nada sai do "
+                         "computador. Pede uma confirmação. O botão fica apagado quando não há nada para aprovar.")
+                 + "</form></div>")
 
         # ---- lista
         pagina = max(1, int(request.args["pagina"])) if (request.args.get("pagina") or "").isdigit() else 1
@@ -273,3 +308,32 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         msg = (f"Lote aprovado: {len(registro['aprovados'])} linha(s) verde(s), em nome de {registro['aprovado_por']}. "
                f"{len(registro['amostra'])} ficaram para conferência manual (amostra).")
         return redirect(f"/triagem?{urlencode({k: v for k, v in filtros.items() if v})}{'&' if any(filtros.values()) else ''}msg={quote(msg)}")
+
+
+    @app.post("/triagem/lote-todas")
+    def triagem_lote_todas():
+        token_ok()
+        if request.form.get("confirmar") != "1":
+            abort(400, "Falta a confirmação do lote.")
+        filtros = {**_filtros(request.form), "nivel": (request.form.get("nivel") or "").strip()}
+        if filtros["nivel"] not in triagem.NIVEIS:
+            filtros["nivel"] = ""
+        volta = "/triagem?" + urlencode({k: v for k, v in filtros.items() if v})
+
+        def para_tela(msg):
+            return redirect(f"{volta}{'&' if any(filtros.values()) else ''}msg={quote(msg)}")
+        lista, fichas = eventos(), fch.carregar(todas=True)
+        plano = triagem.preparar_lote_total(lista, fichas, filtros)
+        if not plano["aprovar"]:
+            return para_tela("Nenhuma linha liberada para aprovar com esses filtros.")
+        if plano["com_alerta"] and request.form.get("li_alertas") != "1":
+            abort(400, "Para aprovar linhas com alerta amarelo ou vermelho, marque \"Li os alertas\".")
+        if str(len(plano["aprovar"])) != (request.form.get("esperado") or "").strip():
+            return para_tela(f"A lista mudou desde que você abriu a tela (agora seriam {len(plano['aprovar'])} linha(s)). "
+                             "Confira os números e confirme de novo.")
+        registro = triagem.aplicar_lote_total(lista, fichas, revisor(), filtros)
+        salvar_eventos(lista)
+        triagem.registrar_lote(registro)
+        pn = registro["por_nivel"]
+        return para_tela(f"Aprovadas todas as atualizações: {len(registro['aprovados'])} linha(s) ({pn['verde']} verde(s), "
+                         f"{pn['amarelo']} amarela(s), {pn['vermelho']} vermelha(s)), em nome de {registro['aprovado_por']}.")

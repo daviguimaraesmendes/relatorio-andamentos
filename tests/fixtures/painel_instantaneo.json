@@ -1026,9 +1026,12 @@
   "/processo/campo POST -> processo_campo",
   "/processo/evento POST -> processo_evento",
   "/relatorio GET -> ver_relatorio",
+  "/resumir-pendentes GET -> resumir_pendentes_tela",
+  "/resumir-pendentes POST -> resumir_pendentes_iniciar",
   "/tarefa POST -> tarefa",
   "/triagem GET -> triagem_tela",
   "/triagem/lote POST -> triagem_lote",
+  "/triagem/lote-todas POST -> triagem_lote_todas",
   "/versao.json GET -> versao_json"
  ],
  "tela depois de /mostrar": {

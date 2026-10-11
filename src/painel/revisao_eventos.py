@@ -20,6 +20,7 @@ import triagem
 from comum import config, eventos, salvar_eventos
 from painel.base import _msg, ajuda
 from painel.revisao_lote import ESTILO_TRIAGEM, legenda_dos_niveis, selo
+from painel.revisao_resumir import bloco_revisar as bloco_sem_ia
 
 
 def aplicar_acao(lista, form):
@@ -145,6 +146,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                     "aprova os tranquilos em lote.</p>"
                     if len(rascunhos) >= triagem.configuracao()["sugerir_a_partir_de"] else "")
         h.append(sugestao)
+        h.append(bloco_sem_ia())
         if rascunhos:
             h.append(legenda_dos_niveis())
             h.append("<div class='barra-filtro'><label>Buscar<input type='search' id='busca-rev' size='32' "

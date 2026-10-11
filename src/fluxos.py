@@ -64,6 +64,7 @@ Limites: tudo foi exercitado com dados fictícios, o ColetorSimulado, provedores
 `ColetorReal`, o Word, o Excel, o Google e a IA real não foram exercitados aqui (piloto M5).
 """
 import contextlib
+import copy
 import datetime
 import hashlib
 import importlib
@@ -828,6 +829,10 @@ def _contexto_da_ficha(f):
             "variacoes": cart.variacoes_do_cliente(cliente)}
 
 
+ALERTA_SEM_IA_DESLIGADA = "Sem resumo por IA: esta rodada foi feita com os resumos por IA desligados. Resuma à mão na revisão ou use \"Resumir os que ficaram sem IA\"."
+PREFIXO_ALERTA_IA_FALHOU = "Sem resumo automático: a IA não respondeu de forma utilizável"
+
+
 def _resumir_documento(ev, f, perfil, slug, cache_provedores, resumos_ia=True):
     """Documento extraído -> rascunho. Frase de regra sempre; resumo pelo provedor de IA quando há texto (e `resumos_ia`).
     Sem texto legível ou sem resposta da IA, o rascunho vai à revisão com alerta (nunca inventa)."""
@@ -850,16 +855,18 @@ def _resumir_documento(ev, f, perfil, slug, cache_provedores, resumos_ia=True):
         alertas.append("Sem resumo automático: o documento não tem texto legível; abrir nos autos e resumir manualmente.")
         return
     if not resumos_ia:
-        ev.update(conteudo="", status="rascunho")
-        alertas.append("Sem resumo por IA: esta rodada foi feita com os resumos por IA desligados. Resuma à mão na revisão.")
+        # `resumo_pendente_ia`: sinal para contar com precisão o que dá para resumir depois (resumir_pendentes)
+        ev.update(conteudo="", status="rascunho", resumo_pendente_ia=True)
+        alertas.append(ALERTA_SEM_IA_DESLIGADA)
         return
     try:
         provedor = _provedor(perfil, ctx["cliente"], slug, cache_provedores)
         res, avisos, motor = resumir.resumir_com_provedor(provedor, texto, ev.get("tipo", ""), quem, frase, ctx, ctx["cliente"])
     except Exception as erro:  # noqa: BLE001 - IA fora do ar ou resposta inválida: segue sem resumo
-        ev.update(conteudo="", status="rascunho")
-        alertas.append(f"Sem resumo automático: a IA não respondeu de forma utilizável ({type(erro).__name__}).")
+        ev.update(conteudo="", status="rascunho", resumo_pendente_ia=True)
+        alertas.append(f"{PREFIXO_ALERTA_IA_FALHOU} ({type(erro).__name__}).")
         return
+    ev.pop("resumo_pendente_ia", None)
     ev.update(conteudo=resumir.limpar_conteudo(res["conteudo"]), trecho_origem=(res.get("trecho_origem") or "").strip(),
               prazo=res.get("prazo"), audiencia=res.get("audiencia"), efeito=res.get("efeito"),
               motor=motor or "regra", status="rascunho")
@@ -915,6 +922,159 @@ def processar_eventos(slug=None, *, profundidade=None, ao_progresso=None, resumo
                 vistos.add(chave)
         comum.salvar_eventos(lista)
         return cont
+
+
+# ================================================================ resumir depois (documentos que ficaram sem IA)
+
+def precisa_resumo_ia(ev):
+    """O documento ainda é rascunho só com a frase automática e ficou sem resumo de IA por causa da rodada (IA desligada,
+    não configurada ou fora do ar), não por falta de texto? Vale o sinal `resumo_pendente_ia`; eventos gravados antes do sinal
+    existir são reconhecidos pelo alerta que a rodada deixou. Nunca vale para o que a pessoa já preencheu à mão, nem para
+    o que foi aprovado, descartado ou relatado."""
+    if ev.get("tipo_evento") != "documento" or ev.get("status") != "rascunho":
+        return False
+    if (ev.get("conteudo") or "").strip() or ev.get("motor") not in (None, "", "regra"):
+        return False
+    if ev.get("resumo_pendente_ia"):
+        return True
+    return any(str(a).startswith(("Sem resumo por IA", PREFIXO_ALERTA_IA_FALHOU)) for a in ev.get("alertas") or [])
+
+
+def _texto_do_documento(ev):
+    if ev.get("texto_arquivo"):
+        with contextlib.suppress(OSError):
+            return Path(ev["texto_arquivo"]).read_text(encoding="utf-8")
+    return ""
+
+
+def _ia_permitida(perfil, cliente):
+    """(pode, onde, motivo). IA externa só com consentimento do relatório/cliente (src/ia.py); o provedor local não exige."""
+    ia = _mod("ia")
+    escolhido = ((perfil.get("ia") or {}).get("provedor")) if isinstance(perfil, dict) else None
+    if not isinstance(escolhido, str) or comum.slug(escolhido) in ("sem-nome", "local"):
+        return True, "local", ""
+    permitido, motivo = ia.consentimento(perfil, cliente)
+    return permitido, escolhido, ("" if permitido else motivo)
+
+
+def _pendentes_de_resumo(lista, numeros=None):
+    alvo = set(numeros) if numeros is not None else None
+    return [e for e in lista if precisa_resumo_ia(e) and (alvo is None or e.get("numero") in alvo)]
+
+
+def estimar_resumir_pendentes(projeto=None, numeros=None):
+    """O que "Resumir os que ficaram sem IA" faria agora, sem chamar nada: {"pendentes", "sem_texto", "sem_consentimento",
+    "chamadas_min", "chamadas_max", "externa", "provedor", "pode_rodar", "frase"}. `pendentes` conta só o que a IA
+    pode resumir (tem texto e a IA está autorizada para o cliente)."""
+    with _em(projeto) as slug:
+        perfil = _perfil(slug)
+        todos = _pendentes_de_resumo(comum.eventos(), numeros)
+    ia_perfil = perfil.get("ia") or {}
+    externa = str(ia_perfil.get("provedor") or "local").lower() not in ("local", "sem-nome", "")
+    pendentes = sem_texto = sem_consentimento = 0
+    for ev in todos:
+        if not _texto_do_documento(ev).strip():
+            sem_texto += 1
+        elif not _ia_permitida(perfil, ev.get("cliente") or "")[0]:
+            sem_consentimento += 1
+        else:
+            pendentes += 1
+    saida = {"pendentes": pendentes, "sem_texto": sem_texto, "sem_consentimento": sem_consentimento,
+             "total_sem_ia": len(todos), "externa": externa, "provedor": ia_perfil.get("provedor") or "local",
+             "chamadas_min": pendentes, "chamadas_max": 2 * pendentes, "pode_rodar": pendentes > 0}
+    if not todos:
+        saida["frase"] = "Nenhum documento ficou sem resumo de IA."
+    elif sem_consentimento and not pendentes:
+        saida["frase"] = (f"{sem_consentimento} documento(s) ficaram sem resumo de IA, mas a IA escolhida é externa e não há "
+                          "consentimento para o envio. Dê o consentimento na tela IA (ou escolha a IA local) e tente de novo.")
+    else:
+        saida["frase"] = (f"{pendentes} documento(s) serão resumidos: de {pendentes} a {2 * pendentes} chamada(s) à IA (uma "
+                          "resposta fora do formato é pedida de novo)."
+                          + (f" {sem_consentimento} não serão enviados: sem consentimento para a IA externa." if sem_consentimento else "")
+                          + (f" {sem_texto} não têm texto legível: resuma à mão na revisão." if sem_texto else ""))
+    return saida
+
+
+def contar_sem_resumo_ia(projeto=None, numeros=None):
+    """Quantos documentos abertos ficaram sem resumo de IA (para o contador da tela Revisar)."""
+    with _em(projeto):
+        return len(_pendentes_de_resumo(comum.eventos(), numeros))
+
+
+def _gravar_resumo(id_evento, novo):
+    """Grava o resumo de UM documento relendo o disco: nada do que a pessoa aprovou, editou ou descartou nesse meio
+    tempo (a tela continua em uso) é desfeito. Só entra se o evento continua sendo um rascunho ainda sem resumo."""
+    lista = comum.eventos()
+    ev = next((e for e in lista if e.get("id") == id_evento), None)
+    if ev is None or not precisa_resumo_ia(ev):
+        return False
+    for campo in ("conteudo", "trecho_origem", "efeito", "motor"):
+        ev[campo] = novo[campo]
+    for campo in ("prazo", "audiencia"):                  # o que a pessoa já escreveu à mão vale mais que a IA
+        if not (ev.get(campo) or "").strip():
+            ev[campo] = novo.get(campo)
+    antigos = [a for a in ev.get("alertas") or [] if not str(a).startswith(("Sem resumo por IA", PREFIXO_ALERTA_IA_FALHOU))]
+    ev["alertas"] = antigos + [a for a in novo["alertas_novos"] if a not in antigos]
+    ev.pop("resumo_pendente_ia", None)
+    comum.salvar_eventos(lista)
+    return True
+
+
+def resumir_pendentes(projeto=None, numeros=None, ao_progresso=None):
+    """Resume AGORA os documentos que ficaram só com a frase automática (rodada sem IA, IA não configurada ou fora do ar).
+    Faz o mesmo resumo de `_resumir_documento`, com o provedor do relatório (IA externa só com consentimento do cliente,
+    com pseudonimização, como em toda chamada: ver src/ia.py). Não coleta nada, não abre documento novo e não toca em
+    evento aprovado, descartado ou relatado. A frase que a pessoa tiver corrigido na revisão é mantida.
+    `numeros`: só esses processos. Devolve {"ok", "resumo", "avisos", ..., "resumidos", "sem_texto", "falhas",
+    "sem_consentimento", "pendentes"}."""
+    with _TRAVA, _em(projeto) as slug:
+        perfil = _perfil(slug)
+        fichas = ficha.carregar(todas=True)
+        principal_de = {n: f for f in fichas for n in ficha.todos_os_numeros(f)}
+        alvo = _pendentes_de_resumo(comum.eventos(), numeros)
+        cont = {"resumidos": 0, "sem_texto": 0, "falhas": 0, "sem_consentimento": 0, "pendentes": len(alvo)}
+        avisos, cache = [], {}
+        _progresso(ao_progresso, "resumir", f"Resumindo {len(alvo)} documento(s) que ficaram sem IA", total=len(alvo))
+        for k, ev in enumerate(alvo, 1):
+            cliente = ev.get("cliente") or ""
+            if not _texto_do_documento(ev).strip():
+                cont["sem_texto"] += 1
+                continue
+            if not _ia_permitida(perfil, cliente)[0]:
+                cont["sem_consentimento"] += 1
+                continue
+            copia = copy.deepcopy(ev)                     # o resumo é feito numa cópia: falha não deixa o evento pela metade
+            antes = list(copia.get("alertas") or [])
+            _resumir_documento(copia, principal_de.get(copia.get("numero")), perfil, slug, cache, True)
+            if not (copia.get("conteudo") or "").strip():
+                cont["falhas"] += 1
+                continue
+            novo = {c: copia.get(c) for c in ("conteudo", "trecho_origem", "efeito", "motor", "prazo", "audiencia")}
+            novo["alertas_novos"] = [a for a in copia.get("alertas") or [] if a not in antes]
+            if _gravar_resumo(ev["id"], novo):
+                cont["resumidos"] += 1
+            _progresso(ao_progresso, "resumir", f"{k} de {len(alvo)} documento(s) vistos", feitos=k, total=len(alvo))
+        if cont["sem_consentimento"]:
+            ia_nome = (perfil.get("ia") or {}).get("provedor") or "externa"
+            avisos.append(_aviso("atencao", "ia_externa_sem_consentimento", "resumir_pendentes",
+                                 f"{cont['sem_consentimento']} documento(s) não foram enviados à IA externa ({ia_nome}) porque falta o "
+                                 "consentimento do cliente ou do relatório (tela IA). Nada saiu do computador."))
+        if cont["falhas"]:
+            avisos.append(_aviso("atencao", "ia_sem_resposta", "resumir_pendentes",
+                                 f"A IA não deu um resumo utilizável para {cont['falhas']} documento(s); eles continuam sem resumo "
+                                 "e podem ser tentados de novo."))
+        if cont["sem_texto"]:
+            avisos.append(_aviso("atencao", "documento_sem_texto", "resumir_pendentes",
+                                 f"{cont['sem_texto']} documento(s) não têm texto legível: resuma à mão na revisão."))
+        if not alvo:
+            texto = "Nenhum documento ficou sem resumo de IA."
+        else:
+            texto = f"{cont['resumidos']} documento(s) resumido(s) de {len(alvo)} que estavam sem IA."
+            if cont["falhas"] or cont["sem_texto"] or cont["sem_consentimento"]:
+                texto += (f" Sem texto: {cont['sem_texto']}; falhas da IA: {cont['falhas']}; "
+                          f"sem consentimento para IA externa: {cont['sem_consentimento']}.")
+        ok = not (alvo and not cont["resumidos"] and (cont["falhas"] or cont["sem_consentimento"]))
+        return _resultado(ok, texto, avisos, **cont)
 
 
 # ================================================================ síntese (momento atual e último andamento)
