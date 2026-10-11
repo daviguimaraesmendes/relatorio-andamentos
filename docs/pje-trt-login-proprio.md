@@ -62,6 +62,28 @@ o PDF sai com `grau=3`. Se o login do TST não estiver disponível ou o processo
 A parte abaixo ("Resultado em uma frase" e adiante) descreve o caminho pela Consulta Processual, que **deixou de
 servir**; fica como registro histórico.
 
+## Grau de tramitação: o sinal do relatório para ler o 2º grau/TST
+
+A coleta só vai ao 2º grau/TST quando há **sinal de recurso**. O sinal vem de duas fontes, e não existe opção "sempre ler":
+
+1. o que a coleta vê na consulta ao 1º grau (`outraInstancia`, andamentos de remessa/recurso, DataJud), como sempre; ou
+2. o campo da ficha **`grau_tramitacao`** ("Grau de tramitação": `1º grau`, `2º grau` ou `TST`), que o usuário pode
+   preencher no relatório (coluna "Grau de Tramitação" do modelo B, também reconhecida como "Instância" ou "Grau de
+   tramitação" em planilhas de clientes) e que a própria ferramenta mantém atualizado.
+
+Caminho do sinal: `fluxos._coletar` põe o grau da ficha no item da fila (só no processo principal, não nos vinculados;
+a tela, que enfileira sem o grau, é coberta por uma leitura da ficha em `fila._sinal_de_grau`) → `ColetorReal.coletar` o
+entrega como `proc["sinal_grau"]` quando é "2º grau" ou "TST" → `trt.indicio_de_recurso` devolve o motivo "o relatório
+indica que o processo está no 2º grau" (no TST: "...no TST (o 2º grau é lido antes)"), usado por `pje_trt._coletar_processo`
+e pela consulta pública do TRT. Com o TST sinalizado, o 2º grau é lido primeiro e o TST só é lido se os andamentos do 2º
+grau indicarem a subida (lógica de sempre).
+
+Atualização automática (`fluxos.processar_resultado`): depois de cada coleta, a ferramenta grava em `grau_tramitacao`
+o **maior grau lido** (`graus.lidos`: "1", "2", "3"; processo achado no TST pelo DataJud também conta), com origem
+`coletado`. Regras: só escreve quando a coleta informou os graus lidos (um coletor que não informa não prova "1º grau");
+valor digitado por pessoa (`humano`) nunca é sobrescrito; a coleta nunca **rebaixa** o grau já gravado (se o relatório
+diz "2º grau" e o 2º grau não pôde ser lido agora, o valor fica e o aviso `grau_nao_lido` chama a atenção).
+
 ## Resultado em uma frase
 
 Com o login no PDPJ e **entrando pelo menu do PJe (Consulta → Consulta Processual)**, a Consulta Processual do TRT

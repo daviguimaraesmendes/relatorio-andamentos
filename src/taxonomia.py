@@ -96,6 +96,15 @@ SITUACAO = {"Ativo": ("em andamento", "tramitando", "ativa", "em tramitacao", "e
             "Suspenso": ("sobrestado", "suspensa", "sobrestada", "em suspensao")}
 
 GRAUS = ("1º grau", "2º grau", "TST")      # graus dos eventos (campo `grau`); o TST vem do DataJud (índice tst)
+# Grau de tramitação do processo (campo `grau_tramitacao` da ficha): onde ele está HOJE. É o sinal que o relatório (ou a
+# própria coleta) dá para a ferramenta ler o 2º grau/TST; sem sinal de recurso, a coleta fica no 1º grau.
+GRAU_TRAMITACAO = {"1º grau": ("primeiro grau", "primeiro", "1o grau", "1o", "1 grau", "primeira instancia", "vara",
+                               "juizo de primeiro grau", "juizo de 1o grau"),
+                   "2º grau": ("segundo grau", "segundo", "2o grau", "2o", "2 grau", "segunda instancia", "trt", "tj",
+                               "tribunal regional", "tribunal de justica", "tribunal regional do trabalho",
+                               "tribunal de segundo grau"),
+                   "TST": ("terceiro grau", "terceiro", "3o grau", "3o", "3 grau", "tribunal superior do trabalho",
+                           "tribunal superior", "terceira instancia", "instancia superior")}
 FASE = {"Conhecimento": ("primeiro grau", "1o grau", "fase de conhecimento", "instrucao", "primeira instancia"),
         "Recurso": ("recursal", "2o grau", "segundo grau", "fase recursal", "segunda instancia", "em grau de recurso"),
         "Execução": ("execucao", "cumprimento de sentenca", "cumprimento", "liquidacao", "fase de execucao",
@@ -393,7 +402,7 @@ MATERIA_SINONIMOS = {
 
 VOCABULARIOS = {
     "polo": POLO, "situacao": SITUACAO, "fase": FASE, "resultado": RESULTADO, "probabilidade": PROBABILIDADE,
-    "area": AREA, "tipo_vinculo": TIPO_VINCULO,
+    "area": AREA, "tipo_vinculo": TIPO_VINCULO, "grau_tramitacao": GRAU_TRAMITACAO,
     "momento_atual": {k: MOMENTO_SINONIMOS.get(k, ()) for k in MOMENTO_ATUAL},
     "materia": {k: MATERIA_SINONIMOS.get(k, ()) for k in MATERIA},
 }

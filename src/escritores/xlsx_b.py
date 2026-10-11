@@ -29,7 +29,7 @@ Regras de gravação no arquivo do cliente (por coluna, sempre achada pelo CABE�
     entra quando o processo não teve andamento no ciclo (`fecho_apos_novidade=False`); a frase de
     andamento que já consta no texto não é repetida (vai para `ignorados`). Texto acima de 32.767
     caracteres não é truncado: aquele processo fica sem a atualização, com aviso de erro.
-  - Colunas "mecânicas" (situação, ativo, houve recurso, momento atual, último andamento, fase): o
+  - Colunas "mecânicas" (situação, ativo, houve recurso, momento atual, último andamento, fase, grau de tramitação): o
     sistema as recalcula a cada ciclo e troca o valor. Se a pessoa as editou à mão desde a última
     gravação (a ficha guarda `ultimos_valores_gravados`; ver docs/fase2/RFC-xlsx-valores-gravados.md),
     sai o aviso `edicao_manual_sobrescrita`.
@@ -1563,9 +1563,15 @@ _COLUNAS = [
     ("pagamento_realizado", "Pagamento Realizado", "julgamento", True, ("Pagamento", "Valor pago")),
     ("justificativa_probabilidade", "Justificativa da Probabilidade", "julgamento", True,
      ("Justificativa", "Justificativa do risco", "Justificativa da possibilidade de perda")),
+    # grau de tramitação: sinal para a coleta ler o 2º grau/TST e valor que a ferramenta mantém atualizado; extra no FIM
+    # (depois da contingência, para não deslocar as colunas 38 a 46); sai sozinho assim que alguma ficha tem valor
+    ("grau_tramitacao", "Grau de Tramitação", "mecanico", True,
+     ("Grau de tramitação", "Instância", "Instância atual", "Grau de jurisdição")),
 ]
 CONTINGENCIA = ("passivo_potencial", "passivo_atualizado", "ativo_potencial", "percentual_provisao", "provisao",
                 "deposito_judicial", "cnpj_processado", "pagamento_realizado", "justificativa_probabilidade")
+# extras que o escritor ativa sozinho quando alguma ficha tem valor (os dados lançados não podem sumir da planilha)
+ATIVADOS_POR_DADO = (*CONTINGENCIA, "grau_tramitacao")
 CAMPOS_B = {c[0]: c[1] for c in _COLUNAS}                       # campo da ficha -> cabeçalho do modelo B
 PAPEIS = {c[0]: c[2] for c in _COLUNAS}
 COLUNAS_PADRAO = tuple(c[0] for c in _COLUNAS if not c[3])      # as 29 colunas do modelo B, em ordem
@@ -1947,8 +1953,8 @@ class _Gravacao:
                 continue
             vistos.add(n)
             self.fichas.append(f)
-        # campos de contingência que alguma ficha tem: valem mesmo que o perfil não os liste (os dados lançados não se perdem)
-        self.contingencia_com_dados = {c for c in CONTINGENCIA if any(fi.obter(f, c) not in (None, "") for f in self.fichas)}
+        # campos de contingência (e o grau de tramitação) que alguma ficha tem: valem mesmo que o perfil não os liste (os dados lançados não se perdem)
+        self.contingencia_com_dados = {c for c in ATIVADOS_POR_DADO if any(fi.obter(f, c) not in (None, "") for f in self.fichas)}
         if modo_modelo and self.ativas is not None:
             self.ativas |= self.contingencia_com_dados
         dono = {}

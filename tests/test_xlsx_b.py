@@ -818,15 +818,16 @@ class TestModeloPadrao(BaseLO):
         ws = wb["Processos"]
         cab = [c.value for c in ws[1]]
         self.assertEqual(cab[:29], [x.CAMPOS_B[c] for c in x.COLUNAS_PADRAO])
-        self.assertEqual(len(cab), 46)       # 29 do modelo + 8 extras + 9 de contingência (38 em diante)
+        self.assertEqual(len(cab), 47)       # 29 do modelo + 8 extras + 9 de contingência (38 a 46) + grau de tramitação (47)
         self.assertEqual(len(x.COLUNAS_PADRAO), 29)
         self.assertIn("tblProcessos", ws.tables)
-        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AT2")
+        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AU2")
         self.assertEqual(sorted(wb["Histórico"].tables), ["tblHistorico"])
         self.assertEqual(sorted(wb["Campos não migrados"].tables), ["tblNaoMigrados"])
         self.assertEqual(sorted(wb["Faltas da migração"].tables), ["tblFaltas"])
         # as colunas de contingência vêm no FIM (38 em diante), sem mexer nas 37 anteriores
-        self.assertEqual(cab[37:], [x.CAMPOS_B[c] for c in x.CONTINGENCIA])
+        self.assertEqual(cab[37:46], [x.CAMPOS_B[c] for c in x.CONTINGENCIA])
+        self.assertEqual(cab[46], x.CAMPOS_B["grau_tramitacao"])
         # colunas extras ocultas; as 29 visíveis
         ocultas = {c for c, d in ws.column_dimensions.items() if d.hidden}
         extras = {x.col_letra(cab.index(x.CAMPOS_B[c]) + 1) for c in x.COLUNAS_EXTRAS}
@@ -917,7 +918,7 @@ class TestGravarModelo200(BaseLO):
         self.assertEqual(x.validar(self.dest), [])
         wb = openpyxl.load_workbook(self.dest)
         ws = wb["Processos"]
-        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AT201")
+        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AU201")
         numeros = [ws.cell(r, 1).value for r in range(2, 202)]
         self.assertEqual(numeros, [f["numero"] if not f["vinculados"] else "; ".join(fi.todos_os_numeros(f))
                                    for f in self.fichas])
@@ -929,9 +930,9 @@ class TestGravarModelo200(BaseLO):
         self.assertTrue(str(ws.cell(201, cab["Valor Economizado"]).value).startswith("=IF("))
         self.assertTrue(str(ws.cell(201, cab["Taxa de resolução (em dias)"]).value).startswith("=IF("))
         s = partes(self.dest)["xl/worksheets/sheet1.xml"].decode()
-        for esperado_ in ("A2:AT201", "AA2:AA201", "P2:P201"):
+        for esperado_ in ("A2:AU201", "AA2:AA201", "P2:P201"):
             self.assertTrue(any(esperado_ in sq for sq in re.findall(r'sqref="([^"]*)"', s)), esperado_)
-        self.assertIn('<dimension ref="A1:AT201"/>', s)
+        self.assertIn('<dimension ref="A1:AU201"/>', s)
 
     def test_c_partes_nao_editadas_identicas(self):
         antes, depois = partes(MODELO), partes(self.dest)
@@ -1301,7 +1302,7 @@ class TestAtualizarArquivoDoCliente(BaseLO):
         self.assertEqual(x.validar(dest), [])
         ws = openpyxl.load_workbook(dest)["Processos"]
         self.assertEqual(ws.max_row, 32)
-        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AT32")
+        self.assertEqual(ws.tables["tblProcessos"].ref, "A1:AU32")
         self.assertEqual(ws["A32"].value, novo["numero"])
         self.assertTrue(str(ws["W32"].value).startswith("=IF("))
         self.assertEqual(ws["G32"].number_format, "dd/mm/yyyy")

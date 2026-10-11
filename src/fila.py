@@ -314,7 +314,8 @@ class Fila:
     # -- enfileirar
     def enfileirar(self, numeros, *, modo="continuo", profundidade="padrao", prioridade=0, desde=None,
                    cliente=None, recoletar=False):
-        """Coloca processos na fila. `numeros`: números ou dicts {"numero", "cliente"}. Devolve
+        """Coloca processos na fila. `numeros`: números ou dicts {"numero", "cliente", "grau_tramitacao"} (o grau da ficha
+        é o sinal para a coleta ler o 2º grau/TST; opcional). Devolve
         {"enfileirados": [...], "ja_coletados": [...], "ja_na_fila": [...]}.
         Número que já está `pendente` só atualiza modo/profundidade/prioridade/desde; `coletado` é ignorado
         (a menos que `recoletar=True`, para o ciclo seguinte); `erro`/`manual`/`coletando` ficam como estão
@@ -331,21 +332,23 @@ class Fila:
         pedidos = []
         for n in numeros:
             if isinstance(n, dict):
-                pedidos.append((str(n["numero"]).strip(), n.get("cliente") or cliente))
+                pedidos.append((str(n["numero"]).strip(), n.get("cliente") or cliente, n.get("grau_tramitacao") or None))
             else:
-                pedidos.append((str(n).strip(), cliente))
+                pedidos.append((str(n).strip(), cliente, None))
         agora = _iso(self.relogio())
         saida = {"enfileirados": [], "ja_coletados": [], "ja_na_fila": []}
         carteira = {}
         for it in comum.load_json(self.carteira_arquivo, []):
             carteira[it.get("numero")] = it
         with self._transacao() as d:
-            for numero, cli in pedidos:
+            for numero, cli, grau in pedidos:
                 if not numero:
                     continue
                 item = d["itens"].get(numero)
                 if item is not None:
                     novos = dict(modo=modo, profundidade=profundidade, prioridade=prioridade, desde=desde_iso)
+                    if grau:
+                        novos["grau_tramitacao"] = grau
                     if item["estado"] == "coletado" and not recoletar:
                         saida["ja_coletados"].append(numero)
                     elif item["estado"] == "coletado":      # novo ciclo: volta para a fila
@@ -362,7 +365,7 @@ class Fila:
                 tribunal = _tribunal_do_numero(numero, (carteira.get(numero) or {}).get("tribunal"))
                 item = {"numero": numero, "estado": "pendente", "modo": modo, "profundidade": profundidade,
                         "prioridade": prioridade, "desde": desde_iso, "ordem": d["proxima_ordem"],
-                        "tribunal": tribunal, "cliente": cli or "", "tentativas": 0, "erro": None,
+                        "tribunal": tribunal, "cliente": cli or "", "grau_tramitacao": grau, "tentativas": 0, "erro": None,
                         "proxima_tentativa": None, "so_djen": False, "motivo": None, "enfileirado_em": agora,
                         "atualizado_em": agora, "coletado_em": None, "duracao_s": None}
                 d["proxima_ordem"] += 1
@@ -799,7 +802,8 @@ def rodar_fila(fila, coletor, ao_progresso=None, *, ao_resultado=None, esperar=T
             inicio = fila.cronometro()
             erro, resultado = None, None
             try:
-                resultado = coletor.coletar({"numero": numero, "cliente": item["cliente"], "tribunal": item["tribunal"]},
+                resultado = coletor.coletar({"numero": numero, "cliente": item["cliente"], "tribunal": item["tribunal"],
+                                             "grau_tramitacao": item.get("grau_tramitacao")},
                                             item["profundidade"], item["desde"])
                 erro = (resultado or {}).get("erro")
                 if not erro and ao_resultado:
@@ -987,6 +991,9 @@ class ColetorReal:
         cota = {"rapido": 0, "padrao": comum.config().get("coleta", {}).get("max_documentos_por_rodada", 30),
                 "completo": self.COTA_COMPLETO}[profundidade]
         proc = {"numero": processo["numero"], "cliente": processo.get("cliente") or "", "apelido": processo.get("apelido")}
+        sinal = _sinal_de_grau(processo)
+        if sinal:
+            proc["sinal_grau"] = sinal       # o relatório diz que está no 2º grau/TST: o PJe lê o 2º grau (pje_trt, trt)
         trabalhista = _e_trabalhista(processo["numero"])
         if trabalhista:
             proc["indicio_2grau"] = _datajud_indica_segundo_grau(processo["numero"])
@@ -1017,6 +1024,21 @@ class ColetorReal:
         if trabalhista and not erro:
             _acrescentar_tst(resultado, processo["numero"])
         return resultado
+
+
+def _sinal_de_grau(processo):
+    """"2º grau" ou "TST" quando o relatório (campo `grau_tramitacao` da ficha) diz que o processo já está lá; senão None.
+    O valor vem no item da fila; se a fila não o trouxe (processo enfileirado pela tela), lê da ficha do processo."""
+    import taxonomia
+    valor = processo.get("grau_tramitacao")
+    if not valor:
+        try:
+            f = next((x for x in fch.carregar(todas=True) if x.get("numero") == processo["numero"]), None)
+            valor = fch.obter(f, "grau_tramitacao") if f else None
+        except Exception:  # noqa: BLE001 - o sinal é só um complemento: sem ele a coleta decide pelos andamentos
+            valor = None
+    grau = taxonomia.normalizar("grau_tramitacao", valor) if valor else None
+    return grau if grau in ("2º grau", "TST") else None
 
 
 def _e_trabalhista(numero):
