@@ -25,7 +25,7 @@ O dono é o advogado Davi; os usuários finais NÃO são técnicos. Tudo o que o
 - Antes de mexer: `git fetch && git status -sb`; outras sessões empurram na mesma branch (`claude/gallant-pasteur-etzpu5`).
   Trabalho vai para essa branch; **promover para `main` só quando o Davi validar** (ele pede "promover para main"). Tag/release
   dispara o instalador do Windows: só se ele pedir. Commits terminam com `Co-Authored-By: Claude ... <noreply@anthropic.com>`.
-- Versão em `VERSAO` (hoje 2.0.0-beta7); subir quando o código muda para o painel dos usuários reiniciar sozinho. Notas em `BETA-LEIAME.md`.
+- Versão em `VERSAO` (hoje 2.0.0-beta8); subir quando o código muda para o painel dos usuários reiniciar sozinho. Notas em `BETA-LEIAME.md`.
 - Testes: crie um venv de apoio fora do repositório (`python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -r requirements.txt`),
   depois `/tmp/venv/bin/python -m unittest discover -s tests -p "test_*.py"` (~4 min). Só falham `test_autos` e `test_dashboard`
   (Playwright não roda no ambiente do Claude). `tests/test_painel.py` compara o HTML com `tests/fixtures/painel_instantaneo.json`:

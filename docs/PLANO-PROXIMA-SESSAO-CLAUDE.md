@@ -3,6 +3,10 @@
 Escrito em 2026-10-09, ao fim da sessão que entregou a **2.0.0-beta7** (login do PDPJ, 1º grau, 2º grau e TST pelo PJe,
 "Configurar tudo", capa pelo PJe). `main` = `2b867d5` na hora em que isto foi escrito. Dono do projeto: Davi.
 
+> **Atualização (2026-10-10/11):** o teste comparativo de modelos já foi feito; o resultado e a recomendação estão em
+> `docs/claude-no-projeto.md`. A versão atual é a **2.0.0-beta8**. Continua pendente: repetir o teste pelo provedor real
+> (Claude Code com `/login`) e atualizar um relatório REAL com o Claude, com revisão humana.
+
 ## 1. Objetivo da sessão
 
 1. **Decidir, com dados, qual modelo do Claude e qual esforço usar** para resumir os documentos dos processos:
