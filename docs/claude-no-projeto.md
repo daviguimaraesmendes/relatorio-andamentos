@@ -68,8 +68,7 @@ Observações qualitativas (documentos de maior risco, lidos um a um):
 - **Sem gabarito humano no T4**: o "padrão" foi o Opus mais as checagens automáticas. A revisão cega por um advogado ainda está pendente
   (há um arquivo de comparação lado a lado, com os modelos embaralhados, só na máquina de quem rodou o teste).
 - **Candidatos rodaram como subagentes do Claude Code**, não pelo caminho real do programa (`claude -p` com o login da assinatura).
-  O comportamento deve ser parecido, mas o esforço e o prompt de sistema do Claude Code podem diferir. **Repita o T4 pelo provedor
-  real assim que o Claude Code estiver com login.**
+  O comportamento deve ser parecido, mas o esforço e o prompt de sistema do Claude Code podem diferir. O provedor real foi testado só com a frase fixa e o formato estruturado (o dono dispensou repetir o T4).
 - Tempo e consumo por modelo não foram medidos de forma limpa (execuções em paralelo).
 - Pseudonimização: o nome da parte em outra caixa de letras ("Fulana" em vez de "FULANA") passou sem troca em alguns trechos. É o limite
   já documentado em `docs/confidencialidade-ia.md`: cadastre as variações do nome.
@@ -98,7 +97,9 @@ Observações qualitativas (documentos de maior risco, lidos um a um):
 
 - Ferramentas em `tools/benchmark_modelos/` (corretores T1 a T4). As entradas e os gabaritos dependem de dados reais e NÃO ficam no
   repositório: gere-os de uma planilha e de documentos coletados, numa pasta temporária, e apague depois.
-- Falta: (1) repetir o T4 pelo provedor real do programa (login); (2) revisão cega por um advogado; (3) ampliar o lote (30 a 60
+- Decisão do dono (2026-10-13): **não repetir o T4 pelo provedor real**. O Claude Code deste computador está conectado e o provedor
+  respondeu ao teste de conexão e ao formato estruturado com Haiku 5.5 e Sonnet 5.5; isso basta para seguir.
+- Falta: (1) ~~repetir o T4 pelo provedor real~~ (dispensado); (2) revisão cega por um advogado; (3) ampliar o lote (30 a 60
   documentos, mais tipos e outras áreas); (4) **roteamento por tarefa** (provedor leve para mapeamento/normalização/extração e
   provedor padrão para resumos); (5) campo "esforço" na tela IA; (6) módulo de migração assistida por IA (mapeamento de colunas,
   normalização e extração de texto livre) usando Haiku médio, sempre com a tela de conferência humana, e as regras determinísticas primeiro.
