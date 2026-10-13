@@ -1,14 +1,17 @@
 # Relatório de Andamentos
 
 Prepara e atualiza os relatórios de andamento processual dos clientes a partir
-dos autos eletrônicos. A ferramenta entra no jus.br e no PJe dos TRTs com o seu
-certificado digital, encontra os andamentos e documentos novos de cada
-processo (inclusive os que ainda não saíram no Diário), tira print, resume o
-teor com uma inteligência artificial que roda **no seu próprio computador** e
-deixa tudo numa fila de revisão. Só o que você aprova entra no relatório.
+dos autos eletrônicos. A ferramenta entra **no jus.br** (Justiça Estadual e
+Federal, com o seu certificado digital) e **no PJe da Justiça do Trabalho**
+(1º grau, 2º grau e TST, com o seu login do PDPJ), encontra os andamentos e
+documentos novos de cada processo (inclusive os que ainda não saíram no
+Diário), resume o teor com uma inteligência artificial que roda **no seu
+próprio computador** (ou, se você ligar, no Claude) e deixa tudo numa fila de
+revisão. Só o que você aprova entra no relatório.
 
 O relatório pode sair em três formas: **texto** (`.docx`, para o cliente ler),
-**planilha** (`.xlsx`, com indicadores) e **painel** (`.html`, para a diretoria).
+**planilha** (`.xlsx`, com indicadores, passivo contingente e provisão) e
+**painel** (`.html`, para a diretoria).
 
 Nenhum documento de cliente é enviado para a internet, **salvo quando você
 ativa IA externa para aquele cliente** (veja a seção 8). A senha do
@@ -18,11 +21,13 @@ operacional.
 Cada relatório (um grupo de clientes ou um cliente só) é independente e tem a
 sua aba no painel.
 
-> **Situação da Fase 2.** Os quatro fluxos da seção 6, o texto `.docx`, o painel
-> `.html`, a fila de coleta em massa e a IA externa opcional estão em
-> construção e integração; até o piloto real (marcos M5 e M6 do plano) tudo isso
-> foi exercitado **só com dados fictícios e um coletor simulado**. O que já está
-> pronto, o que está em integração e o que depende de teste real está em
+> **Versão atual: 2.0.0-beta8 (versão de teste).** Os quatro fluxos da seção 6,
+> o texto `.docx`, a planilha, o painel `.html`, a fila de coleta e a IA externa
+> opcional existem e foram exercitados com dados fictícios; a leitura dos
+> processos trabalhistas pelo PJe (1º grau, 2º grau e TST) e a migração da
+> planilha de contingências já foram testadas com dados reais, mas o piloto
+> completo com o Claude ainda está por fazer. O que mudou em cada versão está em
+> `BETA-LEIAME.md`; o que está pronto e o que depende de teste real, em
 > `docs/fase2/STATUS.md`. O passo a passo para quem vai usar está em
 > `docs/guia-fase2.md`.
 
@@ -35,6 +40,7 @@ sua aba no painel.
 | Mac (macOS) ou Windows 10/11 | No Mac, a ferramenta foi testada em uso real. No Windows, a instalação e o login estão preparados, **mas ainda não foram testados** (veja a seção 11). |
 | Certificado digital A1 instalado no **PJe Office Pro** | O mesmo que você usa para peticionar. O PJe Office precisa estar aberto quando a ferramenta for ao jus.br. |
 | Autenticador do jus.br configurado no celular | E o **segredo** dele (veja abaixo). É o que permite à ferramenta gerar o código de 6 dígitos sozinha. |
+| Para processos **trabalhistas**: login do **PDPJ** | CPF, senha e o **segredo do autenticador do PDPJ**. Pode ser de outra pessoa do escritório e **é um segredo diferente do do jus.br**. Sem isso, os processos do trabalho ficam "conferir manualmente". |
 | Cerca de 6 GB livres e internet na instalação | Para o modelo de IA (2 a 3,5 GB) e o navegador de automação. |
 
 ### Como obter o segredo do autenticador
@@ -86,6 +92,10 @@ cliques em **`Abrir painel.command`** (Mac) ou **`Abrir painel.bat`**
 (Windows). Deixe a janela do Terminal (Mac) ou do Prompt (Windows) aberta
 enquanto usa o painel.
 
+0. **Configurar tudo** (botão na tela **Início**): uma tela guiada para cadastrar,
+   num só lugar, os seus dados, a conta do PDPJ, o certificado do jus.br, a IA e
+   o escritório. É o jeito mais simples de começar; os itens abaixo descrevem o
+   que cada parte faz.
 1. **Acesso e escritório** (link no canto superior direito):
    - senha (PIN) do certificado, a mesma que você digita no PJe Office;
    - segredo do autenticador. Depois de salvar, o painel mostra o código de 6
@@ -133,10 +143,23 @@ seguinte; o computador e o painel precisam estar ligados.)
 
 ### Justiça do Trabalho (TRTs)
 
-Processos trabalhistas (com `.5.` no número) são lidos na consulta processual
-do próprio TRT, depois do login no jus.br. **O TRT costuma pedir um captcha
-(letras numa imagem) na primeira consulta**: a janela aparece na frente, toca
-um aviso e espera você digitar. Depois disso, a ferramenta segue sozinha.
+Processos trabalhistas (com `.5.` no número, no padrão
+`NNNNNNN-DD.AAAA.5.TT.VVVV`) são lidos **dentro do PJe do advogado**, depois do
+login no **PDPJ** com o seu CPF, senha e autenticador (cadastrados em
+**Configurar tudo**). Não há captcha. A ferramenta lê o **1º grau**, o **2º
+grau** e o **TST**, e a capa (vara, classe, partes, ajuizamento, município)
+vem do próprio PJe.
+
+- **O 2º grau e o TST só são lidos quando há sinal de recurso**: o PJe do 1º
+  grau mostra que o processo está em outra instância, ou o campo **Grau de
+  tramitação** do relatório diz "2º grau" ou "TST". A ferramenta atualiza esse
+  campo a cada coleta e nunca troca o que você escreveu.
+- **O login é tentado uma única vez por rodada.** Se falhar, a ferramenta para e
+  trava novas tentativas, para não bloquear a conta; você confere os dados e
+  libera pela tela **Acesso e escritório**.
+- Processos da Justiça **Estadual e Federal** continuam entrando pelo jus.br
+  com o certificado, e o login do jus.br só acontece quando algum processo
+  precisa dele.
 
 ## 6. Os quatro fluxos da Fase 2
 
@@ -148,8 +171,8 @@ botões. O passo a passo, com o que aparece em cada tela, está em
 | --- | --- | --- |
 | **Importar relatórios existentes** | Trazer para a ferramenta os relatórios que o escritório já tem (texto `.docx`, planilha `.xlsx`, lista de números) e começar a acompanhar a partir deles. | Você solta os arquivos; confere o que foi lido (ambiguidades, números inválidos, duplicados, clientes com grafia diferente); confirma. O que já está escrito no relatório antigo **não é recoletado**: vira o histórico. |
 | **Elaborar relatório inicial** | Preparar o primeiro relatório de processos novos. | Você escolhe o formato (texto, planilha, painel), a profundidade (rápido, padrão, completo) e o modo de coleta (contínuo, em janelas de horário, ou imediato, com aviso da duração estimada). Recebe a pasta de saída com os arquivos, um relatório de qualidade da base e a lista "conferir manualmente". |
-| **Atualizar relatório** | Acrescentar o que veio depois da última data-base. | Você solta o último `.docx` e/ou `.xlsx`; a ferramenta coleta, resume, você revisa, e ela grava **cópias novas** dos arquivos (o original nunca é sobrescrito) mais um resumo "o que mudou neste ciclo". |
-| **Migrar de modelo** | Converter um relatório que está num formato diferente para os modelos da ferramenta. | Você solta o arquivo; confere a tela de mapeamento (coluna do arquivo antigo, campo da ficha, coluna do modelo novo); o que não tem destino vai para uma aba "Campos não migrados", sem se perder. |
+| **Atualizar relatório** | Acrescentar o que veio depois da última data-base. Há dois jeitos de trabalhar, escolhidos na tela: **Montagem completa** (coleta tudo desde o início, resume com IA, monta texto, planilha e painel; é o modo pesado, para montar o relatório) e **Atualização leve** (só o que mudou desde a última vez; é o modo do dia a dia). O atalho **Atualizar planilha e painéis agora (sem coletar)** refaz a planilha e o painel só com o que já está aprovado, sem tribunal, sem login e sem IA. | Você solta o último `.docx` e/ou `.xlsx`; a ferramenta coleta, resume, você revisa, e ela grava **cópias novas** dos arquivos (o original nunca é sobrescrito) mais um resumo "o que mudou neste ciclo". |
+| **Migrar de modelo** | Converter um relatório que está num formato diferente (inclusive planilhas "desformatadas", como a de **contingências jurídicas**) para os modelos da ferramenta. | Você solta o arquivo; confere a tela de mapeamento (coluna do arquivo antigo, campo da ficha, coluna do modelo novo); o que não tem destino vai para uma aba "Campos não migrados", sem se perder. A ferramenta mostra o quadro **"O que falta para a transição"** (o que veio, o que ela busca nos tribunais, o que deduz pelas regras ou IA e precisa da sua confirmação, e o que só você sabe); o mesmo quadro vai para a aba **Faltas da migração** da planilha. |
 
 Regras que valem nos quatro fluxos:
 
@@ -158,8 +181,11 @@ Regras que valem nos quatro fluxos:
   duplica. O arquivo que você envia nunca é sobrescrito: sai sempre uma cópia.
 - **Revisão humana obrigatória.** Decisão desfavorável, mudança de resultado,
   qualquer valor em dinheiro, audiência e prazo **sempre** passam pelos seus
-  olhos, mesmo na aprovação em lote. A aprovação em lote vale só para o que não
-  tem nenhum alerta e sempre deixa uma amostra para conferência manual.
+  olhos, mesmo na aprovação em lote. A aprovação em lote dos "verdes" vale só
+  para o que não tem nenhum alerta e sempre deixa uma amostra para conferência
+  manual. Na Triagem há também **Aprovar todas as atualizações**, que mostra
+  quantas linhas têm alerta e só aprova depois de você marcar "li os alertas";
+  o que é bloqueado por regra (sem frase, sem texto legível) continua de fora.
 - **Probabilidade, valor estimado, valor economizado e resultado** aparecem
   como **sugestão** (marcada como tal, com o trecho de origem e as ressalvas).
   Nada disso é gravado como definitivo sem a sua aprovação, e o que você
@@ -188,8 +214,9 @@ Exemplos de linhas geradas, no estilo das planilhas do escritório:
   mesma informação repetida no mesmo dia ou em dias seguidos, documento
   repetido, andamento que só anuncia uma decisão já resumida, intimações e
   certidões de rotina.
-- Processo com recurso: o 1º e o 2º grau são lidos, e o texto diz "no 2º grau"
-  quando o andamento é do recurso.
+- Processo com recurso: o 1º grau, o 2º grau e o TST são lidos quando há sinal
+  de recurso (veja a seção 5), e o texto diz "no 2º grau" ou "no TST" quando o
+  andamento é do recurso.
 - **Momento atual** do processo (aguardando sentença, cumprimento de sentença,
   trânsito em julgado...) sai de uma lista fechada, primeiro por regra sobre os
   andamentos e só depois pela IA; sem evidência, fica em branco com alerta.
@@ -230,6 +257,13 @@ o produziu (local ou externo).
      o mesmo aviso de confidencialidade abaixo;
   3. **Outro serviço com API compatível com a da OpenAI** (endereço, modelo, chave).
 
+  Qual modelo escolher: para **resumir documentos de processo**, o **Sonnet 5.5
+  em esforço médio** foi o melhor equilíbrio no nosso teste; o **Haiku 5.5
+  médio** basta para mapear colunas, normalizar valores e extrair campos de
+  textos curtos (e é aceitável em certidões e intimações). Em sentenças,
+  acórdãos e valores, sempre confira. Números, limites e como configurar:
+  `docs/claude-no-projeto.md`.
+
   Você cadastra o provedor no painel (tela **IA**) e
   **liga por relatório e, havendo vários clientes, por cliente**. Sem ligar
   explicitamente, **nada** é enviado.
@@ -241,7 +275,9 @@ o produziu (local ou externo).
   caracteres e uma impressão digital do conteúdo; o texto do cliente não é guardado no registro).
 - **Selo visível** nas telas de resumo e de revisão ("local" ou "externa: <provedor>").
 - **Sem chave, sem rede ou com erro do provedor**, a ferramenta volta sozinha
-  para o motor local e avisa.
+  para o motor local e avisa. Os documentos que ficaram só com a frase
+  automática (sem IA) podem ser resumidos depois, pelo botão **"Resumir os que
+  ficaram sem IA"** na tela Revisar, com a estimativa de chamadas antes de confirmar.
 - A chave da API fica no cofre do sistema, como a senha do certificado, e nunca
   é mostrada de volta.
 
@@ -269,7 +305,7 @@ registrado. Detalhes: `docs/confidencialidade-ia.md`.
 - **Painel só local.** Atende apenas em 127.0.0.1 (este computador), com token
   nos formulários e sem carregar nada de endereços externos (as páginas, os
   relatórios HTML e os painéis são autônomos).
-- **O que vai para a internet:** o login no jus.br e nos TRTs, as consultas aos
+- **O que vai para a internet:** o login no jus.br e no PDPJ (PJe dos TRTs e do TST), as consultas aos
   autos, o nome do cliente para a busca pública do CNJ se você usar "Descoberta
   no DJEN" e, **somente se você ligar IA externa**, o texto descrito na seção 8.
 - **Captcha e telas desconhecidas** param a tarefa e pedem ação humana; nada é
@@ -293,17 +329,20 @@ registrado. Detalhes: `docs/confidencialidade-ia.md`.
 
 ## 11. Para quem mantém
 
-Situação por plataforma e por parte (atualizada em 07/10/2026):
+Situação por plataforma e por parte (atualizada em 13/10/2026):
 
 | Parte | Situação |
 | --- | --- |
-| Mac: instalação, login (certificado + autenticador), jus.br, TRT7, resumo, revisão, planilha (Fase 1) | Testado em uso real |
-| Mac: os quatro fluxos da Fase 2 (leitores, fila, escritores `.docx`/`.xlsx`/`.html`, IA externa) | Em construção e integração (ver `docs/fase2/STATUS.md`); exercitado **só com dados fictícios e coletor simulado**; piloto real (M5) pendente |
+| Mac: instalação, login (certificado + autenticador), jus.br, resumo, revisão, planilha (Fase 1) | Testado em uso real |
+| Mac: login do PDPJ e leitura do processo trabalhista pelo PJe (1º grau, 2º grau e TST), capa pelo PJe, "Configurar tudo" | Testado em uso real (TRT7 e TST), sem captcha |
+| Mac: migração da planilha de contingências (campos de passivo e provisão, quadro "o que falta", dois modos de atualização) | Testado com a planilha real; coleta e resumo por IA nessa planilha ainda por testar |
+| Claude pelo Claude Code deste computador | Escrito e testado só com simulação; teste real depende do `/login` do Claude Code |
+| Mac: demais partes dos quatro fluxos da Fase 2 (fila, escritores `.docx`/`.xlsx`/`.html`, IA externa) | Exercitado com dados fictícios e coletor simulado (ver `docs/fase2/STATUS.md`); piloto completo pendente |
 | Windows: instalador (`instalar.ps1`), preenchimento do diálogo do PJe Office (pywinauto), atalhos `.bat` e a Fase 2 inteira | Escrito, **não testado** em máquina Windows |
 | Linux (ambiente de desenvolvimento na nuvem) | Testes automáticos com dados fictícios, sem rede, sem certificado e sem jus.br; abre `.docx`/`.xlsx` no LibreOffice, não no Word nem no Excel |
 | Arquivos gerados no Word, no Google Docs, no Excel (Windows e Mac) e no Google Sheets | **Não testados**: use os roteiros de conferência de `docs/fase2/` antes de enviar a um cliente |
 | OCR de documentos digitalizados | Mac com Homebrew; no Windows, não |
-| Conferência semanal | jus.br; TRT ainda não (fica "conferir manualmente") |
+| Conferência semanal | jus.br; processos trabalhistas ainda não (ficam "conferir manualmente") |
 | Cobertura real por tribunal, tempo real de coleta, qualidade do modelo local | A medir no piloto |
 
 ```
@@ -322,12 +361,17 @@ relatorio-andamentos/
 │   ├── escritores/                                     gravam o .docx (texto), o .xlsx (planilha) e o .html (painel)
 │   ├── modelos/                                        modelos padrão sanitizados (sem nome, número ou valor)
 │   ├── fila.py  /  capa.py                             fila de coleta em massa e dados de capa do processo
+│   ├── pdpj.py  /  pje_trt.py  /  acesso.py             login do PDPJ, leitura pelo PJe (1º, 2º grau, TST), cofre de credenciais
+│   ├── fluxos.py  /  lacunas.py                         os fluxos e modos de trabalho; quadro "o que falta" da migração
 │   ├── sintese.py  /  julgamento.py  /  triagem.py     momento atual e narrativa, sugestão de julgamento, triagem
 │   ├── qualidade.py  /  historico.py  /  quadros.py    verificador da base, retrato mensal, quadros analíticos
 │   ├── pedidos.py  /  ia.py                            kit de pedidos das iniciais, provedores de IA
 │   └── painel/                                         telas do painel (uma por arquivo)
 ├── tests/                                              testes automáticos (não tocam em dados reais)
-├── docs/                                               guias (guia-fase2.md, pedidos-iniciais.md, confidencialidade-ia.md)
+├── tools/benchmark_modelos/                            corretores do teste de modelos do Claude (sem dados reais)
+├── CLAUDE.md  /  BETA-LEIAME.md  /  VERSAO             regras para o Claude Code, notas de cada versão, versão atual
+├── docs/                                               guias (guia-fase2.md, claude-no-projeto.md, pje-trt-login-proprio.md,
+│                                                       identidade-visual.md, confidencialidade-ia.md, pedidos-iniciais.md)
 │   └── fase2/                                          plano, contratos, status e roteiros de conferência
 └── projetos/<relatório>/                               dados de cada relatório (fica fora do pacote)
 ```
