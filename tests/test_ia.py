@@ -571,7 +571,8 @@ class ClaudeCLITestes(Base):
             falso.chmod(0o755)
             self.assertEqual(ia.localizar_claude(str(falso)), str(falso))
             self.assertIsNone(ia.localizar_claude(str(TMP / "nao-existe")))
-            with mock.patch("shutil.which", return_value=None), mock.patch.object(Path, "home", lambda: TMP / "casa-vazia"):
+            with mock.patch("shutil.which", return_value=None), mock.patch.object(Path, "home", lambda: TMP / "casa-vazia"), \
+                    mock.patch.object(ia.os, "access", return_value=False):      # nem o /opt/homebrew/bin/claude desta máquina vale
                 self.assertIsNone(ia.localizar_claude())
 
 
