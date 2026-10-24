@@ -143,8 +143,9 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         if comum.PROJETO:
             ambiente["RELATORIO_PROJETO"] = comum.PROJETO
         separado = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS else {"start_new_session": True})
-        proc = subprocess.Popen(args, cwd=raiz / "src", env=ambiente, stdout=log.open("w", encoding="utf-8"),
-                                stderr=subprocess.STDOUT, **separado)
+        with log.open("w", encoding="utf-8") as arq_log:
+            proc = subprocess.Popen(args, cwd=raiz / "src", env=ambiente, stdout=arq_log,
+                                    stderr=subprocess.STDOUT, **separado)
         TAREFA.clear()
         TAREFA.update(proc=proc, log=str(log), descricao=descricao, nome=comum.projeto().get("nome", comum.PROJETO or "-"),
                       inicio=f"{datetime.datetime.now():%H:%M}")

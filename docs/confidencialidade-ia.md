@@ -8,11 +8,11 @@ integra ao README.
 
 **Nenhum documento de cliente é enviado para a internet, salvo quando você ativa IA externa para aquele
 cliente.** Por padrão, o resumo dos documentos é feito pelo Ollama, no seu próprio computador. A IA externa
-(Claude, pela API da Anthropic, ou outro serviço com API compatível com a da OpenAI) só é usada se você:
+(Claude, Gemini ou outro serviço com API compatível com a da OpenAI) só é usada se você:
 
 1. cadastrar o provedor na tela **IA** (nome, endereço, modelo e chave; a chave vai para o cofre do sistema e
-   nunca mais aparece na tela). O tipo **"Claude pelo Claude Code deste computador"** dispensa chave e endereço:
-   usa o login da sua assinatura no Claude Code já instalado (ver abaixo);
+   nunca mais aparece na tela). Os tipos **"Claude pelo Claude Code deste computador"** e **"Gemini pelo Gemini CLI
+   deste computador"** dispensam chave e endereço: usam o login da sua conta já feito no programa (ver abaixo);
 2. escolher esse provedor para o relatório; e
 3. marcar o consentimento do relatório ou **de cada cliente** e confirmar que entendeu o que será enviado.
 

@@ -24,7 +24,11 @@ class TelaDosAutos(unittest.TestCase):
     def setUpClass(cls):
         from playwright.sync_api import sync_playwright
         cls.pw = sync_playwright().start()
-        cls.browser = cls.pw.chromium.launch()
+        try:
+            cls.browser = cls.pw.chromium.launch()
+        except Exception as e:
+            cls.pw.stop()
+            raise unittest.SkipTest(f"Chromium do Playwright indisponível: {e}")
         cls.page = cls.browser.new_page(viewport={"width": 1200, "height": 900})
         cls.page.set_content(FIXTURE.read_text(encoding="utf-8"))
 

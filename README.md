@@ -6,8 +6,8 @@ Federal, com o seu certificado digital) e **no PJe da Justiça do Trabalho**
 (1º grau, 2º grau e TST, com o seu login do PDPJ), encontra os andamentos e
 documentos novos de cada processo (inclusive os que ainda não saíram no
 Diário), resume o teor com uma inteligência artificial que roda **no seu
-próprio computador** (ou, se você ligar, no Claude) e deixa tudo numa fila de
-revisão. Só o que você aprova entra no relatório.
+próprio computador** (ou, se você ligar, no Claude ou no Gemini) e deixa tudo
+numa fila de revisão. Só o que você aprova entra no relatório.
 
 O relatório pode sair em três formas: **texto** (`.docx`, para o cliente ler),
 **planilha** (`.xlsx`, com indicadores, passivo contingente e provisão) e
@@ -21,15 +21,14 @@ operacional.
 Cada relatório (um grupo de clientes ou um cliente só) é independente e tem a
 sua aba no painel.
 
-> **Versão atual: 2.0.0-beta8 (versão de teste).** Os quatro fluxos da seção 6,
+> **Versão atual: 2.0.0-beta9 (versão de teste).** Os quatro fluxos da seção 6,
 > o texto `.docx`, a planilha, o painel `.html`, a fila de coleta e a IA externa
-> opcional existem e foram exercitados com dados fictícios; a leitura dos
-> processos trabalhistas pelo PJe (1º grau, 2º grau e TST) e a migração da
-> planilha de contingências já foram testadas com dados reais, mas o piloto
-> completo com o Claude ainda está por fazer. O que mudou em cada versão está em
-> `BETA-LEIAME.md`; o que está pronto e o que depende de teste real, em
-> `docs/fase2/STATUS.md`. O passo a passo para quem vai usar está em
-> `docs/guia-fase2.md`.
+> opcional (Claude e Gemini) existem e foram exercitados com dados fictícios; a
+> leitura dos processos trabalhistas pelo PJe (1º grau, 2º grau e TST) e a
+> migração da planilha de contingências já foram testadas com dados reais. O que
+> mudou em cada versão está em `BETA-LEIAME.md`; o que está pronto e o que
+> depende de teste real, em `docs/fase2/STATUS.md`. O passo a passo para quem
+> vai usar está em `docs/guia-fase2.md`.
 
 ---
 
@@ -244,7 +243,7 @@ o produziu (local ou externo).
 
 - **Padrão: IA local** (Ollama, no próprio computador). Nada sai do computador.
 - **Opcional: IA externa**, para resumir melhor onde o modelo local é fraco.
-  Há três tipos de provedor, e você escolhe qual cadastrar:
+  Há cinco tipos de provedor, e você escolhe qual cadastrar:
   1. **Claude pela API da Anthropic** (nome, modelo e chave de API);
   2. **Claude pelo Claude Code deste computador**, **sem chave de API**: usa o
      Claude Code já instalado e conectado à sua conta (`/login`), e o consumo
@@ -255,7 +254,13 @@ o produziu (local ou externo).
      local**: o texto continua indo à Anthropic, só que pela assinatura e não
      pela API, com termos de uso e de retenção que podem ser diferentes. Vale
      o mesmo aviso de confidencialidade abaixo;
-  3. **Outro serviço com API compatível com a da OpenAI** (endereço, modelo, chave).
+  3. **Gemini pela API do Google** (nome, modelo — padrão `gemini-2.5-pro` — e
+     chave de API do Google AI Studio);
+  4. **Gemini pelo Gemini CLI deste computador**, **sem chave de API**: usa o
+     Gemini CLI instalado e conectado à sua conta Google, rodando em pasta
+     temporária vazia. **Também não é IA local** (o texto vai ao Google pela
+     sua conta);
+  5. **Outro serviço com API compatível com a da OpenAI** (endereço, modelo, chave).
 
   Qual modelo escolher: para **resumir documentos de processo**, o **Sonnet 5.5
   em esforço médio** foi o melhor equilíbrio no nosso teste; o **Haiku 5.5

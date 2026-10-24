@@ -33,7 +33,8 @@ import simulado  # noqa: E402
 
 from escritores import dashboard  # noqa: E402  (pacote de espaço de nomes: src/escritores)
 
-os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
+if Path("/opt/pw-browsers").is_dir():
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
 try:
     from playwright.sync_api import sync_playwright
     _PW = True

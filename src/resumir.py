@@ -386,7 +386,7 @@ def processar_movimento(ev, docs_da_rodada=()):
         ev.setdefault("alertas", []).append("Movimentação sem tradução cadastrada: reescrever (e cadastrar em movimentos.json).")
 
 
-def processar_documento(ev, modelo, falta):
+def processar_documento(ev, modelo, falta, *, perfil=None):
     if ev["status"] == "sem_arquivo":
         texto, falta = "", "o documento não foi baixado; abrir nos autos e resumir manualmente."
     else:
@@ -399,19 +399,29 @@ def processar_documento(ev, modelo, falta):
     if quem == "outro" and texto:
         alertas.append("Autoria não identificada: confirmar quem apresentou o documento.")
     alertas.extend(conferir_contexto(ev, texto, ctx))
-    if falta:
+    import ia
+    cliente = ctx.get("cliente", "")
+    usar_externo = bool(texto and perfil and ia.selo_para(perfil, cliente) != "local")
+    if falta and not usar_externo:
         ev.update(conteudo="", status="rascunho")
         alertas.append(f"Sem resumo automático: {falta}")
         return
     try:
-        res, avisos = resumir_texto(texto, ev["tipo"], quem, frase, modelo, ctx)
+        if usar_externo:
+            prov = ia.provedor(perfil, cliente)
+            res, avisos, modelo_usado = resumir_com_provedor(prov, texto, ev["tipo"], quem, frase, ctx, cliente=cliente)
+        else:
+            res, avisos = resumir_texto(texto, ev["tipo"], quem, frase, modelo, ctx)
+            modelo_usado = modelo
     except Exception as e:  # modelo caiu no meio: o evento volta para a fila
         print(f"  falha ao resumir {ev['id']}: {e}")
         ev["alertas"] = []
         return
     ev.update(conteudo=limpar_conteudo(res["conteudo"]), trecho_origem=res["trecho_origem"].strip(),
               prazo=res.get("prazo"), audiencia=res.get("audiencia"), efeito=res.get("efeito"),
-              modelo=modelo, status="rascunho")
+              modelo=modelo_usado, status="rascunho")
+    if usar_externo:
+        ev["motor"] = modelo_usado
     alertas.extend(avisos)
 
 
@@ -457,9 +467,11 @@ def marcar_repetidos(lista):
 
 
 def rodar():
+    import ia
+    perfil = ia.carregar_perfil()
     modelo = modelo_escolhido()
     falta = ollama_pronto(modelo)
-    if falta:
+    if falta and ia.selo_para(perfil, "") == "local":
         print(f"Aviso: {falta} Os documentos entram na revisão sem resumo.")
     lista = eventos()
     marcar_repetidos(lista)
@@ -470,7 +482,7 @@ def rodar():
             processar_movimento(ev, docs_da_rodada); n += 1
         elif ev["tipo_evento"] == "documento" and ev["status"] in ("extraido", "sem_arquivo"):
             print(f"  resumindo {ev['numero']} – {ev['tipo']}...")
-            processar_documento(ev, modelo, falta); n += 1
+            processar_documento(ev, modelo, falta, perfil=perfil); n += 1
             salvar_eventos(lista)  # salva a cada documento: o modelo local é lento
     # andamentos diferentes que viram a mesma frase no mesmo dia (ex.: "Encerrada" e
     # "Levantada" a suspensão): uma linha só

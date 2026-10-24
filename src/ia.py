@@ -1,6 +1,7 @@
 """Provedores de IA: local (Ollama), Claude (API da Anthropic), Claude pelo Claude Code instalado
-neste computador (login da assinatura, sem chave de API) e API compatível com OpenAI, com
-consentimento por relatório e por cliente.
+neste computador (login da assinatura, sem chave de API), Gemini (API do Google), Gemini pelo
+Gemini CLI instalado neste computador (conta Google, sem chave de API) e API compatível com OpenAI,
+com consentimento por relatório e por cliente.
 
 Padrão: **tudo local**. Nada sai do computador sem `true` explícito em
 `perfil["ia"]["consentimento_externo"]` (do relatório) ou em `perfil["ia"]["por_cliente"][cliente]`
@@ -20,9 +21,10 @@ Uso (CONTRATOS §8):
 `motor` é o que **realmente** respondeu: `local:<modelo>`, `externo:<provedor>:<modelo>` ou
 `nenhum` (nem o local respondeu; `texto` vem vazio e há aviso com o motivo).
 
-Provedores externos são cadastrados no painel (/ia): nome, tipo, endereço, modelo e chave. (O tipo
-`claude_cli` não tem chave nem endereço: usa o Claude Code deste computador, já conectado à conta do
-usuário; ver `ProvedorClaudeCLI`. Continua sendo envio externo: o texto vai à Anthropic.) A chave
+Provedores externos são cadastrados no painel (/ia): nome, tipo, endereço, modelo e chave. (Os tipos
+`claude_cli` e `gemini_cli` não têm chave nem endereço: usam o Claude Code ou o Gemini CLI deste
+computador, já conectados à conta do usuário; ver `ProvedorClaudeCLI` e `ProvedorGeminiCLI`. Continuam
+sendo envio externo: o texto vai à Anthropic ou ao Google.) A chave
 vai para o cofre do sistema (`acesso.guardar`, serviço do jusbr-autologin, nome `ia_chave:<provedor>`);
 o catálogo (sem a chave) fica em `config.json`, na chave `ia_provedores`. A chave nunca é mostrada de
 volta, nunca vai para log, aviso, registro nem HTML.
@@ -44,12 +46,12 @@ Falha (sem chave, sem rede, erro ou recusa do provedor, resposta fora do esquema
 cai no motor local e devolve o aviso. Códigos estáveis dos avisos: `ia_externa_sem_consentimento`,
 `ia_provedor_desconhecido`, `ia_sem_chave`, `ia_chave_invalida`, `ia_falha_rede`, `ia_erro_provedor`,
 `ia_recusa_do_provedor`, `ia_resposta_invalida`, `ia_pacote_ausente`, `ia_conteudo_bloqueado`,
-`ia_registro_falhou`, `ia_local_indisponivel`, `ia_cofre_indisponivel`, `ia_cli_ausente` (Claude Code não
-encontrado), `ia_login_necessario` (Claude Code sem login) e `ia_limite_assinatura` (limite de uso da assinatura).
+`ia_registro_falhou`, `ia_local_indisponivel`, `ia_cofre_indisponivel`, `ia_cli_ausente` (CLI não
+encontrado), `ia_login_necessario` (CLI sem login) e `ia_limite_assinatura` (limite de uso da conta).
 
-Testes e ensaios: nada de rede. `provedor(..., transporte=..., fabrica_cliente=...)` troca o HTTP do
-provedor compatível com OpenAI, o cliente do SDK da Anthropic e a execução do Claude Code (`executar=`);
-`ProvedorLocal(ollama=...)` troca o Ollama.
+Testes e ensaios: nada de rede. `provedor(..., transporte=..., fabrica_cliente=...)` troca o HTTP dos
+provedores Gemini e compatível com OpenAI, o cliente do SDK da Anthropic e a execução do Claude Code /
+Gemini CLI (`executar=`); `ProvedorLocal(ollama=...)` troca o Ollama.
 O pacote `anthropic` só é importado quando um provedor Anthropic é de fato chamado.
 """
 import copy
@@ -73,16 +75,22 @@ import comum
 
 TIPOS = {"anthropic": "Claude (API da Anthropic)",
          "claude_cli": "Claude pelo Claude Code deste computador (assinatura, sem chave de API)",
+         "gemini": "Gemini (API do Google)",
+         "gemini_cli": "Gemini pelo Gemini CLI deste computador (conta Google, sem chave de API)",
          "openai_compativel": "API compatível com OpenAI"}
+TIPOS_CLI = ("claude_cli", "gemini_cli")
 MODELO_ANTHROPIC_PADRAO = "claude-opus-5-5"
+MODELO_GEMINI_PADRAO = "gemini-2.5-pro"
+ENDERECO_GEMINI_PADRAO = "https://generativelanguage.googleapis.com/v1beta"
 # modelos para os quais o reencaminhamento no servidor da Anthropic (fallbacks) é ligado por padrão
 MODELOS_COM_FALLBACK = {"claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-fable-5-1"}
 BETA_FALLBACK = "server-side-fallback-2026-07-01"
 PREFIXO_CHAVE = "ia_chave:"
 CHAVE_CONFIG = "ia_provedores"
 TIMEOUT_S = 120
-TIMEOUT_CLI_S = 240      # o Claude Code leva alguns segundos só para subir
-VARIAVEIS_DE_API = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")   # fora do ambiente: o login da assinatura é que vale
+TIMEOUT_CLI_S = 240      # o Claude Code / Gemini CLI leva alguns segundos só para subir
+VARIAVEIS_DE_API = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+                    "GOOGLE_GENAI_USE_VERTEXAI")   # fora do ambiente: o login da assinatura/conta é que vale
 MAX_TOKENS = 16000
 MIN_SEGREDO = 6          # tamanho mínimo para um segredo contar como "achado no texto"
 CLIENTE_TESTE = "(teste de conexão)"
@@ -374,7 +382,7 @@ def _sem_chave(texto, chave):
     texto = str(texto)
     if chave:
         texto = texto.replace(chave, "***")
-    return re.sub(r"\b(sk-[A-Za-z0-9_-]{6,}|Bearer\s+\S+)", "***", texto)[:300]
+    return re.sub(r"\b(sk-[A-Za-z0-9_-]{6,}|AIza[A-Za-z0-9_-]{6,}|Bearer\s+\S+)", "***", texto)[:300]
 
 
 # --- provedor local ----------------------------------------------------------
@@ -765,13 +773,187 @@ def _detalhe_http(bruto, chave):
     return ": " + _sem_chave(msg, chave)
 
 
-CLASSES = {"anthropic": ProvedorAnthropic, "claude_cli": ProvedorClaudeCLI, "openai_compativel": ProvedorOpenAI}
+class ProvedorGemini(ProvedorExterno):
+    """API Gemini do Google (`generateContent`), via HTTP padrão (sem pacote externo).
+    A chave vai apenas no cabeçalho `x-goog-api-key` (nunca na URL). Saída JSON forçada por esquema
+    (`generationConfig.responseJsonSchema`)."""
+
+    tipo = "gemini"
+
+    def __init__(self, nome, config, *, transporte=None, **kw):
+        config = {"modelo": MODELO_GEMINI_PADRAO, **config}
+        if not config.get("modelo"):
+            config["modelo"] = MODELO_GEMINI_PADRAO
+        super().__init__(nome, config, **kw)
+        self._transporte = transporte or _http_post
+
+    def _url(self):
+        base = (self.config.get("endereco") or ENDERECO_GEMINI_PADRAO).rstrip("/")
+        if base.endswith(":generateContent"):
+            return base
+        modelo = (self.modelo or MODELO_GEMINI_PADRAO).removeprefix("models/")
+        if not base.endswith("/models"):
+            base += "/models"
+        return f"{base}/{modelo}:generateContent"
+
+    def _pedido(self, sistema, usuario, esquema):
+        corpo = {"contents": [{"role": "user", "parts": [{"text": usuario}]}]}
+        if sistema:
+            corpo["systemInstruction"] = {"parts": [{"text": sistema}]}
+        gen = {"temperature": 0, "maxOutputTokens": int(self.config.get("max_tokens") or MAX_TOKENS)}
+        if esquema:
+            gen["responseMimeType"] = "application/json"
+            gen["responseJsonSchema"] = _esquema_estrito(esquema, True)
+        if self.config.get("esforco") in ("low", "medium", "high"):
+            orcamento = {"low": 1024, "medium": 4096, "high": 16384}[self.config["esforco"]]
+            gen["thinkingConfig"] = {"thinkingBudget": orcamento}
+        corpo["generationConfig"] = gen
+        return corpo
+
+    def _chamar(self, chave, sistema, usuario, esquema):
+        corpo = self._pedido(sistema, usuario, esquema)
+        cabecalhos = {"Content-Type": "application/json", "x-goog-api-key": chave}
+        status, bruto = self._transporte(self._url(), cabecalhos, json.dumps(corpo).encode("utf-8"), TIMEOUT_S)
+        if status in (401, 403) or (status == 400 and b"API_KEY_INVALID" in (bruto or b"")):
+            raise ErroProvedor("ia_chave_invalida", "O provedor recusou a chave: confira a chave cadastrada.")
+        if status != 200:
+            raise ErroProvedor("ia_erro_provedor", f"O provedor respondeu com erro HTTP {status}"
+                                                   f"{_detalhe_http(bruto, chave)}.")
+        try:
+            resp = json.loads(bruto)
+            if not isinstance(resp, dict):
+                raise ValueError
+        except ValueError:
+            raise ErroProvedor("ia_resposta_invalida", "A resposta do provedor não tem o formato esperado.")
+        if (resp.get("promptFeedback") or {}).get("blockReason"):
+            raise ErroProvedor("ia_recusa_do_provedor", "O provedor recusou a solicitação.")
+        candidatos = resp.get("candidates")
+        if not isinstance(candidatos, list) or not candidatos or not isinstance(candidatos[0], dict):
+            raise ErroProvedor("ia_resposta_invalida", "A resposta do provedor não tem o formato esperado.")
+        escolha = candidatos[0]
+        if escolha.get("finishReason") in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "RECITATION", "SPII"):
+            raise ErroProvedor("ia_recusa_do_provedor", "O provedor recusou a solicitação.")
+        partes = (escolha.get("content") or {}).get("parts")
+        if not isinstance(partes, list):
+            raise ErroProvedor("ia_resposta_invalida", "A resposta do provedor não tem o formato esperado.")
+        texto = "".join(p.get("text", "") for p in partes if isinstance(p, dict) and not p.get("thought"))
+        dados = None
+        if esquema:
+            dados = _json_da_resposta(texto)
+            if dados is None:
+                raise ErroProvedor("ia_resposta_invalida", "A resposta do provedor não veio no formato pedido.")
+        return texto, dados, resp.get("modelVersion") or self.modelo
+
+
+def localizar_gemini(informado=None):
+    """Caminho do executável do Gemini CLI neste computador, ou None. Vale primeiro o caminho informado
+    no cadastro; depois o PATH e os lugares usuais de instalação."""
+    if isinstance(informado, str) and informado.strip():
+        achado = shutil.which(informado.strip())
+        return achado if achado and Path(achado).is_file() else None
+    casa = Path.home()
+    candidatos = [shutil.which("gemini"), casa / ".local/bin/gemini", "/opt/homebrew/bin/gemini",
+                  "/usr/local/bin/gemini", casa / ".npm-global/bin/gemini", casa / ".local/bin/gemini.cmd",
+                  casa / ".local/bin/gemini.exe"]
+    for c in candidatos:
+        if c and Path(c).is_file() and os.access(c, os.X_OK):
+            return str(c)
+    return None
+
+
+class ProvedorGeminiCLI(ProvedorExterno):
+    """Gemini pelo Gemini CLI instalado neste computador (`gemini -p`), usando o login da conta Google
+    do usuário: sem chave de API. **Continua sendo envio externo** (o texto vai ao Google), por isso passa
+    pelo mesmo consentimento, pseudonimização, barreira de segredos e registro de envios dos demais.
+
+    Execução isolada em uma pasta temporária vazia e sem variáveis de chave de API no ambiente (para
+    valer o login da conta, não uma chave solta no terminal). O texto dos documentos vai por stdin,
+    nunca pela linha de comando."""
+
+    tipo = "gemini_cli"
+    precisa_chave = False
+
+    def __init__(self, nome, config, *, executar=None, **kw):
+        super().__init__(nome, config, **kw)
+        self._executar = executar or subprocess.run
+
+    def _motor(self, modelo):
+        return f"externo:{self.nome}:{modelo or self.modelo or 'padrao'}"
+
+    def _comando(self, exe, sistema, esquema):
+        instrucao = sistema or "Responda em português, de forma objetiva."
+        if esquema:
+            instrucao += "\n\nResponda apenas com um objeto JSON neste esquema:\n" + json.dumps(esquema, ensure_ascii=False)
+        cmd = [exe, "-p", instrucao, "--output-format", "json"]
+        if self.modelo:
+            cmd += ["-m", self.modelo]
+        return cmd
+
+    def _chamar(self, chave, sistema, usuario, esquema):
+        exe = localizar_gemini(self.config.get("executavel"))
+        if not exe:
+            raise ErroProvedor("ia_cli_ausente", "O Gemini CLI não foi encontrado neste computador. Instale-o "
+                                                  "(@google/gemini-cli) ou informe o caminho no cadastro do provedor.")
+        ambiente = {k: v for k, v in os.environ.items() if k not in VARIAVEIS_DE_API}
+        with tempfile.TemporaryDirectory(prefix="relatorio-ia-") as pasta:
+            try:
+                r = self._executar(self._comando(exe, sistema, esquema), input=usuario, capture_output=True, text=True,
+                                   encoding="utf-8", cwd=pasta, env=ambiente, timeout=TIMEOUT_CLI_S)
+            except subprocess.TimeoutExpired:
+                raise ErroProvedor("ia_falha_rede", "O Gemini CLI não respondeu a tempo.")
+            except OSError as e:
+                raise ErroProvedor("ia_cli_ausente", f"Não foi possível executar o Gemini CLI ({type(e).__name__}).")
+        saida = None
+        try:
+            saida = json.loads(r.stdout)
+            if not isinstance(saida, dict):
+                saida = None
+        except ValueError:
+            saida = None
+        if saida is None:
+            detalhe = _sem_chave((r.stderr or r.stdout or "").strip(), None)
+            baixo = detalhe.lower()
+            if "login" in baixo or "auth" in baixo or "sign in" in baixo or "credentials" in baixo:
+                raise ErroProvedor("ia_login_necessario", "O Gemini CLI não está conectado à sua conta: abra o Gemini "
+                                                           "CLI e faça login na sua conta Google, depois tente de novo.")
+            raise ErroProvedor("ia_erro_provedor", "O Gemini CLI não devolveu uma resposta legível"
+                                                    f"{': ' + detalhe if detalhe else ''}.")
+        erro_obj = saida.get("error")
+        msg_erro = erro_obj.get("message", str(erro_obj)) if isinstance(erro_obj, dict) else str(erro_obj or "")
+        resultado = str(saida.get("response") if "response" in saida else saida.get("result") or "")
+        if erro_obj or saida.get("is_error") or r.returncode != 0:
+            texto_erro = (msg_erro or resultado or (r.stderr or "").strip())
+            baixo = texto_erro.lower()
+            if "login" in baixo or "auth" in baixo or "sign in" in baixo or "credentials" in baixo or "unauthenticated" in baixo:
+                raise ErroProvedor("ia_login_necessario", "O Gemini CLI não está conectado à sua conta: abra o Gemini "
+                                                           "CLI e faça login na sua conta Google, depois tente de novo.")
+            if ("limit" in baixo or "quota" in baixo or "429" in baixo or "exhausted" in baixo) and (
+                "usage" in baixo or "rate" in baixo or "reached" in baixo or "quota" in baixo or "exhausted" in baixo
+            ):
+                raise ErroProvedor("ia_limite_assinatura", "O limite de uso da conta foi atingido. Tente mais tarde.")
+            raise ErroProvedor("ia_erro_provedor", f"O Gemini CLI devolveu erro: {_sem_chave(texto_erro, None)}")
+        dados = None
+        texto = resultado
+        if esquema:
+            dados = _json_da_resposta(resultado)
+            if dados is None:
+                raise ErroProvedor("ia_resposta_invalida", "A resposta do provedor não veio no formato pedido.")
+        modelos = ((saida.get("stats") or {}).get("models") if isinstance(saida.get("stats"), dict) else None)
+        modelo = (next(iter(modelos)) if isinstance(modelos, dict) and len(modelos) == 1
+                  else saida.get("model") if isinstance(saida.get("model"), str) else None)
+        return texto, dados, modelo
+
+
+CLASSES = {"anthropic": ProvedorAnthropic, "claude_cli": ProvedorClaudeCLI,
+           "gemini": ProvedorGemini, "gemini_cli": ProvedorGeminiCLI,
+           "openai_compativel": ProvedorOpenAI}
 
 
 def _extras(tipo, transporte, fabrica_cliente, executar):
     """Substitutos de rede/execução (só para testes) que cada tipo de provedor aceita."""
-    return {"openai_compativel": {"transporte": transporte}, "anthropic": {"fabrica_cliente": fabrica_cliente},
-            "claude_cli": {"executar": executar}}[tipo]
+    return {"openai_compativel": {"transporte": transporte}, "gemini": {"transporte": transporte},
+            "anthropic": {"fabrica_cliente": fabrica_cliente}, "claude_cli": {"executar": executar},
+            "gemini_cli": {"executar": executar}}[tipo]
 
 
 # --- catálogo de provedores (tela IA) ----------------------------------------
@@ -810,8 +992,9 @@ def _endereco_ok(endereco):
 def cadastrar(nome, tipo, modelo, endereco="", chave=None, **opcoes):
     """Cadastra ou atualiza um provedor. Devolve lista de avisos; **vazia = salvo**. Chave vazia/None
     mantém a que já está no cofre. `opcoes` aceitas: `fallback_servidor` (bool, Anthropic), `esforco`
-    (Anthropic e Claude Code), `formato_json` (compatível com OpenAI), `max_tokens`, `executavel` (Claude Code).
-    O tipo `claude_cli` não tem chave nem endereço, e o modelo é opcional (vazio = o padrão da conta)."""
+    (Anthropic, Claude Code e Gemini), `formato_json` (compatível com OpenAI), `max_tokens`, `executavel`
+    (Claude Code e Gemini CLI). Os tipos `claude_cli` e `gemini_cli` não têm chave nem endereço, e o
+    modelo é opcional (vazio = o padrão da conta)."""
     nome = (nome or "").strip()
     chave_id = comum.slug(nome)
     erro = None
@@ -819,20 +1002,20 @@ def cadastrar(nome, tipo, modelo, endereco="", chave=None, **opcoes):
         erro = "Dê um nome ao provedor (o nome \"local\" é reservado)."
     elif tipo not in CLASSES:
         erro = "Tipo de provedor desconhecido."
-    elif not (modelo or "").strip() and tipo != "claude_cli":
+    elif not (modelo or "").strip() and tipo not in TIPOS_CLI:
         erro = "Informe o modelo."
     elif tipo == "openai_compativel" and not (endereco or "").strip():
         erro = "Informe o endereço da API (ex.: https://api.exemplo.com/v1)."
-    elif (endereco or "").strip() and tipo != "claude_cli":
+    elif (endereco or "").strip() and tipo not in TIPOS_CLI:
         erro = _endereco_ok(endereco.strip())
     if erro:
         return [aviso("ia_cadastro_invalido", erro, "erro")]
     registro = {"nome": nome, "tipo": tipo, "modelo": (modelo or "").strip(),
-                "endereco": "" if tipo == "claude_cli" else (endereco or "").strip()}
+                "endereco": "" if tipo in TIPOS_CLI else (endereco or "").strip()}
     for k in ("fallback_servidor", "esforco", "formato_json", "max_tokens", "executavel"):
         if opcoes.get(k) not in (None, ""):
             registro[k] = opcoes[k]
-    if chave and tipo != "claude_cli":
+    if chave and tipo not in TIPOS_CLI:
         try:
             acesso.guardar(PREFIXO_CHAVE + chave_id, chave.strip())
         except Exception:

@@ -80,7 +80,7 @@ Observações qualitativas (documentos de maior risco, lidos um a um):
 1. Abra o **Claude Code** do computador e faça `/login` (a conta da assinatura). Sem isso o provedor responde "não conectado".
 2. Painel -> **IA** -> cadastrar provedor, tipo **"Claude pelo Claude Code deste computador"**: nome (por exemplo `claude-sonnet`),
    modelo `sonnet` (ou `haiku`, `opus`; também aceita o nome completo, por exemplo `claude-sonnet-5-5`), caminho em branco.
-   O **esforço** (`medium`) hoje é uma opção do cadastro (`ia.cadastrar(..., esforco="medium")`); a tela ainda não tem o campo.
+   Em **Opções avançadas**, você pode escolher o **Nível de esforço de raciocínio** (`Médio` recomendado).
 3. **Testar** (uma frase fixa, sem dado de cliente). Depois escolha o provedor para o relatório, marque o consentimento do cliente
    e deixe **pseudonimizar** ligado.
 4. O consumo entra no limite da assinatura. O texto dos documentos vai à Anthropic (não é IA local): confira os termos da sua conta.
@@ -101,5 +101,5 @@ Observações qualitativas (documentos de maior risco, lidos um a um):
   respondeu ao teste de conexão e ao formato estruturado com Haiku 5.5 e Sonnet 5.5; isso basta para seguir.
 - Falta: (1) ~~repetir o T4 pelo provedor real~~ (dispensado); (2) revisão cega por um advogado; (3) ampliar o lote (30 a 60
   documentos, mais tipos e outras áreas); (4) **roteamento por tarefa** (provedor leve para mapeamento/normalização/extração e
-  provedor padrão para resumos); (5) campo "esforço" na tela IA; (6) módulo de migração assistida por IA (mapeamento de colunas,
+  provedor padrão para resumos); (5) ~~campo "esforço" na tela IA~~ (feito no beta9); (6) módulo de migração assistida por IA (mapeamento de colunas,
   normalização e extração de texto livre) usando Haiku médio, sempre com a tela de conferência humana, e as regras determinísticas primeiro.

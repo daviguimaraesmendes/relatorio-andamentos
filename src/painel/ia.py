@@ -1,9 +1,10 @@
 """Tela IA (/ia): provedores de IA, consentimento por relatório e por cliente e registro de envios.
 
 - Cadastro de provedores externos (Claude pela API da Anthropic, Claude pelo Claude Code deste
-  computador ou serviço compatível com OpenAI): nome, endereço, modelo e chave. A chave vai direto
-  para o cofre do sistema e **nunca** volta para a tela (o campo fica sempre vazio; em branco, mantém
-  a guardada). O Claude pelo Claude Code não usa chave: vale o login da assinatura já feito nele.
+  computador, Gemini pela API do Google, Gemini pelo Gemini CLI deste computador ou serviço compatível
+  com OpenAI): nome, endereço, modelo e chave. A chave vai direto para o cofre do sistema e **nunca**
+  volta para a tela (o campo fica sempre vazio; em branco, mantém a guardada). O Claude pelo Claude Code
+  e o Gemini pelo Gemini CLI não usam chave: vale o login da conta já feito neles.
   O formulário esconde e mostra os campos conforme o tipo escolhido (pequeno script na própria página,
   sem recurso externo; sem script, todos os campos aparecem).
 - Botão Testar: manda uma frase fixa, sem dado de cliente, e mostra o resultado.
@@ -14,7 +15,7 @@
 
 Rotas: GET /ia, GET /ia/registro, POST /ia/provedor, /ia/remover, /ia/testar, /ia/consentimento.
 A lógica está em ia.py; aqui só há a tela. Para os testes, `TRANSPORTE`, `FABRICA_CLIENTE` e
-`EXECUTAR` substituem a rede e o Claude Code (padrão: None = real).
+`EXECUTAR` substituem a rede e os CLIs (padrão: None = real).
 """
 import html
 
@@ -33,6 +34,7 @@ _e = html.escape
 CHAVE_OK = "<b style='color:var(--ok)'>guardada ✓</b>"
 CHAVE_FALTA = "<b style='color:var(--alerta)'>sem chave</b>"
 CHAVE_LOGIN = "<b style='color:var(--ok)'>login do Claude Code</b>"
+CHAVE_LOGIN_GEMINI = "<b style='color:var(--ok)'>login do Gemini CLI</b>"
 
 ESTILO_LOCAL = ("<style>table.ia{border-collapse:collapse;width:100%}table.ia td,table.ia th{border:1px solid var(--linha);"
                 "padding:4px 8px;font-size:14px;text-align:left;vertical-align:top}.selo{display:inline-block;padding:1px 8px;"
@@ -44,12 +46,13 @@ ESTILO_LOCAL = ("<style>table.ia{border-collapse:collapse;width:100%}table.ia td
 # ignora o que não se aplica ao tipo). Sem JavaScript, tudo aparece e as dicas dizem a que tipo cada campo se refere.
 SCRIPT_TIPOS = """<script>
 (function(){var f=document.getElementById('form-provedor');if(!f)return;var tipo=f.querySelector('[name=tipo]');
-var modelo=f.querySelector('[name=modelo]'),padrao=modelo.getAttribute('data-padrao-anthropic');
+var modelo=f.querySelector('[name=modelo]'),padrao=modelo.getAttribute('data-padrao-anthropic'),padraoG=modelo.getAttribute('data-padrao-gemini');
 function atualizar(){var t=tipo.value;f.querySelectorAll('[data-tipos]').forEach(function(el){
 el.hidden=el.getAttribute('data-tipos').split(' ').indexOf(t)<0});
 var det=f.querySelector('details.avancado');if(det){var visivel=det.querySelectorAll('[data-tipos]:not([hidden])').length>0;det.hidden=!visivel}
-if(t==='anthropic'&&!modelo.value)modelo.value=padrao;
-if(t!=='anthropic'&&modelo.value===padrao)modelo.value=''}
+if(t==='anthropic'&&(!modelo.value||modelo.value===padraoG))modelo.value=padrao;
+else if(t==='gemini'&&(!modelo.value||modelo.value===padrao))modelo.value=padraoG;
+else if(t!=='anthropic'&&t!=='gemini'&&(modelo.value===padrao||modelo.value===padraoG))modelo.value=''}
 tipo.addEventListener('change',atualizar);atualizar()})();
 </script>"""
 
@@ -88,7 +91,15 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         tipo = atual.get("tipo", "anthropic")
         opcoes = "".join(f"<option value='{t}' {'selected' if t == tipo else ''}>{_e(r)}</option>" for t, r in ia.TIPOS.items())
         fallback = atual.get("fallback_servidor", True)
+        esforco = atual.get("esforco", "")
         padrao = _e(ia.MODELO_ANTHROPIC_PADRAO)
+        padrao_gemini = _e(ia.MODELO_GEMINI_PADRAO)
+        modelo_inicial = atual.get("modelo", ia.MODELO_ANTHROPIC_PADRAO if tipo == "anthropic"
+                                   else ia.MODELO_GEMINI_PADRAO if tipo == "gemini" else "")
+        opcoes_esforco = "".join(
+            f"<option value='{v}' {'selected' if v == esforco else ''}>{r}</option>"
+            for v, r in (("", "Padrão do modelo"), ("low", "Baixo"), ("medium", "Médio"), ("high", "Alto"))
+        )
         return (f"<form class='caixa' id='form-provedor' method='post' action='/ia/provedor'>{oculto}"
                 f"<b>{'Atualizar' if atual else 'Cadastrar'} provedor</b>"
                 + ajuda("Um provedor é um serviço de IA fora do seu computador que pode resumir documentos no lugar da IA local. "
@@ -99,25 +110,34 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 + ajuda("“Claude (API)”: manda o texto à Anthropic pela API, com uma chave sua (cobrança conforme o uso). "
                         "“Claude pelo Claude Code”: usa o Claude Code já instalado e conectado neste computador, com o login da sua "
                         "assinatura, sem chave de API; o texto TAMBÉM vai à Anthropic, então NÃO é IA local. "
+                        "“Gemini (API do Google)”: manda o texto ao Google pela API Gemini (Google AI Studio), com uma chave sua. "
+                        "“Gemini pelo Gemini CLI”: usa o Gemini CLI instalado neste computador, com o login da sua conta Google, sem "
+                        "chave de API; o texto TAMBÉM vai ao Google, então NÃO é IA local. "
                         "“API compatível com OpenAI”: qualquer serviço que fale o mesmo protocolo (por exemplo, um gateway do "
                         "escritório); precisa de endereço https, modelo e chave.")
                 + f"<br><select name='tipo'>{opcoes}</select></label></p>"
                 "<div class='alerta' data-tipos='claude_cli'><b>Atenção: o Claude Code NÃO é IA local.</b> Ele roda neste computador, mas "
                 "o texto dos documentos autorizados é enviado à Anthropic, só que pela sua assinatura em vez da API. Os termos de uso e "
                 "de retenção de dados de uma assinatura podem ser diferentes dos da API: confira antes de autorizar dados de clientes.</div>"
+                "<div class='alerta' data-tipos='gemini_cli'><b>Atenção: o Gemini CLI NÃO é IA local.</b> Ele roda neste computador, mas "
+                "o texto dos documentos autorizados é enviado ao Google pela sua conta, em vez da API. Os termos de uso e de retenção de "
+                "dados da conta podem ser diferentes dos da API: confira antes de autorizar dados de clientes.</div>"
                 f"<p><label>Nome (como aparecerá nas telas)"
-                + ajuda("Um nome seu para reconhecer este provedor (por exemplo, \"Claude do escritório\"). Escolher o mesmo nome de um "
+                + ajuda("Um nome seu para reconhecer este provedor (por exemplo, \"Claude do escritório\" ou \"Gemini do escritório\"). Escolher o mesmo nome de um "
                         "provedor já cadastrado atualiza aquele. \"local\" é reservado.")
-                + f"<br><input type='text' name='nome' size='30' required placeholder='ex.: Claude do escritório' "
+                + f"<br><input type='text' name='nome' size='30' required placeholder='ex.: Claude ou Gemini do escritório' "
                 f"value='{_e(atual.get('nome', ''))}'></label></p>"
                 f"<p><label>Modelo"
-                + ajuda("O modelo de IA que fará os resumos. Claude (API): o padrão sugerido serve. Claude Code: pode deixar em branco "
-                        "(usa o padrão da sua conta) ou usar um apelido como opus ou sonnet. Outro serviço: o nome do modelo como "
-                        "o próprio serviço o chama.")
-                + f"<br><input type='text' name='modelo' size='40' data-padrao-anthropic='{padrao}' "
-                f"value='{_e(atual.get('modelo', ia.MODELO_ANTHROPIC_PADRAO if tipo == 'anthropic' else ''))}'></label>"
+                + ajuda("O modelo de IA que fará os resumos. Claude (API) e Gemini (API): o padrão sugerido serve. Claude Code e Gemini CLI: "
+                        "pode deixar em branco (usa o padrão da sua conta) ou informar o nome/apelido do modelo. Outro serviço: o nome do "
+                        "modelo como o próprio serviço o chama.")
+                + f"<br><input type='text' name='modelo' size='40' data-padrao-anthropic='{padrao}' data-padrao-gemini='{padrao_gemini}' "
+                f"value='{_e(modelo_inicial)}'></label>"
                 f"<br><span class='dica' data-tipos='anthropic'>Claude (API): o padrão é <code>{padrao}</code>.</span>"
                 "<span class='dica' data-tipos='claude_cli'>Claude Code: um apelido (<code>opus</code>, <code>sonnet</code>...) ou, em branco, "
+                "o padrão da sua conta.</span>"
+                f"<span class='dica' data-tipos='gemini'>Gemini (API): o padrão é <code>{padrao_gemini}</code> (ou <code>gemini-2.5-flash</code>).</span>"
+                "<span class='dica' data-tipos='gemini_cli'>Gemini CLI: o nome do modelo (ex.: <code>gemini-2.5-pro</code>) ou, em branco, "
                 "o padrão da sua conta.</span>"
                 "<span class='dica' data-tipos='openai_compativel'>Outro serviço: o nome do modelo como o serviço o chama.</span></p>"
                 f"<p data-tipos='openai_compativel'><label>Endereço da API"
@@ -126,25 +146,27 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 + f"<br><input type='text' name='endereco' size='60' placeholder='endereço do serviço, começando com https' "
                 f"value='{_e(atual.get('endereco', ''))}'></label>"
                 "<br><span class='dica'>Obrigatório para serviço compatível com OpenAI (o endereço da API do serviço). "
-                "Para o Claude, deixe em branco. O endereço precisa começar com https.</span></p>"
-                f"<p data-tipos='anthropic openai_compativel'><label>Chave da API"
+                "Para o Claude e o Gemini, deixe em branco. O endereço precisa começar com https.</span></p>"
+                f"<p data-tipos='anthropic gemini openai_compativel'><label>Chave da API"
                 + ajuda("Sua senha de acesso ao serviço. Vai direto para o cofre do sistema (Keychain no Mac, Gerenciador de Credenciais no Windows) e nunca mais "
                         "aparece na tela nem fica em arquivo do programa. Deixar em branco mantém a chave já guardada.")
                 + "<br><input type='password' name='chave' autocomplete='off' size='50'></label>"
                 "<br><span class='dica'>Vai para o cofre do sistema e não volta a aparecer na tela. "
-                "Não se aplica ao Claude pelo Claude Code (usa o login dele). "
+                "Não se aplica ao Claude pelo Claude Code nem ao Gemini pelo Gemini CLI (usam o login da conta). "
                 f"{'Já há uma chave guardada: em branco, mantém.' if atual and ia.chave_configurada(editando) else ''}</span></p>"
                 "<details class='avancado'><summary>Opções avançadas</summary>"
-                "<p data-tipos='claude_cli'><label>Caminho do Claude Code (só para o tipo \"Claude pelo Claude Code\")"
-                + ajuda("Onde o programa Claude Code está instalado neste computador. Em branco, a ferramenta procura sozinha. "
-                        "Ele roda sem ferramentas, numa pasta temporária vazia, e não lê os seus arquivos. Vale a conta em que o Claude "
-                        "Code já está conectado (/login); o consumo entra no limite da sua assinatura.")
+                "<p data-tipos='claude_cli gemini_cli'><label>Caminho do executável (só para Claude Code ou Gemini CLI)"
+                + ajuda("Onde o programa (Claude Code ou Gemini CLI) está instalado neste computador. Em branco, a ferramenta procura sozinha. "
+                        "Ele roda numa pasta temporária vazia e não lê os seus arquivos. Vale a conta em que o programa já está conectado; "
+                        "o consumo entra no limite da sua conta.")
                 + f"<br><input type='text' name='executavel' size='60' placeholder='deixe em branco para procurar sozinho' "
                 f"value='{_e(atual.get('executavel', ''))}'></label>"
-                "<br><span class='dica'>Em branco, a ferramenta procura sozinha. Vale a conta em que o Claude Code já está "
-                "conectado (<code>/login</code>); o consumo entra no limite da sua assinatura. <b>O texto continua indo à "
-                "Anthropic</b>, só que pela assinatura e não pela API: confira os termos da sua conta antes de autorizar "
-                "dados de clientes.</span></p>"
+                "<br><span class='dica'>Em branco, a ferramenta procura sozinha. Vale a conta em que o Claude Code ou o Gemini CLI já está "
+                "conectado; o consumo entra no limite da sua conta. <b>O texto continua indo à Anthropic ou ao Google</b>, só que pela conta "
+                "e não pela API: confira os termos da sua conta antes de autorizar dados de clientes.</span></p>"
+                f"<p data-tipos='anthropic claude_cli gemini'><label>Nível de esforço de raciocínio"
+                + ajuda("Quanto esforço extra o modelo dedica antes de responder. Deixar em \"Padrão do modelo\" serve para quase todos os casos.")
+                + f"<br><select name='esforco'>{opcoes_esforco}</select></label></p>"
                 f"<p data-tipos='anthropic'><label><input type='checkbox' name='fallback_servidor' value='1' {'checked' if fallback else ''}> "
                 "Claude: se o modelo recusar o pedido, deixar a Anthropic tentar outro modelo dela (na mesma chamada)</label>"
                 + ajuda("Se o modelo escolhido se recusar a responder, a própria Anthropic tenta outro modelo dela dentro da mesma "
@@ -210,8 +232,8 @@ def registrar(app, TOKEN, cabecalho, token_ok):
              "<div class='caixa'><b>O que fazer agora</b><p>Se você quer manter tudo no seu computador, <b>não precisa fazer nada aqui</b>. "
              "Para usar um serviço externo: (1) cadastre o provedor, (2) na seção 2 escolha-o e autorize os clientes e (3) confirme que "
              "entendeu o que será enviado. Sem os três passos, nada sai do computador.</p>"
-             "<p class='dica'>O Claude Code é um serviço externo, <b>não</b> uma IA local: o texto autorizado vai à Anthropic pela sua "
-             "assinatura, em vez da API.</p></div>"]
+             "<p class='dica'>O Claude Code e o Gemini CLI são serviços externos, <b>não</b> IA local: o texto autorizado vai à Anthropic ou "
+             "ao Google pela sua conta, em vez da API.</p></div>"]
 
         h.append(_bloco_ia_local())
 
@@ -225,12 +247,12 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                 linhas.append(
                     f"<tr><td>{_e(p.get('nome', chave_id))}</td><td>{_e(ia.TIPOS.get(p['tipo'], p['tipo']))}</td>"
                     f"<td>{_e(p.get('modelo', ''))}</td><td>{_e(p.get('endereco') or '(padrão do serviço)')}</td>"
-                    f"<td>{CHAVE_LOGIN if p['tipo'] == 'claude_cli' else CHAVE_OK if ia.chave_configurada(chave_id) else CHAVE_FALTA}</td>"
+                    f"<td>{CHAVE_LOGIN if p['tipo'] == 'claude_cli' else CHAVE_LOGIN_GEMINI if p['tipo'] == 'gemini_cli' else CHAVE_OK if ia.chave_configurada(chave_id) else CHAVE_FALTA}</td>"
                     f"<td><form method='post' action='/ia/testar' style='display:inline'>{oculto}"
                     f"<input type='hidden' name='nome' value='{_e(chave_id)}'><button>Testar</button>"
                     + ajuda("Manda ao provedor uma frase fixa (\"Teste de conexão.\"), sem nenhum dado de cliente, para ver se a chave ou "
-                            "o login funciona. Essa frase sai do computador e fica no registro de envios. No Claude Code pode levar alguns "
-                            "segundos e usa um pouco da sua assinatura.")
+                            "o login funciona. Essa frase sai do computador e fica no registro de envios. No Claude Code ou Gemini CLI pode "
+                            "levar alguns segundos e usa um pouco da sua conta.")
                     + f"</form> <a href='/ia?editar={_e(chave_id)}'>editar</a>"
                     + ajuda("Abre os dados deste provedor no formulário abaixo para você mudar. A chave guardada nunca aparece; "
                             "deixá-la em branco mantém a atual.")
@@ -242,7 +264,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                     + "</form></td></tr>")
             h.append("<table class='ia'><tr><th>Nome</th><th>Tipo</th><th>Modelo</th><th>Endereço</th><th>Chave"
                      + ajuda("\"guardada ✓\": há uma chave no cofre do sistema. \"sem chave\": falta cadastrar a chave. \"login do Claude "
-                             "Code\": este tipo não usa chave, vale a conta em que o Claude Code já está conectado.")
+                             "Code\" / \"login do Gemini CLI\": este tipo não usa chave, vale a conta em que o programa já está conectado.")
                      + "</th><th></th></tr>"
                      + "".join(linhas) + "</table>"
                      "<p class='dica'>Testar envia só a frase \"Teste de conexão.\" (nenhum dado de cliente) e fica no registro de envios.</p>")
@@ -325,7 +347,7 @@ def registrar(app, TOKEN, cabecalho, token_ok):
         f = request.form
         avisos = ia.cadastrar(f.get("nome", ""), f.get("tipo", ""), f.get("modelo", ""), f.get("endereco", ""),
                               chave=f.get("chave", ""), fallback_servidor=bool(f.get("fallback_servidor")),
-                              executavel=f.get("executavel", "").strip())
+                              esforco=f.get("esforco", "").strip(), executavel=f.get("executavel", "").strip())
         return _ir("/ia", " ".join(a["mensagem"] for a in avisos) or f"Provedor \"{f.get('nome', '').strip()}\" salvo.")
 
     @app.post("/ia/remover")

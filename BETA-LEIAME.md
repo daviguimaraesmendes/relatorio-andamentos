@@ -1,6 +1,18 @@
-# Relatório de Andamentos — versão 2.0.0-beta8
+# Relatório de Andamentos — versão 2.0.0-beta9
 
-Esta é a primeira versão de teste da **Fase 2**. Ela acrescenta, ao que você já usa, a montagem e a atualização de relatórios completos (texto, planilha e dashboard). O acesso ao jus.br e aos TRTs é o mesmo que já funciona; a aba **Atualizar** da versão anterior continua no painel, como plano B.
+Esta é a versão de teste da **Fase 2**. Ela acrescenta, ao que você já usa, a montagem e a atualização de relatórios completos (texto, planilha e dashboard). O acesso ao jus.br e aos TRTs é o mesmo que já funciona; a aba **Atualizar** da versão anterior continua no painel, como plano B.
+
+## 00000000. Novo no beta9 (Gemini como IA na nuvem, esforço de raciocínio e melhorias gerais)
+
+**Abra o painel de novo depois de atualizar.**
+
+1. **Gemini como IA na nuvem (API do Google e Gemini CLI):** além do Claude, agora é possível ligar o **Gemini** na tela **IA** para fazer os resumos e tarefas de IA do projeto:
+   - **Gemini (API do Google):** usa a sua chave do Google AI Studio (`gemini-2.5-pro` por padrão, ou `gemini-2.5-flash`), guardada no cofre do sistema e enviada apenas por cabeçalho seguro (`x-goog-api-key`), sem depender de pacote externo;
+   - **Gemini pelo Gemini CLI deste computador (conta Google, sem chave de API):** usa o Gemini CLI instalado no computador com o login da sua conta Google, rodando isolado numa pasta temporária vazia. **Assim como o Claude Code, NÃO é IA local** (o texto autorizado vai ao Google).
+   - Ambos passam pelas mesmas travas do projeto: consentimento explícito por relatório e por cliente, pseudonimização ligada por padrão, bloqueio de segredos do cofre, registro local de envios (`data/ia/envios.jsonl` sem o texto) e queda automática para o motor local se algo falhar.
+2. **Nível de esforço de raciocínio na tela IA:** em "Opções avançadas" do cadastro do provedor, agora é possível escolher o esforço (`Padrão do modelo`, `Baixo`, `Médio` ou `Alto`) para Claude (API e Claude Code) e Gemini (API).
+3. **Resumo em lote também respeita o provedor externo autorizado:** a etapa de resumo da coleta padrão (`resumir.py`) agora também usa o provedor externo (Claude ou Gemini) quando o relatório e o cliente têm consentimento registrado no perfil.
+4. **Revisão geral de código e pacote Windows:** o script de montagem do instalador do Windows (`instalador/montar.ps1`) agora inclui `VERSAO` e `BETA-LEIAME.md`, e o fechamento de descritores de log e testes de navegador foram aprimorados.
 
 ## 0000000. Novo no beta8 (planilha de contingências, "o que falta" e dois modos de trabalho)
 

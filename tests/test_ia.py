@@ -26,6 +26,7 @@ import comum  # noqa: E402
 import ia  # noqa: E402
 
 LOCALIZAR_CLAUDE_REAL = ia.localizar_claude
+LOCALIZAR_GEMINI_REAL = ia.localizar_gemini
 CLIENTE = "Cliente Exemplo 01 Ltda"
 CLIENTE_2 = "Cliente Exemplo 02 S.A."
 CONTRARIA = "Pessoa Ficticia 0123"
@@ -1114,10 +1115,176 @@ class Tela(Base):
             self.assertIn(CLIENTE, pagina)
             self.assertNotIn(SEGREDO_TEXTO, pagina)
 
+    def test_gemini_e_gemini_cli_pela_tela(self):
+        resp = self.post("/ia/provedor", {"nome": "Gemini Escritorio", "tipo": "gemini", "modelo": "gemini-2.5-pro",
+                                          "endereco": "", "chave": CHAVE, "esforco": "medium"})
+        self.assertIn("salvo", self.seguir(resp))
+        self.assertEqual(ia.provedores()["gemini-escritorio"]["esforco"], "medium")
+        self.assertEqual(self.cofre.dados["ia_chave:gemini-escritorio"], CHAVE)
+        resp_cli = self.post("/ia/provedor", {"nome": "Gemini CLI", "tipo": "gemini_cli", "modelo": "", "chave": CHAVE,
+                                              "executavel": "/x/gemini"})
+        self.assertIn("salvo", self.seguir(resp_cli))
+        self.assertNotIn("ia_chave:gemini-cli", self.cofre.dados)
+        pagina = self.c.get("/ia").get_data(as_text=True)
+        self.assertIn("login do Gemini CLI", pagina)
+        self.assertNotIn(CHAVE, pagina)
+        with mock.patch.object(ia, "localizar_gemini", lambda informado=None: "/x/gemini"):
+            self.tela.EXECUTAR = CLIFalso(json.dumps({"response": "ok", "stats": {"models": {"gemini-2.5-pro": {}}}}))
+            self.assertIn("Teste concluído", self.seguir(self.post("/ia/testar", {"nome": "gemini-cli"})))
+
     def test_remover_pela_tela(self):
         self.cadastrar()
         self.assertIn("removido", self.seguir(self.post("/ia/remover", {"nome": "externo-a"})))
         self.assertEqual(ia.provedores(), {})
+
+
+# --- Gemini (API do Google e Gemini CLI) -------------------------------------
+
+def resposta_gemini(conteudo, status=200, modelo="gemini-2.5-pro", finish="STOP", block=None):
+    corpo = {"modelVersion": modelo}
+    if block:
+        corpo["promptFeedback"] = {"blockReason": block}
+    else:
+        corpo["candidates"] = [{"content": {"parts": [{"text": "pensando...", "thought": True}, {"text": conteudo}]},
+                                "finishReason": finish}]
+    return status, json.dumps(corpo).encode("utf-8")
+
+
+class GeminiAPI(Base):
+    def cadastrar_gemini(self, nome="gemini-api", modelo="gemini-2.5-pro", **kw):
+        self.assertEqual(ia.cadastrar(nome, "gemini", modelo, chave=CHAVE, **kw), [])
+
+    def prov(self, transporte=None, **kw_perfil):
+        return ia.provedor(perfil("gemini-api", **kw_perfil), CLIENTE, projeto=self.projeto, local=local_falso(),
+                           transporte=transporte or Transporte(lambda p: resposta_gemini(json.dumps({"conteudo": "resumo gemini", "prazo": "5 dias"}))))
+
+    def test_chamada_completa_esquema_e_chave_no_cabecalho(self):
+        self.cadastrar_gemini(esforco="high")
+        t = Transporte(lambda p: resposta_gemini(json.dumps({"conteudo": "resumo gemini", "prazo": "5 dias"}),
+                                                 modelo="gemini-2.5-pro-001"))
+        r = self.prov(t, pseudonimizar=False).gerar("Sistema Gemini", "Texto do documento", esquema=ESQUEMA, cliente=CLIENTE)
+        self.assertEqual(r["json"], {"conteudo": "resumo gemini", "prazo": "5 dias"})
+        self.assertEqual(r["motor"], "externo:gemini-api:gemini-2.5-pro-001")
+        self.assertEqual(ia.selo(r["motor"]), "externa: gemini-api")
+        self.assertEqual(r["avisos"], [])
+        (pedido,) = t.pedidos
+        self.assertEqual(pedido["url"], "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent")
+        self.assertNotIn(CHAVE, pedido["url"])
+        self.assertEqual(pedido["cabecalhos"]["x-goog-api-key"], CHAVE)
+        corpo = pedido["corpo"]
+        self.assertEqual(corpo["systemInstruction"], {"parts": [{"text": "Sistema Gemini"}]})
+        self.assertEqual(corpo["contents"], [{"role": "user", "parts": [{"text": "Texto do documento"}]}])
+        gen = corpo["generationConfig"]
+        self.assertEqual(gen["responseMimeType"], "application/json")
+        self.assertIs(gen["responseJsonSchema"]["additionalProperties"], False)
+        self.assertEqual(gen["thinkingConfig"], {"thinkingBudget": 16384})
+
+    def test_chave_aiza_nao_vaza_em_erro(self):
+        chave_google = "AIzaSyChaveFalsaDeTeste1234567890abcd"
+        ia.cadastrar("gemini-api", "gemini", "gemini-2.5-pro", chave=chave_google)
+        t = Transporte(lambda p: (500, json.dumps({"error": {"message": f"Falha com {chave_google} e AIzaSyOutraChaveFalsaTeste987654321"}}).encode()))
+        r = self.prov(t).gerar("s", "u", esquema=ESQUEMA, cliente=CLIENTE)
+        msg = json.dumps(r["avisos"])
+        self.assertNotIn(chave_google, msg)
+        self.assertNotIn("AIzaSy", msg)
+
+    def test_falhas_gemini_caem_no_local(self):
+        self.cadastrar_gemini()
+        casos = [
+            ((400, b'{"error": {"status": "INVALID_ARGUMENT", "message": "API_KEY_INVALID"}}'), "ia_chave_invalida"),
+            ((403, b'{"error": {"message": "forbidden"}}'), "ia_chave_invalida"),
+            ((500, b'{"error": {"message": "internal"}}'), "ia_erro_provedor"),
+            (resposta_gemini("", block="SAFETY"), "ia_recusa_do_provedor"),
+            (resposta_gemini("", finish="SAFETY"), "ia_recusa_do_provedor"),
+            (resposta_gemini("texto sem json"), "ia_resposta_invalida"),
+            ((200, b'{"candidates": []}'), "ia_resposta_invalida"),
+        ]
+        for resp, codigo in casos:
+            with self.subTest(codigo=codigo, resp=resp[0]):
+                locais = []
+                p = ia.provedor(perfil("gemini-api"), CLIENTE, projeto=self.projeto, local=local_falso(locais),
+                                transporte=Transporte(lambda _, r=resp: r))
+                res = p.gerar("s", "u", esquema=ESQUEMA, cliente=CLIENTE)
+                self.assertEqual(res["avisos"][0]["codigo"], codigo)
+                self.assertTrue(res["motor"].startswith("local:"))
+                self.assertEqual(len(locais), 1)
+
+
+class GeminiCLI(Base):
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(ia, "localizar_gemini", lambda informado=None: informado or "/caminho/ficticio/gemini")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def cadastrar_cli(self, nome="gemini-cli", modelo="", **kw):
+        self.assertEqual(ia.cadastrar(nome, "gemini_cli", modelo, **kw), [])
+
+    def prov(self, cli=None, **kw_perfil):
+        return ia.provedor(perfil("gemini-cli", **kw_perfil), CLIENTE, projeto=self.projeto, local=local_falso(),
+                           executar=cli or CLIFalso(json.dumps({"response": json.dumps({"conteudo": "resumo gcli", "prazo": None}),
+                                                                "stats": {"models": {"gemini-2.5-pro": {}}}})))
+
+    def test_execucao_isolada_sem_chave_e_sem_variaveis_google(self):
+        self.cadastrar_cli(modelo="gemini-2.5-pro", chave="nao-deve-ser-guardada")
+        self.assertEqual(self.cofre.dados, {})
+        cli = CLIFalso(json.dumps({"response": json.dumps({"conteudo": "resumo gcli", "prazo": "8 dias"}),
+                                   "stats": {"models": {"gemini-2.5-pro": {}}}}))
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "vaza", "GOOGLE_API_KEY": "vaza2", "OUTRA": "fica"}):
+            r = self.prov(cli, pseudonimizar=False).gerar("Sistema G", "Texto do usuário", esquema=ESQUEMA, cliente=CLIENTE)
+        self.assertEqual(r["json"], {"conteudo": "resumo gcli", "prazo": "8 dias"})
+        self.assertEqual(r["motor"], "externo:gemini-cli:gemini-2.5-pro")
+        (cmd, kw), = cli.chamadas
+        self.assertEqual(cmd[:2], ["/caminho/ficticio/gemini", "-p"])
+        self.assertEqual(cmd[cmd.index("-m") + 1], "gemini-2.5-pro")
+        self.assertEqual(kw["input"], "Texto do usuário")
+        self.assertNotIn("GEMINI_API_KEY", kw["env"])
+        self.assertNotIn("GOOGLE_API_KEY", kw["env"])
+        self.assertEqual(kw["env"]["OUTRA"], "fica")
+
+    def test_falhas_gemini_cli_caem_no_local(self):
+        self.cadastrar_cli()
+        for cli, codigo in (
+            (CLIFalso(json.dumps({"error": {"message": "Please login with your Google account"}}), codigo=1), "ia_login_necessario"),
+            (CLIFalso(json.dumps({"error": {"message": "Quota exceeded (429 rate limit)"}}), codigo=1), "ia_limite_assinatura"),
+            (CLIFalso("erro bruto sem json", stderr="Please sign in", codigo=1), "ia_login_necessario"),
+            (CLIFalso("erro qualquer", stderr="falha", codigo=1), "ia_erro_provedor"),
+            (CLIFalso(falha=subprocess.TimeoutExpired("gemini", 1)), "ia_falha_rede"),
+        ):
+            locais = []
+            r = ia.provedor(perfil("gemini-cli"), CLIENTE, projeto=self.projeto, local=local_falso(locais),
+                            executar=cli).gerar("s", "u", esquema=ESQUEMA, cliente=CLIENTE)
+            self.assertEqual(r["avisos"][0]["codigo"], codigo)
+            self.assertTrue(r["motor"].startswith("local:"))
+
+    def test_localizar_gemini(self):
+        with mock.patch.object(ia, "localizar_gemini", LOCALIZAR_GEMINI_REAL):
+            falso = TMP / "gemini-ficticio"
+            falso.write_text("#!/bin/sh\n", encoding="utf-8")
+            falso.chmod(0o755)
+            self.assertEqual(ia.localizar_gemini(str(falso)), str(falso))
+            self.assertIsNone(ia.localizar_gemini(str(TMP / "nao-existe")))
+            with mock.patch("shutil.which", return_value=None), mock.patch.object(Path, "home", lambda: TMP / "casa-vazia"), \
+                    mock.patch.object(ia.os, "access", return_value=False):
+                self.assertIsNone(ia.localizar_gemini())
+
+    def test_processar_documento_usa_provedor_externo_autorizado(self):
+        import resumir
+        ia.cadastrar("gemini-api", "gemini", "gemini-2.5-pro", chave=CHAVE)
+        arq = TMP / "doc-gemini.txt"
+        arq.write_text("Intimação determinando a manifestação da parte autora em 5 dias úteis sobre os cálculos.", encoding="utf-8")
+        ev = {"id": "e1", "numero": "0000000-00.0000.0.00.0000", "tipo": "Intimação", "descricao": "",
+              "status": "extraido", "texto_arquivo": str(arq)}
+        t = Transporte(lambda p: resposta_gemini(json.dumps({
+            "conteudo": "determinando a manifestação da parte autora em 5 dias úteis sobre os cálculos apresentados.",
+            "trecho_origem": "determinando a manifestação da parte autora em 5 dias úteis",
+            "prazo": "5 dias úteis", "audiencia": None, "efeito": "neutro"})))
+        with mock.patch.object(resumir, "contexto_do_processo", return_value={"cliente": CLIENTE, "polo": "ativo", "contraria": CONTRARIA, "variacoes": [CLIENTE]}), \
+             mock.patch.object(ia, "_http_post", t):
+            resumir.processar_documento(ev, "gemma3:4b", "Ollama não instalado.", perfil=perfil("gemini-api"))
+        self.assertEqual(ev["status"], "rascunho")
+        self.assertEqual(ev["motor"], "externo:gemini-api:gemini-2.5-pro")
+        self.assertIn("determinando", ev["conteudo"])
 
 
 if __name__ == "__main__":

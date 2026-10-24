@@ -43,7 +43,7 @@ Write-Host "== 3/4 Codigo do programa"
 Copy-Item -Recurse src (Join-Path $saida "src")
 Copy-Item -Recurse assets (Join-Path $saida "assets")
 Remove-Item (Join-Path $saida "assets\gerar_icone.py") -ErrorAction SilentlyContinue
-foreach ($f in "movimentos.json", "config.exemplo.json", "requirements.txt", "README.md") { Copy-Item $f $saida }
+foreach ($f in "VERSAO", "BETA-LEIAME.md", "movimentos.json", "config.exemplo.json", "requirements.txt", "README.md") { Copy-Item $f $saida }
 New-Item -ItemType Directory -Force -Path (Join-Path $saida "projetos") | Out-Null
 Get-ChildItem $saida -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
 

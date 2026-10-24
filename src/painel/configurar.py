@@ -233,10 +233,10 @@ def registrar(app, TOKEN, cabecalho, token_ok):
                               + "</form><p class='dica'>Pode levar vários minutos. No Mac, se o Ollama ainda não estiver instalado, o andamento "
                                 "avisa como instalá-lo e você clica de novo.</p>")
         externo = (f"<p class='cfg-linha'>Este relatório usa o provedor externo <b>{_e(ia_st['externa'])}</b>.</p>" if ia_st["externa"] else "")
-        ia_link = ("<p><a href='/ia'>Escolher outro provedor de IA</a> (Claude pela API, Claude pelo Claude Code ou um serviço compatível "
+        ia_link = ("<p><a href='/ia'>Escolher outro provedor de IA</a> (Claude, Gemini ou um serviço compatível "
                    "com OpenAI)." if comum.PROJETO else
-                   "<p class='dica'>Depois de criar um relatório, a tela <b>IA</b> deixa escolher um provedor externo (Claude pela API, "
-                   "Claude pelo Claude Code ou um serviço compatível com OpenAI).")
+                   "<p class='dica'>Depois de criar um relatório, a tela <b>IA</b> deixa escolher um provedor externo (Claude, "
+                   "Gemini ou um serviço compatível com OpenAI).")
         p4 = passo(4, "IA que resume os documentos", pronto4,
                    "A IA lê o texto dos documentos dos processos e escreve o resumo para você revisar. A IA local roda neste computador. "
                    "Esta etapa é opcional: sem IA, os andamentos são coletados e entram na revisão sem resumo.",

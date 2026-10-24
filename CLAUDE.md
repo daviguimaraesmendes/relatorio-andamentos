@@ -15,8 +15,8 @@ O dono é o advogado Davi; os usuários finais NÃO são técnicos. Tudo o que o
    código, testes, docs ou commits. Use valores fictícios gerados por cálculo (`tests/ficticio.py::numero_ficticio`). O teste
    `tests/test_confidencialidade.py` recusa CPF/CNPJ/e-mail reais, nomes de empresa que pareçam reais e `SENHA = "..."`.
 4. **Só leitura nos tribunais**: nenhuma chamada de escrita, protocolo, assinatura ou ciência de expediente.
-5. **IA externa só com consentimento** por relatório/cliente, com pseudonimização ligada (`src/ia.py`). Claude pelo Claude Code
-   NÃO é IA local: o texto vai à Anthropic (só muda o contrato: assinatura em vez de API).
+5. **IA externa só com consentimento** por relatório/cliente, com pseudonimização ligada (`src/ia.py`). Claude pelo Claude Code e
+   Gemini pelo Gemini CLI NÃO são IA local: o texto vai à Anthropic ou ao Google (só muda o contrato: conta/assinatura em vez de API).
 6. **Revisão humana é obrigatória**: a IA só prepara rascunho; nada vai a cliente sem aprovação em Revisar.
 
 ## Como trabalhar aqui
@@ -25,7 +25,7 @@ O dono é o advogado Davi; os usuários finais NÃO são técnicos. Tudo o que o
 - Antes de mexer: `git fetch && git status -sb`; outras sessões empurram na mesma branch (`claude/gallant-pasteur-etzpu5`).
   Trabalho vai para essa branch; **promover para `main` só quando o Davi validar** (ele pede "promover para main"). Tag/release
   dispara o instalador do Windows: só se ele pedir. Commits terminam com `Co-Authored-By: Claude ... <noreply@anthropic.com>`.
-- Versão em `VERSAO` (hoje 2.0.0-beta8); subir quando o código muda para o painel dos usuários reiniciar sozinho. Notas em `BETA-LEIAME.md`.
+- Versão em `VERSAO` (hoje 2.0.0-beta9); subir quando o código muda para o painel dos usuários reiniciar sozinho. Notas em `BETA-LEIAME.md`.
 - Testes: crie um venv de apoio fora do repositório (`python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -r requirements.txt`),
   depois `/tmp/venv/bin/python -m unittest discover -s tests -p "test_*.py"` (~4 min). Só falham `test_autos` e `test_dashboard`
   (Playwright não roda no ambiente do Claude). `tests/test_painel.py` compara o HTML com `tests/fixtures/painel_instantaneo.json`:
@@ -45,7 +45,7 @@ O dono é o advogado Davi; os usuários finais NÃO são técnicos. Tudo o que o
 | Coleta | `coletor.py` (jus.br, certificado), `trt.py` (consulta pública TRT), `pje_trt.py` (PJe do advogado: 1º grau, 2º grau, TST), `pdpj.py` (login), `fila.py` (`ColetorReal`), `djen.py`, `capa.py` |
 | Ficha e consolidação | `ficha.py` (campos e origem), `consolidar.py`, `carteira.py`, `clientes.py`, `julgamento.py`, `taxonomia.py` (vocabulários) |
 | Migração de modelo | `leitores/` (`grade.py`, `tabela_livre.py`, `xlsx_b.py`, `docx_a.py`), `painel/migracao.py` |
-| IA | `ia.py` (provedores: local, API, Claude Code, OpenAI-compatível), `resumir.py` (prompt e conferência), `sintese.py`, `ia_local.py` |
+| IA | `ia.py` (provedores: local, Claude API, Claude Code, Gemini API, Gemini CLI, OpenAI-compatível), `resumir.py` (prompt e conferência), `sintese.py`, `ia_local.py` |
 | Entregas | `escritores/` (`docx_a.py`, `xlsx_b.py`, `dashboard.py`), `modelos/`, `relatorio.py`, `planilha.py` |
 | Fluxos e telas | `fluxos.py` (4 fluxos), `painel/*.py` (uma tela por arquivo; `base.py` = casco, tema e `ajuda()`) |
 
